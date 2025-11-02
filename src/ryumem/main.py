@@ -1,0 +1,461 @@
+"""
+Ryumem - Bi-temporal Knowledge Graph Memory System
+Main class providing the public API.
+"""
+
+import logging
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from ryumem.community.detector import CommunityDetector
+from ryumem.core.config import RyumemConfig
+from ryumem.core.graph_db import RyugraphDB
+from ryumem.core.models import EpisodeType, SearchConfig, SearchResult
+from ryumem.ingestion.episode import EpisodeIngestion
+from ryumem.maintenance.pruner import MemoryPruner
+from ryumem.retrieval.search import SearchEngine
+from ryumem.utils.embeddings import EmbeddingClient
+from ryumem.utils.llm import LLMClient
+
+logger = logging.getLogger(__name__)
+
+
+class Ryumem:
+    """
+    Ryumem - Bi-temporal Knowledge Graph Memory System.
+
+    A memory system that combines the best of mem0 and graphiti,
+    using ryugraph as the graph database layer.
+
+    Features:
+    - Episode-first ingestion
+    - Entity and relationship extraction
+    - Bi-temporal data model (valid_at, invalid_at, expired_at)
+    - Hybrid retrieval (semantic + graph traversal)
+    - Full multi-tenancy support
+    - Automatic contradiction detection and resolution
+    """
+
+    def __init__(
+        self,
+        db_path: Optional[str] = None,
+        config: Optional[RyumemConfig] = None,
+        **kwargs,
+    ):
+        """
+        Initialize Ryumem instance.
+
+        Args:
+            db_path: Path to ryugraph database (overrides config)
+            config: RyumemConfig instance (if not provided, loads from env)
+            **kwargs: Additional config parameters to override
+
+        Example:
+            # From environment variables
+            ryumem = Ryumem()
+
+            # With explicit config
+            ryumem = Ryumem(
+                db_path="./data/ryumem.db",
+                openai_api_key="sk-...",
+                llm_model="gpt-4",
+            )
+
+            # With config object
+            config = RyumemConfig.from_env()
+            ryumem = Ryumem(config=config)
+        """
+        # Load or create config
+        if config is None:
+            if "openai_api_key" in kwargs or db_path:
+                # Create config from kwargs
+                config_dict = kwargs.copy()
+                if db_path:
+                    config_dict["db_path"] = db_path
+                if "openai_api_key" not in config_dict:
+                    config = RyumemConfig.from_env()
+                    config_dict["openai_api_key"] = config.openai_api_key
+                config = RyumemConfig(**config_dict)
+            else:
+                # Load from environment
+                config = RyumemConfig.from_env()
+
+        self.config = config
+
+        # Ensure database directory exists
+        db_path_obj = Path(config.db_path)
+        db_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        # Initialize core components
+        logger.info("Initializing Ryumem...")
+
+        self.db = RyugraphDB(
+            db_path=config.db_path,
+            embedding_dimensions=config.embedding_dimensions,
+        )
+
+        self.llm_client = LLMClient(
+            api_key=config.openai_api_key,
+            model=config.llm_model,
+            max_retries=config.max_retries,
+            timeout=config.timeout_seconds,
+        )
+
+        self.embedding_client = EmbeddingClient(
+            api_key=config.openai_api_key,
+            model=config.embedding_model,
+            dimensions=config.embedding_dimensions,
+            batch_size=config.batch_size,
+            timeout=config.timeout_seconds,
+        )
+
+        # Initialize search engine first (creates BM25 index)
+        self.search_engine = SearchEngine(
+            db=self.db,
+            embedding_client=self.embedding_client,
+        )
+
+        # Initialize ingestion pipeline with BM25 index
+        self.ingestion = EpisodeIngestion(
+            db=self.db,
+            llm_client=self.llm_client,
+            embedding_client=self.embedding_client,
+            entity_similarity_threshold=config.entity_similarity_threshold,
+            relationship_similarity_threshold=config.relationship_similarity_threshold,
+            max_context_episodes=config.max_context_episodes,
+            bm25_index=self.search_engine.bm25_index,
+        )
+
+        # Initialize community detector
+        self.community_detector = CommunityDetector(
+            db=self.db,
+            llm_client=self.llm_client,
+        )
+
+        # Initialize memory pruner
+        self.memory_pruner = MemoryPruner(db=self.db)
+
+        logger.info(f"Ryumem initialized successfully (db: {config.db_path})")
+
+    def add_episode(
+        self,
+        content: str,
+        group_id: str,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        source: str = "text",
+        metadata: Optional[Dict] = None,
+    ) -> str:
+        """
+        Add a new episode to the memory system.
+
+        This is the main ingestion method. It will:
+        1. Create an episode node
+        2. Extract entities and resolve against existing
+        3. Extract relationships and resolve against existing
+        4. Create MENTIONS edges
+        5. Detect and invalidate contradicting facts
+        6. Update entity summaries
+
+        Args:
+            content: Episode content (text, message, or JSON)
+            group_id: Group ID for multi-tenancy (required)
+            user_id: Optional user ID
+            agent_id: Optional agent ID
+            session_id: Optional session ID
+            source: Type of episode ("text", "message", or "json")
+            metadata: Optional metadata dictionary
+
+        Returns:
+            UUID of the created episode
+
+        Example:
+            episode_id = ryumem.add_episode(
+                content="Alice works at Google in Mountain View",
+                group_id="user_123",
+                user_id="user_123",
+                source="text",
+            )
+        """
+        # Convert source string to EpisodeType
+        source_type = EpisodeType.from_str(source)
+
+        return self.ingestion.ingest(
+            content=content,
+            group_id=group_id,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            source=source_type,
+            metadata=metadata,
+        )
+
+    def add_episodes_batch(
+        self,
+        episodes: List[Dict],
+        group_id: str,
+    ) -> List[str]:
+        """
+        Add multiple episodes in batch.
+
+        Args:
+            episodes: List of episode dictionaries with keys:
+                - content: Episode content (required)
+                - user_id: Optional user ID
+                - agent_id: Optional agent ID
+                - session_id: Optional session ID
+                - source: Optional source type
+                - metadata: Optional metadata
+            group_id: Group ID for all episodes
+
+        Returns:
+            List of episode UUIDs
+
+        Example:
+            episodes = [
+                {"content": "Alice works at Google"},
+                {"content": "Bob lives in San Francisco"},
+            ]
+            episode_ids = ryumem.add_episodes_batch(episodes, group_id="user_123")
+        """
+        return self.ingestion.ingest_batch(episodes, group_id)
+
+    def search(
+        self,
+        query: str,
+        group_id: str,
+        user_id: Optional[str] = None,
+        limit: int = 10,
+        strategy: str = "hybrid",
+        similarity_threshold: Optional[float] = None,
+        max_depth: int = 2,
+    ) -> SearchResult:
+        """
+        Search the memory system.
+
+        Args:
+            query: Search query text
+            group_id: Group ID to search within (required)
+            user_id: Optional user ID filter
+            limit: Maximum number of results (default: 10)
+            strategy: Search strategy - "semantic", "traversal", or "hybrid" (default: "hybrid")
+            similarity_threshold: Minimum similarity threshold (default: from config)
+            max_depth: Maximum depth for graph traversal (default: 2)
+
+        Returns:
+            SearchResult with entities, edges, and scores
+
+        Example:
+            results = ryumem.search(
+                query="Tell me about Alice",
+                group_id="user_123",
+                strategy="hybrid",
+                limit=10,
+            )
+
+            for entity in results.entities:
+                print(f"Entity: {entity.name} ({entity.entity_type})")
+                print(f"Score: {results.scores.get(entity.uuid, 0.0):.3f}")
+        """
+        # Use default threshold from config if not provided
+        if similarity_threshold is None:
+            similarity_threshold = self.config.entity_similarity_threshold
+
+        # Create search config
+        config = SearchConfig(
+            query=query,
+            group_id=group_id,
+            user_id=user_id,
+            limit=limit,
+            strategy=strategy,
+            similarity_threshold=similarity_threshold,
+            max_depth=max_depth,
+        )
+
+        return self.search_engine.search(config)
+
+    def get_entity_context(
+        self,
+        entity_name: str,
+        group_id: str,
+        user_id: Optional[str] = None,
+        max_depth: int = 2,
+    ) -> Dict:
+        """
+        Get comprehensive context for an entity by name.
+
+        Args:
+            entity_name: Name of the entity
+            group_id: Group ID
+            user_id: Optional user ID
+            max_depth: Maximum traversal depth
+
+        Returns:
+            Dictionary with entity details and relationships
+
+        Example:
+            context = ryumem.get_entity_context(
+                entity_name="Alice",
+                group_id="user_123",
+            )
+        """
+        # Find entity by name
+        entity = self.ingestion.entity_extractor.get_entity_by_name(
+            name=entity_name,
+            group_id=group_id,
+            user_id=user_id,
+        )
+
+        if not entity:
+            return {}
+
+        # Get context
+        return self.search_engine.get_entity_context(
+            entity_uuid=entity.uuid,
+            max_depth=max_depth,
+        )
+
+    def update_communities(
+        self,
+        group_id: str,
+        resolution: float = 1.0,
+        min_community_size: int = 2,
+    ) -> int:
+        """
+        Detect/update communities for a group using Louvain algorithm.
+
+        Communities cluster related entities together, enabling:
+        - More efficient retrieval (search within relevant clusters)
+        - Higher-level summaries and reasoning
+        - Token optimization (compress subgraphs)
+
+        This should be called periodically as the knowledge graph grows.
+
+        Args:
+            group_id: Group ID to detect communities for
+            resolution: Resolution parameter for Louvain (higher = more, smaller communities)
+            min_community_size: Minimum number of entities per community
+
+        Returns:
+            Number of communities created
+
+        Example:
+            # Detect communities after adding many episodes
+            num_communities = ryumem.update_communities("user_123")
+            print(f"Created {num_communities} communities")
+
+            # Fine-tune community granularity
+            num_communities = ryumem.update_communities(
+                "user_123",
+                resolution=1.5,  # More fine-grained communities
+                min_community_size=3,  # Larger minimum size
+            )
+        """
+        return self.community_detector.update_communities(
+            group_id=group_id,
+            resolution=resolution,
+            min_community_size=min_community_size,
+        )
+
+    def prune_memories(
+        self,
+        group_id: str,
+        expired_cutoff_days: int = 90,
+        min_mentions: int = 2,
+        min_age_days: int = 30,
+        compact_redundant: bool = True,
+        similarity_threshold: float = 0.95,
+    ) -> Dict[str, int]:
+        """
+        Prune and compact memories to keep the graph efficient.
+
+        This performs:
+        - Delete facts that were invalidated/expired long ago
+        - Remove entities with very few mentions (likely noise)
+        - Merge near-duplicate relationship facts
+
+        Should be called periodically to maintain graph health.
+
+        Args:
+            group_id: Group ID to prune
+            expired_cutoff_days: Delete expired edges older than N days (default: 90)
+            min_mentions: Minimum mentions for entities to keep (default: 2)
+            min_age_days: Minimum age before pruning low-mention entities (default: 30)
+            compact_redundant: Whether to merge redundant edges (default: True)
+            similarity_threshold: Similarity threshold for merging edges (default: 0.95)
+
+        Returns:
+            Dictionary with pruning statistics
+
+        Example:
+            # Basic pruning with defaults
+            stats = ryumem.prune_memories("user_123")
+            print(f"Pruning results: {stats}")
+
+            # Custom pruning parameters
+            stats = ryumem.prune_memories(
+                "user_123",
+                expired_cutoff_days=60,  # More aggressive
+                min_mentions=3,  # Higher quality threshold
+                compact_redundant=True,
+            )
+        """
+        return self.memory_pruner.prune_all(
+            group_id=group_id,
+            expired_cutoff_days=expired_cutoff_days,
+            min_mentions=min_mentions,
+            min_age_days=min_age_days,
+            compact_redundant=compact_redundant,
+            similarity_threshold=similarity_threshold,
+        )
+
+    def delete_group(self, group_id: str) -> None:
+        """
+        Delete all data for a specific group.
+
+        WARNING: This is irreversible!
+
+        Args:
+            group_id: Group ID to delete
+
+        Example:
+            ryumem.delete_group("user_123")
+        """
+        self.db.delete_by_group_id(group_id)
+        logger.info(f"Deleted all data for group: {group_id}")
+
+    def reset(self) -> None:
+        """
+        Reset the entire database.
+
+        WARNING: This will delete ALL data irreversibly!
+
+        Example:
+            ryumem.reset()
+        """
+        logger.warning("Resetting entire Ryumem database...")
+        self.db.reset()
+        logger.info("Database reset complete")
+
+    def close(self) -> None:
+        """
+        Close the database connection.
+
+        Example:
+            ryumem.close()
+        """
+        self.db.close()
+        logger.info("Ryumem connection closed")
+
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit"""
+        self.close()
+
+    def __repr__(self) -> str:
+        """String representation"""
+        return f"Ryumem(db_path='{self.config.db_path}', model='{self.config.llm_model}')"

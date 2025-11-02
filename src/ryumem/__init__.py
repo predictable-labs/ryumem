@@ -1,0 +1,63 @@
+"""
+Ryumem - Bi-temporal Knowledge Graph Memory System
+
+A memory system inspired by the Zep paper, combining the best of mem0 and graphiti,
+using ryugraph as the graph database layer.
+
+Example:
+    from ryumem import Ryumem
+
+    # Initialize
+    ryumem = Ryumem(
+        db_path="./data/memory.db",
+        openai_api_key="sk-...",
+    )
+
+    # Add episodes
+    ryumem.add_episode(
+        content="Alice works at Google in Mountain View",
+        group_id="user_123",
+    )
+
+    # Search
+    results = ryumem.search(
+        query="Where does Alice work?",
+        group_id="user_123",
+    )
+
+    # Get entity context
+    context = ryumem.get_entity_context(
+        entity_name="Alice",
+        group_id="user_123",
+    )
+"""
+
+from ryumem.core.config import RyumemConfig
+from ryumem.core.models import (
+    CommunityEdge,
+    CommunityNode,
+    EntityEdge,
+    EntityNode,
+    EpisodeNode,
+    EpisodeType,
+    EpisodicEdge,
+    SearchConfig,
+    SearchResult,
+)
+from ryumem.main import Ryumem
+
+__version__ = "0.1.0"
+
+__all__ = [
+    "Ryumem",
+    "RyumemConfig",
+    "EpisodeNode",
+    "EntityNode",
+    "CommunityNode",
+    "EntityEdge",
+    "EpisodicEdge",
+    "CommunityEdge",
+    "EpisodeType",
+    "SearchConfig",
+    "SearchResult",
+]

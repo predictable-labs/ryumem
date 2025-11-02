@@ -1,0 +1,340 @@
+"""
+Episode ingestion pipeline.
+Orchestrates the entire ingestion process: episodes -> entities -> relationships -> invalidation.
+"""
+
+import json
+import logging
+from datetime import datetime
+from typing import Dict, List, Optional, TYPE_CHECKING
+from uuid import uuid4
+
+from ryumem.core.graph_db import RyugraphDB
+from ryumem.core.models import EpisodeNode, EpisodeType, EpisodicEdge
+from ryumem.ingestion.entity_extractor import EntityExtractor
+from ryumem.ingestion.relation_extractor import RelationExtractor
+from ryumem.utils.embeddings import EmbeddingClient
+from ryumem.utils.llm import LLMClient
+
+if TYPE_CHECKING:
+    from ryumem.retrieval.bm25 import BM25Index
+
+logger = logging.getLogger(__name__)
+
+
+class EpisodeIngestion:
+    """
+    Manages the complete episode ingestion pipeline.
+    """
+
+    def __init__(
+        self,
+        db: RyugraphDB,
+        llm_client: LLMClient,
+        embedding_client: EmbeddingClient,
+        entity_similarity_threshold: float = 0.7,
+        relationship_similarity_threshold: float = 0.8,
+        max_context_episodes: int = 5,
+        bm25_index: Optional["BM25Index"] = None,
+    ):
+        """
+        Initialize episode ingestion pipeline.
+
+        Args:
+            db: Ryugraph database instance
+            llm_client: LLM client
+            embedding_client: Embedding client
+            entity_similarity_threshold: Threshold for entity deduplication
+            relationship_similarity_threshold: Threshold for relationship deduplication
+            max_context_episodes: Maximum number of previous episodes to use as context
+            bm25_index: Optional BM25 index for keyword search
+        """
+        self.db = db
+        self.llm_client = llm_client
+        self.embedding_client = embedding_client
+        self.max_context_episodes = max_context_episodes
+        self.bm25_index = bm25_index
+
+        # Initialize extractors
+        self.entity_extractor = EntityExtractor(
+            db=db,
+            llm_client=llm_client,
+            embedding_client=embedding_client,
+            similarity_threshold=entity_similarity_threshold,
+        )
+
+        self.relation_extractor = RelationExtractor(
+            db=db,
+            llm_client=llm_client,
+            embedding_client=embedding_client,
+            similarity_threshold=relationship_similarity_threshold,
+        )
+
+        logger.info("Initialized EpisodeIngestion pipeline")
+
+    def ingest(
+        self,
+        content: str,
+        group_id: str,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        source: EpisodeType = EpisodeType.text,
+        source_description: str = "",
+        metadata: Optional[Dict] = None,
+        name: Optional[str] = None,
+    ) -> str:
+        """
+        Ingest a new episode and extract entities/relationships.
+
+        This is the main entry point for the ingestion pipeline.
+
+        Pipeline:
+        1. Create episode node
+        2. Get context from previous episodes
+        3. Extract entities and resolve against existing
+        4. Extract relationships and resolve against existing
+        5. Create MENTIONS edges from episode to entities
+        6. Detect and invalidate contradicting edges
+        7. Update entity summaries
+
+        Args:
+            content: Episode content (text, message, or JSON)
+            group_id: Group ID for multi-tenancy
+            user_id: Optional user ID
+            agent_id: Optional agent ID
+            session_id: Optional session ID
+            source: Type of episode (message, json, text)
+            source_description: Description of the source
+            metadata: Optional metadata dictionary
+            name: Optional name for the episode
+
+        Returns:
+            UUID of the created episode
+        """
+        start_time = datetime.utcnow()
+
+        # Generate episode UUID
+        episode_uuid = str(uuid4())
+
+        # Generate episode name if not provided
+        if not name:
+            name = f"Episode {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+
+        logger.info(f"Starting ingestion for episode {episode_uuid}")
+
+        # Step 1: Create episode node
+        episode = EpisodeNode(
+            uuid=episode_uuid,
+            name=name,
+            content=content,
+            source=source,
+            source_description=source_description,
+            created_at=start_time,
+            valid_at=start_time,
+            group_id=group_id,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            metadata=metadata or {},
+        )
+
+        # Save episode to database
+        self.db.save_episode(episode)
+        logger.debug(f"Created episode node: {episode_uuid}")
+
+        # Step 2: Get context from previous episodes
+        context = self._get_episode_context(
+            group_id=group_id,
+            user_id=user_id,
+            session_id=session_id,
+        )
+
+        # Step 3: Extract and resolve entities
+        entities, entity_map = self.entity_extractor.extract_and_resolve(
+            content=content,
+            group_id=group_id,
+            user_id=user_id,
+            context=context,
+        )
+
+        if not entities:
+            logger.info(f"No entities extracted for episode {episode_uuid}")
+            return episode_uuid
+
+        # Add entities to BM25 index
+        if self.bm25_index:
+            for entity in entities:
+                self.bm25_index.add_entity(entity)
+            logger.debug(f"Added {len(entities)} entities to BM25 index")
+
+        # Step 4: Extract and resolve relationships
+        edges = self.relation_extractor.extract_and_resolve(
+            content=content,
+            entities=entities,
+            entity_map=entity_map,
+            episode_uuid=episode_uuid,
+            group_id=group_id,
+            context=context,
+        )
+
+        # Add edges to BM25 index
+        if self.bm25_index and edges:
+            for edge in edges:
+                self.bm25_index.add_edge(edge)
+            logger.debug(f"Added {len(edges)} edges to BM25 index")
+
+        # Step 5: Create MENTIONS edges (episode -> entities)
+        self._create_mentions_edges(
+            episode_uuid=episode_uuid,
+            entity_uuids=[e.uuid for e in entities],
+            group_id=group_id,
+        )
+
+        # Step 6: Detect and invalidate contradicting edges
+        if edges:
+            contradicting_edges = self.relation_extractor.detect_contradictions(
+                new_edges=edges,
+                group_id=group_id,
+            )
+
+            if contradicting_edges:
+                self.relation_extractor.invalidate_edges(contradicting_edges)
+                logger.info(f"Invalidated {len(contradicting_edges)} contradicting edges")
+
+        # Step 7: Update entity summaries with new context
+        for entity in entities:
+            try:
+                self.entity_extractor.update_entity_summary(
+                    entity_uuid=entity.uuid,
+                    new_context=content,
+                )
+            except Exception as e:
+                logger.error(f"Error updating summary for entity {entity.uuid}: {e}")
+
+        # Update episode with entity edge references
+        episode.entity_edges = [e.uuid for e in edges]
+        self.db.save_episode(episode)
+
+        # Log completion
+        duration = (datetime.utcnow() - start_time).total_seconds()
+        logger.info(
+            f"Completed ingestion for episode {episode_uuid} in {duration:.2f}s: "
+            f"{len(entities)} entities, {len(edges)} relationships"
+        )
+
+        return episode_uuid
+
+    def ingest_batch(
+        self,
+        episodes: List[Dict],
+        group_id: str,
+    ) -> List[str]:
+        """
+        Ingest multiple episodes in batch.
+
+        Args:
+            episodes: List of episode dictionaries with keys:
+                - content: Episode content
+                - user_id: Optional user ID
+                - agent_id: Optional agent ID
+                - session_id: Optional session ID
+                - source: Optional episode type
+                - metadata: Optional metadata
+            group_id: Group ID for all episodes
+
+        Returns:
+            List of episode UUIDs
+        """
+        episode_uuids = []
+
+        for i, episode_data in enumerate(episodes):
+            try:
+                uuid = self.ingest(
+                    content=episode_data["content"],
+                    group_id=group_id,
+                    user_id=episode_data.get("user_id"),
+                    agent_id=episode_data.get("agent_id"),
+                    session_id=episode_data.get("session_id"),
+                    source=episode_data.get("source", EpisodeType.text),
+                    metadata=episode_data.get("metadata"),
+                )
+                episode_uuids.append(uuid)
+                logger.info(f"Batch ingestion: {i + 1}/{len(episodes)} completed")
+
+            except Exception as e:
+                logger.error(f"Error ingesting episode {i + 1}: {e}")
+                continue
+
+        logger.info(f"Batch ingestion completed: {len(episode_uuids)}/{len(episodes)} successful")
+        return episode_uuids
+
+    def _get_episode_context(
+        self,
+        group_id: str,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> str:
+        """
+        Get context from previous episodes.
+
+        Args:
+            group_id: Group ID
+            user_id: Optional user ID filter
+            session_id: Optional session ID filter
+
+        Returns:
+            Formatted context string
+        """
+        try:
+            recent_episodes = self.db.get_episode_context(
+                group_id=group_id,
+                limit=self.max_context_episodes,
+                user_id=user_id,
+                session_id=session_id,
+            )
+
+            if not recent_episodes:
+                return ""
+
+            # Format episodes as context
+            context_lines = ["Previous episodes:"]
+            for ep in recent_episodes:
+                context_lines.append(f"- {ep['name']}: {ep['content'][:100]}...")
+
+            return "\n".join(context_lines)
+
+        except Exception as e:
+            logger.error(f"Error getting episode context: {e}")
+            return ""
+
+    def _create_mentions_edges(
+        self,
+        episode_uuid: str,
+        entity_uuids: List[str],
+        group_id: str,
+    ) -> None:
+        """
+        Create MENTIONS edges from episode to entities.
+
+        Args:
+            episode_uuid: UUID of the episode
+            entity_uuids: List of entity UUIDs mentioned in the episode
+            group_id: Group ID
+        """
+        for entity_uuid in entity_uuids:
+            try:
+                edge = EpisodicEdge(
+                    uuid=str(uuid4()),
+                    source_node_uuid=episode_uuid,
+                    target_node_uuid=entity_uuid,
+                    created_at=datetime.utcnow(),
+                    group_id=group_id,
+                )
+
+                self.db.save_episodic_edge(edge)
+
+            except Exception as e:
+                logger.error(
+                    f"Error creating MENTIONS edge from {episode_uuid} to {entity_uuid}: {e}"
+                )
