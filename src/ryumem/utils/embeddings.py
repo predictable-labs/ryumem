@@ -3,11 +3,14 @@ Embedding client wrapper for OpenAI embedding models.
 Handles batching, caching, and error handling.
 """
 
+import hashlib
 import logging
 from typing import List
 
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from ryumem.utils.cache import embedding_cache
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +53,7 @@ class EmbeddingClient:
     def embed(self, text: str) -> List[float]:
         """
         Generate embedding for a single text.
+        Uses cache to avoid redundant API calls.
 
         Args:
             text: Input text to embed
@@ -64,7 +68,18 @@ class EmbeddingClient:
                 logger.warning("Empty text provided for embedding, returning zero vector")
                 return [0.0] * self.dimensions
 
+            # Check cache first
+            cache_key = hashlib.sha256(
+                f"{self.model}|{self.dimensions}|{text}".encode()
+            ).hexdigest()
+
+            cached_embedding = embedding_cache.get(cache_key)
+            if cached_embedding is not None:
+                logger.debug(f"💾 Cache HIT for embedding: '{text[:50]}...'")
+                return cached_embedding
+
             # Call OpenAI API
+            logger.debug(f"🌐 API call for embedding: '{text[:50]}...'")
             response = self.client.embeddings.create(
                 model=self.model,
                 input=text,
@@ -72,6 +87,9 @@ class EmbeddingClient:
             )
 
             embedding = response.data[0].embedding
+
+            # Cache the result
+            embedding_cache.set(cache_key, embedding)
 
             logger.debug(f"Generated embedding for text: '{text[:50]}...' (dim: {len(embedding)})")
             return embedding
@@ -88,6 +106,7 @@ class EmbeddingClient:
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """
         Generate embeddings for multiple texts in batches.
+        Uses cache to avoid redundant API calls.
 
         Args:
             texts: List of input texts to embed
@@ -102,13 +121,39 @@ class EmbeddingClient:
         texts = [text.replace("\n", " ").strip() for text in texts]
 
         all_embeddings: List[List[float]] = []
+        uncached_texts: List[tuple[int, str]] = []  # (original_index, text)
 
         try:
+            # Check cache for each text
+            for i, text in enumerate(texts):
+                cache_key = hashlib.sha256(
+                    f"{self.model}|{self.dimensions}|{text}".encode()
+                ).hexdigest()
+
+                cached_embedding = embedding_cache.get(cache_key)
+                if cached_embedding is not None:
+                    all_embeddings.append(cached_embedding)
+                else:
+                    # Need to generate this embedding
+                    uncached_texts.append((i, text))
+                    all_embeddings.append(None)  # Placeholder
+
+            logger.info(f"💾 Cache: {len(texts) - len(uncached_texts)}/{len(texts)} embeddings cached")
+
+            # If all were cached, return early
+            if not uncached_texts:
+                return all_embeddings
+
+            # Generate embeddings for uncached texts
+            texts_to_embed = [text for _, text in uncached_texts]
+            new_embeddings: List[List[float]] = []
+
             # Process in batches
-            for i in range(0, len(texts), self.batch_size):
-                batch = texts[i:i + self.batch_size]
+            for i in range(0, len(texts_to_embed), self.batch_size):
+                batch = texts_to_embed[i:i + self.batch_size]
 
                 # Call OpenAI API
+                logger.debug(f"🌐 API call for {len(batch)} embeddings (batch {i // self.batch_size + 1})")
                 response = self.client.embeddings.create(
                     model=self.model,
                     input=batch,
@@ -117,11 +162,19 @@ class EmbeddingClient:
 
                 # Extract embeddings in order
                 batch_embeddings = [data.embedding for data in response.data]
-                all_embeddings.extend(batch_embeddings)
+                new_embeddings.extend(batch_embeddings)
 
                 logger.debug(f"Generated {len(batch_embeddings)} embeddings (batch {i // self.batch_size + 1})")
 
-            logger.info(f"Generated {len(all_embeddings)} embeddings total")
+            # Cache and insert new embeddings at correct positions
+            for (original_index, text), embedding in zip(uncached_texts, new_embeddings):
+                cache_key = hashlib.sha256(
+                    f"{self.model}|{self.dimensions}|{text}".encode()
+                ).hexdigest()
+                embedding_cache.set(cache_key, embedding)
+                all_embeddings[original_index] = embedding
+
+            logger.info(f"Generated {len(new_embeddings)} new embeddings, total {len(all_embeddings)}")
             return all_embeddings
 
         except Exception as e:

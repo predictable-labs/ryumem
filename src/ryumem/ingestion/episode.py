@@ -112,7 +112,25 @@ class EpisodeIngestion:
         Returns:
             UUID of the created episode
         """
+        # Check for duplicate episode FIRST (before expensive LLM calls)
+        existing_episode = self.db.find_similar_episode(
+            content=content,
+            group_id=group_id,
+            user_id=user_id,
+            time_window_hours=24,
+        )
+
+        if existing_episode:
+            logger.info(
+                f"⚠️  Duplicate episode detected! Skipping ingestion. "
+                f"Existing episode: {existing_episode['uuid'][:8]}... "
+                f"created at {existing_episode['created_at']}"
+            )
+            logger.info(f"💰 Saved ~6-13 seconds and ~1000-3000 tokens by skipping duplicate!")
+            return existing_episode["uuid"]
+
         start_time = datetime.utcnow()
+        step_start = start_time
 
         # Generate episode UUID
         episode_uuid = str(uuid4())
@@ -141,34 +159,46 @@ class EpisodeIngestion:
 
         # Save episode to database
         self.db.save_episode(episode)
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(f"⏱️  [TIMING] Step 1 - Create episode node: {step_duration:.2f}s")
         logger.debug(f"Created episode node: {episode_uuid}")
 
         # Step 2: Get context from previous episodes
+        step_start = datetime.utcnow()
         context = self._get_episode_context(
             group_id=group_id,
             user_id=user_id,
             session_id=session_id,
         )
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(f"⏱️  [TIMING] Step 2 - Get episode context: {step_duration:.2f}s")
 
         # Step 3: Extract and resolve entities
+        step_start = datetime.utcnow()
         entities, entity_map = self.entity_extractor.extract_and_resolve(
             content=content,
             group_id=group_id,
             user_id=user_id,
             context=context,
         )
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(f"⏱️  [TIMING] Step 3 - Extract and resolve entities: {step_duration:.2f}s ({len(entities)} entities)")
 
         if not entities:
             logger.info(f"No entities extracted for episode {episode_uuid}")
             return episode_uuid
 
         # Add entities to BM25 index
+        step_start = datetime.utcnow()
         if self.bm25_index:
             for entity in entities:
                 self.bm25_index.add_entity(entity)
+            step_duration = (datetime.utcnow() - step_start).total_seconds()
+            logger.info(f"⏱️  [TIMING] Step 3b - Add entities to BM25 index: {step_duration:.2f}s")
             logger.debug(f"Added {len(entities)} entities to BM25 index")
 
         # Step 4: Extract and resolve relationships
+        step_start = datetime.utcnow()
         edges = self.relation_extractor.extract_and_resolve(
             content=content,
             entities=entities,
@@ -177,21 +207,30 @@ class EpisodeIngestion:
             group_id=group_id,
             context=context,
         )
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(f"⏱️  [TIMING] Step 4 - Extract and resolve relationships: {step_duration:.2f}s ({len(edges)} edges)")
 
         # Add edges to BM25 index
+        step_start = datetime.utcnow()
         if self.bm25_index and edges:
             for edge in edges:
                 self.bm25_index.add_edge(edge)
+            step_duration = (datetime.utcnow() - step_start).total_seconds()
+            logger.info(f"⏱️  [TIMING] Step 4b - Add edges to BM25 index: {step_duration:.2f}s")
             logger.debug(f"Added {len(edges)} edges to BM25 index")
 
         # Step 5: Create MENTIONS edges (episode -> entities)
+        step_start = datetime.utcnow()
         self._create_mentions_edges(
             episode_uuid=episode_uuid,
             entity_uuids=[e.uuid for e in entities],
             group_id=group_id,
         )
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(f"⏱️  [TIMING] Step 5 - Create MENTIONS edges: {step_duration:.2f}s")
 
         # Step 6: Detect and invalidate contradicting edges
+        step_start = datetime.utcnow()
         if edges:
             contradicting_edges = self.relation_extractor.detect_contradictions(
                 new_edges=edges,
@@ -201,8 +240,11 @@ class EpisodeIngestion:
             if contradicting_edges:
                 self.relation_extractor.invalidate_edges(contradicting_edges)
                 logger.info(f"Invalidated {len(contradicting_edges)} contradicting edges")
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(f"⏱️  [TIMING] Step 6 - Detect and invalidate contradictions: {step_duration:.2f}s")
 
         # Step 7: Update entity summaries with new context
+        step_start = datetime.utcnow()
         for entity in entities:
             try:
                 self.entity_extractor.update_entity_summary(
@@ -211,6 +253,8 @@ class EpisodeIngestion:
                 )
             except Exception as e:
                 logger.error(f"Error updating summary for entity {entity.uuid}: {e}")
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(f"⏱️  [TIMING] Step 7 - Update entity summaries: {step_duration:.2f}s")
 
         # Update episode with entity edge references
         episode.entity_edges = [e.uuid for e in edges]
@@ -218,10 +262,12 @@ class EpisodeIngestion:
 
         # Log completion
         duration = (datetime.utcnow() - start_time).total_seconds()
+        logger.info(f"⏱️  [TIMING] ═══════════════════════════════════════════════════")
         logger.info(
-            f"Completed ingestion for episode {episode_uuid} in {duration:.2f}s: "
-            f"{len(entities)} entities, {len(edges)} relationships"
+            f"⏱️  [TIMING] TOTAL ingestion time for episode {episode_uuid[:8]}: {duration:.2f}s"
         )
+        logger.info(f"⏱️  [TIMING] Results: {len(entities)} entities, {len(edges)} relationships")
+        logger.info(f"⏱️  [TIMING] ═══════════════════════════════════════════════════")
 
         return episode_uuid
 

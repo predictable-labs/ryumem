@@ -3,6 +3,7 @@ Relationship extraction and resolution module.
 Extracts relationships between entities and resolves them against existing relationships.
 """
 
+import hashlib
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -10,6 +11,7 @@ from uuid import uuid4
 
 from ryumem.core.graph_db import RyugraphDB
 from ryumem.core.models import EntityEdge, EntityNode
+from ryumem.utils.cache import relation_extraction_cache
 from ryumem.utils.embeddings import EmbeddingClient
 from ryumem.utils.llm import LLMClient
 
@@ -186,6 +188,7 @@ class RelationExtractor:
     ) -> List[Dict[str, str]]:
         """
         Extract relationships from content using LLM.
+        Uses cache to avoid redundant API calls.
 
         Args:
             content: Text content
@@ -196,7 +199,19 @@ class RelationExtractor:
         Returns:
             List of dicts with 'source', 'relationship', 'destination', 'fact' keys
         """
+        # Check cache first
+        entities_str = "|".join(sorted(entities))  # Sort for consistent cache keys
+        cache_key = hashlib.sha256(
+            f"relation_extraction|{content}|{entities_str}|{user_id}|{context or ''}".encode()
+        ).hexdigest()
+
+        cached_result = relation_extraction_cache.get(cache_key)
+        if cached_result is not None:
+            logger.debug(f"💾 Cache HIT for relationship extraction: '{content[:50]}...'")
+            return cached_result
+
         try:
+            logger.debug(f"🌐 API call for relationship extraction: '{content[:50]}...'")
             relationships = self.llm_client.extract_relationships(
                 text=content,
                 entities=entities,
@@ -213,6 +228,9 @@ class RelationExtractor:
                     "destination": rel["destination"].lower().replace(" ", "_"),
                     "fact": rel["fact"],
                 })
+
+            # Cache the result
+            relation_extraction_cache.set(cache_key, normalized)
 
             return normalized
 

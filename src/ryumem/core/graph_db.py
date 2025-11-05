@@ -362,6 +362,63 @@ class RyugraphDB:
 
         return self.execute(query, params)
 
+    def find_similar_episode(
+        self,
+        content: str,
+        group_id: str,
+        user_id: Optional[str] = None,
+        time_window_hours: int = 24,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Find an episode with identical or very similar content.
+
+        Uses exact content matching within a time window to detect duplicates.
+
+        Args:
+            content: Episode content to check
+            group_id: Group ID
+            user_id: Optional user ID
+            time_window_hours: Look back this many hours for duplicates
+
+        Returns:
+            Existing episode dict if found, None otherwise
+        """
+        from datetime import datetime, timedelta, timezone
+
+        # Check for exact content match first (fast)
+        query = """
+        MATCH (e:Episode)
+        WHERE e.content = $content
+          AND e.group_id = $group_id
+          AND e.created_at > $time_cutoff
+        """
+
+        if user_id:
+            query += " AND e.user_id = $user_id"
+
+        query += """
+        RETURN
+            e.uuid AS uuid,
+            e.content AS content,
+            e.created_at AS created_at
+        ORDER BY e.created_at DESC
+        LIMIT 1
+        """
+
+        time_cutoff = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
+
+        params = {
+            "content": content,
+            "group_id": group_id,
+            "time_cutoff": time_cutoff,
+        }
+
+        if user_id:
+            params["user_id"] = user_id
+
+        results = self.execute(query, params)
+        return results[0] if results else None
+
     def search_similar_entities(
         self,
         embedding: List[float],
@@ -482,6 +539,28 @@ class RyugraphDB:
             e.created_at AS created_at,
             e.group_id AS group_id,
             e.user_id AS user_id
+        """
+        results = self.execute(query, {"uuid": uuid})
+        return results[0] if results else None
+
+    def get_edge_by_uuid(self, uuid: str) -> Optional[Dict[str, Any]]:
+        """Get a relationship edge by its UUID"""
+        query = """
+        MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
+        WHERE r.uuid = $uuid
+        RETURN
+            r.uuid AS uuid,
+            s.uuid AS source_uuid,
+            t.uuid AS target_uuid,
+            r.fact AS fact,
+            r.name AS relation_type,
+            r.valid_at AS valid_at,
+            r.invalid_at AS invalid_at,
+            r.expired_at AS expired_at,
+            r.created_at AS created_at,
+            r.mentions AS mentions,
+            r.episodes AS episodes,
+            r.group_id AS group_id
         """
         results = self.execute(query, {"uuid": uuid})
         return results[0] if results else None

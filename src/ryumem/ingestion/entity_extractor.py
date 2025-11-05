@@ -3,6 +3,7 @@ Entity extraction and resolution module.
 Extracts entities from text and resolves them against existing entities in the graph.
 """
 
+import hashlib
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -10,6 +11,7 @@ from uuid import uuid4
 
 from ryumem.core.graph_db import RyugraphDB
 from ryumem.core.models import EntityNode
+from ryumem.utils.cache import entity_extraction_cache, summary_cache
 from ryumem.utils.embeddings import EmbeddingClient
 from ryumem.utils.llm import LLMClient
 
@@ -170,6 +172,7 @@ class EntityExtractor:
     ) -> List[Dict[str, str]]:
         """
         Extract entities from content using LLM.
+        Uses cache to avoid redundant API calls.
 
         Args:
             content: Text content
@@ -179,7 +182,18 @@ class EntityExtractor:
         Returns:
             List of dicts with 'entity' and 'entity_type' keys
         """
+        # Check cache first
+        cache_key = hashlib.sha256(
+            f"entity_extraction|{content}|{user_id}|{context or ''}".encode()
+        ).hexdigest()
+
+        cached_result = entity_extraction_cache.get(cache_key)
+        if cached_result is not None:
+            logger.debug(f"💾 Cache HIT for entity extraction: '{content[:50]}...'")
+            return cached_result
+
         try:
+            logger.debug(f"🌐 API call for entity extraction: '{content[:50]}...'")
             entities = self.llm_client.extract_entities(
                 text=content,
                 user_id=user_id,
@@ -199,6 +213,9 @@ class EntityExtractor:
                     })
                     seen.add(name)
 
+            # Cache the result
+            entity_extraction_cache.set(cache_key, normalized)
+
             return normalized
 
         except Exception as e:
@@ -212,6 +229,7 @@ class EntityExtractor:
     ) -> None:
         """
         Update an entity's summary with new context.
+        Uses cache to avoid redundant API calls.
 
         Args:
             entity_uuid: UUID of entity to update
@@ -233,17 +251,27 @@ class EntityExtractor:
 
         context_str = "\n".join(rel_context) if rel_context else "No relationships yet."
 
-        # Generate updated summary using LLM
-        messages = [
-            {
-                "role": "system",
-                "content": """You are an expert at creating concise entity summaries.
+        # Check cache first
+        cache_key = hashlib.sha256(
+            f"summary|{entity_uuid}|{entity_data.get('summary', '')}|{context_str}|{new_context}".encode()
+        ).hexdigest()
+
+        cached_summary = summary_cache.get(cache_key)
+        if cached_summary is not None:
+            logger.debug(f"💾 Cache HIT for summary update: entity {entity_data['name']}")
+            new_summary = cached_summary
+        else:
+            # Generate updated summary using LLM
+            messages = [
+                {
+                    "role": "system",
+                    "content": """You are an expert at creating concise entity summaries.
 Given an entity name, its existing summary, relationships, and new context, create an updated summary.
 The summary should be 1-2 sentences capturing the most important information."""
-            },
-            {
-                "role": "user",
-                "content": f"""Entity: {entity_data['name']}
+                },
+                {
+                    "role": "user",
+                    "content": f"""Entity: {entity_data['name']}
 Type: {entity_data['entity_type']}
 
 Existing summary: {entity_data.get('summary', 'None')}
@@ -254,29 +282,35 @@ Known relationships:
 New context: {new_context}
 
 Create an updated summary:"""
-            }
-        ]
+                }
+            ]
 
-        try:
-            response = self.llm_client.generate(messages, temperature=0.3)
-            new_summary = response.get("content", "").strip()
+            try:
+                logger.debug(f"🌐 API call for summary update: entity {entity_data['name']}")
+                response = self.llm_client.generate(messages, temperature=0.3)
+                new_summary = response.get("content", "").strip()
 
-            if new_summary:
-                # Update entity with new summary
-                entity = EntityNode(
-                    uuid=entity_uuid,
-                    name=entity_data["name"],
-                    entity_type=entity_data["entity_type"],
-                    summary=new_summary,
-                    mentions=entity_data["mentions"],
-                    group_id=entity_data["group_id"],
-                    user_id=entity_data.get("user_id"),
-                )
-                self.db.save_entity(entity)
-                logger.debug(f"Updated summary for entity {entity_data['name']}")
+                if new_summary:
+                    # Cache the result
+                    summary_cache.set(cache_key, new_summary)
 
-        except Exception as e:
-            logger.error(f"Error updating entity summary: {e}")
+            except Exception as e:
+                logger.error(f"Error updating entity summary: {e}")
+                return
+
+        if new_summary:
+            # Update entity with new summary
+            entity = EntityNode(
+                uuid=entity_uuid,
+                name=entity_data["name"],
+                entity_type=entity_data["entity_type"],
+                summary=new_summary,
+                mentions=entity_data["mentions"],
+                group_id=entity_data["group_id"],
+                user_id=entity_data.get("user_id"),
+            )
+            self.db.save_entity(entity)
+            logger.debug(f"Updated summary for entity {entity_data['name']}")
 
     def get_entity_by_name(
         self,

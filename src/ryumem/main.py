@@ -115,6 +115,18 @@ class Ryumem:
             embedding_client=self.embedding_client,
         )
 
+        # Try to load existing BM25 index from disk
+        bm25_path = str(db_path_obj.parent / f"{db_path_obj.stem}_bm25.pkl")
+        if self.search_engine.bm25_index.load(bm25_path):
+            logger.info(f"Loaded BM25 index from {bm25_path}")
+            # Check if index is empty but database has data - rebuild if needed
+            stats = self.search_engine.bm25_index.stats()
+            if stats["entity_count"] == 0 and stats["edge_count"] == 0:
+                logger.info("BM25 index is empty, rebuilding from database...")
+                self._rebuild_bm25_index()
+        else:
+            logger.info("No existing BM25 index found, will rebuild from database if needed")
+
         # Initialize ingestion pipeline with BM25 index
         self.ingestion = EpisodeIngestion(
             db=self.db,
@@ -181,7 +193,7 @@ class Ryumem:
         # Convert source string to EpisodeType
         source_type = EpisodeType.from_str(source)
 
-        return self.ingestion.ingest(
+        episode_id = self.ingestion.ingest(
             content=content,
             group_id=group_id,
             user_id=user_id,
@@ -190,6 +202,12 @@ class Ryumem:
             source=source_type,
             metadata=metadata,
         )
+
+        # Persist BM25 index to disk after ingestion
+        bm25_path = str(Path(self.config.db_path).parent / f"{Path(self.config.db_path).stem}_bm25.pkl")
+        self.search_engine.bm25_index.save(bm25_path)
+
+        return episode_id
 
     def add_episodes_batch(
         self,
@@ -219,7 +237,13 @@ class Ryumem:
             ]
             episode_ids = ryumem.add_episodes_batch(episodes, group_id="user_123")
         """
-        return self.ingestion.ingest_batch(episodes, group_id)
+        episode_ids = self.ingestion.ingest_batch(episodes, group_id)
+
+        # Persist BM25 index to disk after batch ingestion
+        bm25_path = str(Path(self.config.db_path).parent / f"{Path(self.config.db_path).stem}_bm25.pkl")
+        self.search_engine.bm25_index.save(bm25_path)
+
+        return episode_ids
 
     def search(
         self,
@@ -437,6 +461,78 @@ class Ryumem:
         logger.warning("Resetting entire Ryumem database...")
         self.db.reset()
         logger.info("Database reset complete")
+
+    def _rebuild_bm25_index(self) -> None:
+        """
+        Rebuild BM25 index from existing database data.
+
+        This is useful when:
+        - BM25 index file was lost or corrupted
+        - Database was populated before BM25 persistence was added
+        - Need to ensure BM25 index is in sync with database
+        """
+        # Clear existing index
+        self.search_engine.bm25_index.clear()
+
+        # Get all entities from database
+        all_entities_query = """
+        MATCH (e:Entity)
+        RETURN
+            e.uuid AS uuid,
+            e.name AS name,
+            e.entity_type AS entity_type,
+            e.summary AS summary,
+            e.mentions AS mentions
+        """
+        entities_data = self.db.execute(all_entities_query, {})
+
+        # Rebuild entity index
+        from ryumem.core.models import EntityNode
+        for entity_data in entities_data:
+            entity = EntityNode(
+                uuid=entity_data["uuid"],
+                name=entity_data["name"],
+                entity_type=entity_data["entity_type"],
+                summary=entity_data.get("summary", ""),
+                mentions=entity_data["mentions"],
+                group_id="",  # Not needed for BM25
+            )
+            self.search_engine.bm25_index.add_entity(entity)
+
+        # Get all edges from database
+        all_edges_query = """
+        MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
+        RETURN
+            r.uuid AS uuid,
+            s.uuid AS source_uuid,
+            t.uuid AS target_uuid,
+            r.name AS relation_type,
+            r.fact AS fact,
+            r.mentions AS mentions
+        """
+        edges_data = self.db.execute(all_edges_query, {})
+
+        # Rebuild edge index
+        from ryumem.core.models import EntityEdge
+        for edge_data in edges_data:
+            edge = EntityEdge(
+                uuid=edge_data["uuid"],
+                source_node_uuid=edge_data["source_uuid"],
+                target_node_uuid=edge_data["target_uuid"],
+                name=edge_data["relation_type"],
+                fact=edge_data["fact"],
+                mentions=edge_data["mentions"],
+                group_id="",  # Not needed for BM25
+            )
+            self.search_engine.bm25_index.add_edge(edge)
+
+        # Save rebuilt index
+        bm25_path = str(Path(self.config.db_path).parent / f"{Path(self.config.db_path).stem}_bm25.pkl")
+        self.search_engine.bm25_index.save(bm25_path)
+
+        logger.info(
+            f"Rebuilt BM25 index: {len(entities_data)} entities, {len(edges_data)} edges"
+        )
 
     def close(self) -> None:
         """

@@ -9,12 +9,19 @@ This example demonstrates:
 """
 
 import os
+import logging
 from dotenv import load_dotenv
 
 from ryumem import Ryumem
 
 # Load environment variables
 load_dotenv()
+
+# Configure logging to see duplicate detection and important events
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format='%(levelname)s - %(message)s'
+# )
 
 
 def main():
@@ -107,8 +114,8 @@ def main():
 
     # Clean up
     print("\n5. Cleaning up...")
-    ryumem.delete_group("demo_user")
-    ryumem.close()
+    # ryumem.delete_group("demo_user")
+    # ryumem.close()
     print("   ✓ Demo completed and cleaned up")
 
     print("\n" + "=" * 60)
