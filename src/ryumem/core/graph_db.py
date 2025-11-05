@@ -7,12 +7,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-try:
-    import ryugraph
-except ImportError:
-    raise ImportError(
-        "ryugraph is not installed. Please install it using: pip install ryugraph"
-    )
+import ryu as ryugraph
 
 from ryumem.core.models import (
     CommunityEdge,

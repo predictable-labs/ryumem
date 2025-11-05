@@ -1,0 +1,31 @@
+# Ryumem Core Dependencies
+# Generated from pyproject.toml
+
+# Graph database (kuzu renamed)
+ryugraph>=25.9.0
+
+# OpenAI API client
+openai>=1.0.0
+
+# Data validation
+pydantic>=2.0.0
+
+# Array operations
+numpy>=1.24.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Graph algorithms for community detection
+networkx>=3.0
+
+# Scientific computing
+scipy>=1.10.0
+
+# Retry logic
+tenacity>=8.0.0
+
+# BM25 keyword search
+rank-bm25>=0.2.2
+
+pandas

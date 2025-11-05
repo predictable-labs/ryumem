@@ -45,11 +45,21 @@ Ryumem is now fully implemented and ready to use! This guide will help you get s
 # 1. Navigate to the ryumem directory
 cd /Users/saksham115/Projects/Predictable/ryumem
 
-# 2. Install in development mode
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Install ryumem in development mode
 pip install -e .
 
-# 3. Set up environment variables
-echo "OPENAI_API_KEY=sk-your-key-here" > .env
+# 4. Set up environment variables
+cp .env.example .env
+# Then edit .env and add your OPENAI_API_KEY
+```
+
+**Alternative (without installation):**
+```bash
+# Run examples directly with PYTHONPATH
+PYTHONPATH=src python examples/basic_usage.py
 ```
 
 ## First Steps
@@ -242,14 +252,230 @@ ryumem = Ryumem(config=config)
    - Adjust similarity thresholds
    - Test multi-tenancy features
 
-### Future Enhancements
+### Advanced Features
 
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for:
-- Community detection
-- Advanced reranking
+**All advanced features are now fully implemented!** See sections below for:
 - BM25 keyword search
-- Performance optimization
-- Testing framework
+- Temporal decay scoring
+- Community detection
+- Memory pruning and compaction
+
+## Advanced Features Guide
+
+### BM25 Keyword Search
+
+BM25 provides traditional keyword/lexical matching as a complement to semantic search.
+
+```python
+# Pure BM25 search (exact keyword matching)
+results = ryumem.search(
+    query="machine learning natural language processing",
+    group_id="user_123",
+    strategy="bm25",
+    limit=10,
+)
+
+# BM25 is also included in hybrid search automatically
+results = ryumem.search(
+    query="machine learning",
+    group_id="user_123",
+    strategy="hybrid",  # Combines semantic + BM25 + graph traversal
+)
+```
+
+**When to use BM25:**
+- Searching for specific technical terms
+- Exact phrase matching
+- Acronyms and abbreviations
+- Names and proper nouns
+
+### Temporal Decay Scoring
+
+Recent facts automatically score higher than old facts with configurable decay rates.
+
+```python
+# Temporal decay is enabled by default
+results = ryumem.search(
+    query="Alice's job",
+    group_id="user_123",
+    strategy="hybrid",
+)
+# Recent facts will rank higher automatically
+
+# Customize decay settings
+from ryumem.core.models import SearchConfig
+
+config = SearchConfig(
+    query="current projects",
+    group_id="user_123",
+    apply_temporal_decay=True,
+    temporal_decay_factor=0.99,  # 1% decay per day (slower)
+    # Or use 0.95 for 5% decay per day (faster)
+)
+
+results = ryumem.search_engine.search(config)
+```
+
+**Decay factor guidelines:**
+- `0.99` = 1% per day (gentle, prefer recent with minimal bias)
+- `0.95` = 5% per day (moderate, clear recency preference) - **default**
+- `0.90` = 10% per day (aggressive, heavily favor recent info)
+
+### Community Detection
+
+Automatically cluster related entities into communities for better organization and retrieval.
+
+```python
+# Detect communities in your knowledge graph
+num_communities = ryumem.detect_communities(
+    group_id="user_123",
+    resolution=1.0,  # Higher = more granular communities
+    min_community_size=2,  # Minimum entities per community
+)
+
+print(f"Detected {num_communities} communities")
+
+# Get all communities
+communities = ryumem.db.get_all_communities("user_123")
+
+for community in communities:
+    print(f"Community: {community['name']}")
+    print(f"Summary: {community['summary']}")  # LLM-generated!
+    print(f"Members: {len(community['members'])} entities")
+
+# Update communities as graph grows
+ryumem.update_communities("user_123", resolution=1.0)
+```
+
+**Community benefits:**
+- Organizes large knowledge graphs
+- LLM-generated summaries for each cluster
+- Faster retrieval by searching within relevant communities
+- Better context understanding
+
+### Memory Pruning & Compaction
+
+Keep your knowledge graph clean and efficient by removing obsolete data.
+
+```python
+# Run comprehensive pruning
+stats = ryumem.prune_memories(
+    group_id="user_123",
+    expired_cutoff_days=90,  # Remove facts expired >90 days ago
+    min_mentions=2,  # Keep entities with at least 2 mentions
+    compact_redundant=True,  # Merge near-duplicate relationships
+)
+
+print(f"Pruning results:")
+print(f"  Expired edges deleted: {stats['expired_edges_deleted']}")
+print(f"  Low-value entities deleted: {stats['low_mention_entities_deleted']}")
+print(f"  Redundant edges merged: {stats['redundant_edges_merged']}")
+```
+
+**What gets pruned:**
+- **Expired edges**: Facts invalidated long ago (contradicted/superseded)
+- **Low-mention entities**: Likely extraction errors or noise
+- **Redundant relationships**: Near-duplicate facts get merged
+
+**Best practices:**
+- Run pruning periodically (e.g., weekly/monthly)
+- Adjust `min_mentions` based on your data quality
+- Use longer `expired_cutoff_days` if historical context matters
+
+## Complete Example Workflows
+
+### Workflow 1: Knowledge Accumulation with Temporal Awareness
+
+```python
+# Build knowledge over time
+episodes = [
+    "Alice works at Google as a software engineer.",
+    "Alice is working on TensorFlow project.",
+    "Alice moved to OpenAI to work on GPT models.",  # This invalidates first fact!
+]
+
+for episode in episodes:
+    ryumem.add_episode(episode, group_id="user_123")
+    time.sleep(1)  # Space out over time
+
+# Search with temporal decay
+results = ryumem.search(
+    query="Alice's current job",
+    group_id="user_123",
+    strategy="hybrid",
+)
+
+# Recent facts (OpenAI) will rank higher than old ones (Google)
+for edge in results.edges:
+    print(f"{edge.fact} - Score: {results.scores.get(edge.uuid, 0):.3f}")
+```
+
+### Workflow 2: Large Graph with Community Organization
+
+```python
+# Build a large knowledge graph
+for i in range(100):
+    ryumem.add_episode(your_episodes[i], group_id="user_123")
+
+# Organize into communities
+num_communities = ryumem.detect_communities("user_123")
+
+# Search is now community-aware for better context
+results = ryumem.search(
+    query="AI research topics",
+    group_id="user_123",
+    strategy="hybrid",
+)
+
+# Periodic maintenance
+stats = ryumem.prune_memories("user_123")
+```
+
+### Workflow 3: Multi-Strategy Comparison
+
+```python
+query = "machine learning research"
+
+# Try each strategy
+for strategy in ["semantic", "bm25", "hybrid"]:
+    results = ryumem.search(
+        query=query,
+        group_id="user_123",
+        strategy=strategy,
+        limit=5,
+    )
+
+    print(f"\n{strategy.upper()} strategy:")
+    print(f"  Found: {len(results.entities)} entities")
+    if results.entities:
+        top = results.entities[0]
+        score = results.scores.get(top.uuid, 0)
+        print(f"  Top: {top.name} (score: {score:.3f})")
+```
+
+## Running the Examples
+
+### Basic Example
+
+```bash
+python examples/basic_usage.py
+```
+
+Demonstrates core functionality: ingestion, search, entity context.
+
+### Advanced Example
+
+```bash
+python examples/advanced_usage.py
+```
+
+Demonstrates all advanced features:
+- BM25 keyword search
+- Temporal decay with different settings
+- Community detection with LLM summaries
+- Memory pruning and compaction
+- Strategy comparison
+- Edge invalidation (temporal logic)
 
 ## Troubleshooting
 
