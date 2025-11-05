@@ -115,7 +115,7 @@ def main():
 
     # Clean up
     print("\n4. Cleaning up...")
-    ryumem.delete_group("ollama_user")
+    # ryumem.delete_group("ollama_user")
     ryumem.close()
     print("   ✓ Demo completed")
 
