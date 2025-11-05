@@ -16,6 +16,7 @@ from ryumem.maintenance.pruner import MemoryPruner
 from ryumem.retrieval.search import SearchEngine
 from ryumem.utils.embeddings import EmbeddingClient
 from ryumem.utils.llm import LLMClient
+from ryumem.utils.llm_ollama import OllamaClient
 
 logger = logging.getLogger(__name__)
 
@@ -94,12 +95,29 @@ class Ryumem:
             embedding_dimensions=config.embedding_dimensions,
         )
 
-        self.llm_client = LLMClient(
-            api_key=config.openai_api_key,
-            model=config.llm_model,
-            max_retries=config.max_retries,
-            timeout=config.timeout_seconds,
-        )
+        # Initialize LLM client based on provider
+        if config.llm_provider == "ollama":
+            logger.info(f"Using Ollama for LLM inference: {config.llm_model}")
+            self.llm_client = OllamaClient(
+                model=config.llm_model,
+                base_url=config.ollama_base_url,
+                max_retries=config.max_retries,
+                timeout=config.timeout_seconds,
+            )
+        else:  # openai
+            if not config.openai_api_key:
+                raise ValueError("openai_api_key is required when llm_provider='openai'")
+            logger.info(f"Using OpenAI for LLM inference: {config.llm_model}")
+            self.llm_client = LLMClient(
+                api_key=config.openai_api_key,
+                model=config.llm_model,
+                max_retries=config.max_retries,
+                timeout=config.timeout_seconds,
+            )
+
+        # Initialize embedding client (OpenAI only for now)
+        if not config.openai_api_key:
+            raise ValueError("openai_api_key is required for embeddings (Ollama embeddings not yet supported)")
 
         self.embedding_client = EmbeddingClient(
             api_key=config.openai_api_key,

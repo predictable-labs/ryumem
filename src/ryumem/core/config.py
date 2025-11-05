@@ -21,9 +21,29 @@ class RyumemConfig(BaseModel):
         description="Path to ryugraph database directory"
     )
 
-    # OpenAI settings
-    openai_api_key: str = Field(description="OpenAI API key")
-    llm_model: str = Field(default="gpt-4", description="LLM model to use for extraction")
+    # LLM Provider settings
+    llm_provider: str = Field(
+        default="openai",
+        description="LLM provider: 'openai' or 'ollama'"
+    )
+
+    # OpenAI settings (when llm_provider='openai')
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        description="OpenAI API key (required if llm_provider='openai')"
+    )
+    llm_model: str = Field(
+        default="gpt-4",
+        description="LLM model to use (e.g., 'gpt-4' for OpenAI, 'llama3.2:3b' for Ollama)"
+    )
+
+    # Ollama settings (when llm_provider='ollama')
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama server URL"
+    )
+
+    # Embedding settings
     embedding_model: str = Field(
         default="text-embedding-3-large",
         description="Embedding model to use"
@@ -89,13 +109,13 @@ class RyumemConfig(BaseModel):
         description="Timeout for API calls in seconds"
     )
 
-    @field_validator("llm_model")
+    @field_validator("llm_provider")
     @classmethod
-    def validate_llm_model(cls, v: str) -> str:
-        """Validate LLM model name"""
-        valid_models = ["gpt-4", "gpt-4-turbo", "gpt-4-turbo-preview", "gpt-3.5-turbo"]
-        if v not in valid_models:
-            raise ValueError(f"LLM model must be one of {valid_models}")
+    def validate_llm_provider(cls, v: str) -> str:
+        """Validate LLM provider"""
+        valid_providers = ["openai", "ollama"]
+        if v not in valid_providers:
+            raise ValueError(f"LLM provider must be one of {valid_providers}")
         return v
 
     @field_validator("embedding_model")
@@ -149,9 +169,11 @@ class RyumemConfig(BaseModel):
             RyumemConfig instance
 
         Environment variables:
+            OPENAI_API_KEY: OpenAI API key (required)
             RYUMEM_DB_PATH: Database path
-            OPENAI_API_KEY: OpenAI API key
+            RYUMEM_LLM_PROVIDER: LLM provider ('openai' or 'ollama')
             RYUMEM_LLM_MODEL: LLM model name
+            RYUMEM_OLLAMA_BASE_URL: Ollama server URL
             RYUMEM_EMBEDDING_MODEL: Embedding model name
             RYUMEM_EMBEDDING_DIMENSIONS: Embedding dimensions
             ... (other settings with RYUMEM_ prefix)
@@ -162,16 +184,21 @@ class RyumemConfig(BaseModel):
         else:
             load_dotenv()
 
-        # Get OpenAI API key (required)
+        # Get configuration
+        llm_provider = os.getenv("RYUMEM_LLM_PROVIDER", "openai")
         openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is required")
+
+        # Validate API key requirement based on provider
+        if llm_provider == "openai" and not openai_api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required when using llm_provider='openai'")
 
         # Build config from environment variables
         config_dict = {
             "openai_api_key": openai_api_key,
             "db_path": os.getenv("RYUMEM_DB_PATH", "./data/ryumem.db"),
+            "llm_provider": llm_provider,
             "llm_model": os.getenv("RYUMEM_LLM_MODEL", "gpt-4"),
+            "ollama_base_url": os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://localhost:11434"),
             "embedding_model": os.getenv("RYUMEM_EMBEDDING_MODEL", "text-embedding-3-large"),
         }
 

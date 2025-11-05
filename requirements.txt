@@ -28,4 +28,7 @@ tenacity>=8.0.0
 # BM25 keyword search
 rank-bm25>=0.2.2
 
+# HTTP requests (for Ollama client)
+requests>=2.31.0
+
 pandas

@@ -21,7 +21,8 @@ Ryumem is now fully implemented and ready to use! This guide will help you get s
    - Multi-tenancy support
 
 3. **LLM & Embedding Utilities**
-   - [src/ryumem/utils/llm.py](src/ryumem/utils/llm.py) - GPT-4 with function calling
+   - [src/ryumem/utils/llm.py](src/ryumem/utils/llm.py) - OpenAI GPT-4 with function calling
+   - [src/ryumem/utils/llm_ollama.py](src/ryumem/utils/llm_ollama.py) - Ollama local models adapter
    - [src/ryumem/utils/embeddings.py](src/ryumem/utils/embeddings.py) - text-embedding-3-large
 
 4. **Extraction Pipeline**
@@ -64,14 +65,14 @@ PYTHONPATH=src python examples/basic_usage.py
 
 ## First Steps
 
-### 1. Basic Usage
+### 1. Basic Usage (OpenAI)
 
 Create a file `test_ryumem.py`:
 
 ```python
 from ryumem import Ryumem
 
-# Initialize
+# Initialize with OpenAI
 ryumem = Ryumem(
     db_path="./data/test.db",
     openai_api_key="sk-...",  # Or load from .env
@@ -99,7 +100,53 @@ ryumem.delete_group("test_user")
 ryumem.close()
 ```
 
-### 2. Run the Example
+### 2. Basic Usage (Ollama - Local LLMs)
+
+For local inference without API costs:
+
+```python
+from ryumem import Ryumem
+
+# Prerequisites:
+# 1. Install Ollama: https://ollama.ai
+# 2. Start Ollama: ollama serve
+# 3. Pull a model: ollama pull llama3.2:3b
+
+# Initialize with Ollama
+ryumem = Ryumem(
+    db_path="./data/test.db",
+    llm_provider="ollama",
+    llm_model="llama3.2:3b",  # or mistral:7b, qwen2.5:7b
+    ollama_base_url="http://localhost:11434",
+    openai_api_key="sk-...",  # Still needed for embeddings
+)
+
+# Use the exact same API!
+episode_id = ryumem.add_episode(
+    content="Alice works at Google in Mountain View.",
+    group_id="test_user",
+)
+
+results = ryumem.search(
+    query="Where does Alice work?",
+    group_id="test_user",
+)
+
+for entity in results.entities:
+    print(f"Entity: {entity.name} ({entity.entity_type})")
+
+ryumem.delete_group("test_user")
+ryumem.close()
+```
+
+**Recommended models:**
+- `llama3.2:3b` - Fast, good quality (best for development)
+- `mistral:7b` - Excellent reasoning
+- `qwen2.5:7b` - Great for structured JSON output
+
+See [examples/ollama_usage.py](examples/ollama_usage.py) for a complete example.
+
+### 3. Run the Examples
 
 ```bash
 python examples/basic_usage.py
@@ -208,10 +255,20 @@ Query → Embedding → Semantic Search → Graph Traversal → RRF Fusion → R
 ### Via Environment Variables
 
 ```bash
+# OpenAI (default provider)
 OPENAI_API_KEY=sk-...
 RYUMEM_DB_PATH=./data/ryumem.db
+RYUMEM_LLM_PROVIDER=openai
 RYUMEM_LLM_MODEL=gpt-4
 RYUMEM_EMBEDDING_MODEL=text-embedding-3-large
+
+# Or use Ollama for local LLMs
+OPENAI_API_KEY=sk-...  # Still needed for embeddings
+RYUMEM_LLM_PROVIDER=ollama
+RYUMEM_LLM_MODEL=llama3.2:3b
+RYUMEM_OLLAMA_BASE_URL=http://localhost:11434
+
+# Other settings
 RYUMEM_ENTITY_SIMILARITY_THRESHOLD=0.7
 RYUMEM_RELATIONSHIP_SIMILARITY_THRESHOLD=0.8
 ```
@@ -221,15 +278,26 @@ RYUMEM_RELATIONSHIP_SIMILARITY_THRESHOLD=0.8
 ```python
 from ryumem import Ryumem, RyumemConfig
 
+# OpenAI configuration
 config = RyumemConfig(
     db_path="./data/memory.db",
     openai_api_key="sk-...",
+    llm_provider="openai",
     llm_model="gpt-4",
     entity_similarity_threshold=0.7,
     relationship_similarity_threshold=0.8,
     max_context_episodes=5,
 )
+ryumem = Ryumem(config=config)
 
+# Or Ollama configuration
+config = RyumemConfig(
+    db_path="./data/memory.db",
+    llm_provider="ollama",
+    llm_model="llama3.2:3b",
+    ollama_base_url="http://localhost:11434",
+    openai_api_key="sk-...",  # Still needed for embeddings
+)
 ryumem = Ryumem(config=config)
 ```
 
@@ -455,13 +523,28 @@ for strategy in ["semantic", "bm25", "hybrid"]:
 
 ## Running the Examples
 
-### Basic Example
+### Basic Example (OpenAI)
 
 ```bash
 python examples/basic_usage.py
 ```
 
 Demonstrates core functionality: ingestion, search, entity context.
+
+### Ollama Example (Local LLMs)
+
+```bash
+# Make sure Ollama is running first
+ollama serve  # In a separate terminal
+
+# Pull a model if you haven't
+ollama pull llama3.2:3b
+
+# Run the example
+python examples/ollama_usage.py
+```
+
+Demonstrates using local Ollama models for cost-free, private inference.
 
 ### Advanced Example
 

@@ -76,6 +76,8 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
+### Using OpenAI (Default)
+
 ```python
 from ryumem import Ryumem
 
@@ -95,7 +97,49 @@ ryumem.add_episode(
     content="Bob is Alice's colleague and recently moved to Meta.",
     group_id="user_123",
 )
+```
 
+### Using Ollama (Local LLMs)
+
+For cost savings, privacy, and offline usage, you can use local models via Ollama:
+
+```python
+from ryumem import Ryumem
+
+# Prerequisites:
+# 1. Install Ollama: https://ollama.ai
+# 2. Start Ollama: ollama serve
+# 3. Pull a model: ollama pull llama3.2:3b
+
+# Initialize with Ollama for local LLM inference
+ryumem = Ryumem(
+    db_path="./data/memory.db",
+    llm_provider="ollama",  # Use local Ollama instead of OpenAI
+    llm_model="llama3.2:3b",  # Local model (fast, good quality)
+    ollama_base_url="http://localhost:11434",  # Default Ollama URL
+    openai_api_key="sk-...",  # Still required for embeddings
+)
+
+# Use exactly the same API - Ollama is a drop-in replacement!
+ryumem.add_episode(
+    content="Alice works at Google in Mountain View.",
+    group_id="user_123",
+)
+```
+
+**Recommended Ollama models:**
+- `llama3.2:3b` - Fast inference, good quality (recommended for development)
+- `mistral:7b` - Excellent reasoning capabilities
+- `qwen2.5:7b` - Great for structured output and JSON
+- `llama3.1:8b` - Balanced performance and quality
+
+**Note:** Embeddings still require OpenAI API key. Local embedding support coming soon!
+
+See [examples/ollama_usage.py](examples/ollama_usage.py) for a complete example.
+
+### Continuing with the API
+
+```python
 # Search using hybrid strategy (semantic + BM25 + graph traversal)
 results = ryumem.search(
     query="Where does Alice work?",
@@ -165,12 +209,21 @@ Ryumem now implements the **complete** Combined Conceptual Architecture from the
 Create a `.env` file:
 
 ```bash
-# Required
+# OpenAI API Key (required for embeddings, and for LLM if using OpenAI)
 OPENAI_API_KEY=sk-...
 
-# Optional (with defaults)
+# LLM Provider (optional, default: openai)
+RYUMEM_LLM_PROVIDER=openai  # or "ollama" for local inference
+
+# Ollama settings (when using llm_provider="ollama")
+RYUMEM_OLLAMA_BASE_URL=http://localhost:11434
+RYUMEM_LLM_MODEL=llama3.2:3b  # Ollama model name
+
+# OpenAI settings (when using llm_provider="openai")
+RYUMEM_LLM_MODEL=gpt-4  # OpenAI model name
+
+# Other optional settings (with defaults)
 RYUMEM_DB_PATH=./data/ryumem.db
-RYUMEM_LLM_MODEL=gpt-4
 RYUMEM_EMBEDDING_MODEL=text-embedding-3-large
 RYUMEM_EMBEDDING_DIMENSIONS=3072
 RYUMEM_ENTITY_SIMILARITY_THRESHOLD=0.7
@@ -183,7 +236,7 @@ RYUMEM_MAX_CONTEXT_EPISODES=5
 ```python
 from ryumem import Ryumem, RyumemConfig
 
-# Option 1: Direct parameters
+# Option 1: Direct parameters (OpenAI)
 ryumem = Ryumem(
     db_path="./data/memory.db",
     openai_api_key="sk-...",
@@ -192,16 +245,25 @@ ryumem = Ryumem(
     entity_similarity_threshold=0.7,
 )
 
-# Option 2: Config object
+# Option 2: Direct parameters (Ollama)
+ryumem = Ryumem(
+    db_path="./data/memory.db",
+    llm_provider="ollama",
+    llm_model="llama3.2:3b",
+    ollama_base_url="http://localhost:11434",
+    openai_api_key="sk-...",  # Still needed for embeddings
+)
+
+# Option 3: Config object
 config = RyumemConfig(
     db_path="./data/memory.db",
+    llm_provider="ollama",
+    llm_model="llama3.2:3b",
     openai_api_key="sk-...",
-    llm_model="gpt-4",
-    embedding_model="text-embedding-3-large",
 )
 ryumem = Ryumem(config=config)
 
-# Option 3: From environment
+# Option 4: From environment
 ryumem = Ryumem()  # Automatically loads from .env
 ```
 
@@ -332,7 +394,8 @@ stats = ryumem.prune_memories(
 ## Examples
 
 See the [examples/](examples/) directory for more examples:
-- `basic_usage.py` - Complete walkthrough of core features
+- [basic_usage.py](examples/basic_usage.py) - Complete walkthrough of core features
+- [ollama_usage.py](examples/ollama_usage.py) - Using local Ollama models instead of OpenAI
 
 ## Documentation
 
