@@ -83,9 +83,9 @@ class RyumemGoogleADK:
                 memories = [
                     {
                         "fact": edge.fact,
-                        "score": edge.score,
-                        "source": edge.source_node,
-                        "target": edge.target_node
+                        "score": results.scores.get(edge.uuid, 0.0),
+                        "source_uuid": edge.source_node_uuid,
+                        "target_uuid": edge.target_node_uuid
                     }
                     for edge in results.edges
                 ]
@@ -109,7 +109,7 @@ class RyumemGoogleADK:
                 "message": str(e)
             }
 
-    def save_memory(self, content: str, source: str = "google_adk") -> Dict[str, Any]:
+    def save_memory(self, content: str, source: str = "text") -> Dict[str, Any]:
         """
         Auto-generated save function for persisting memories.
 
@@ -117,7 +117,7 @@ class RyumemGoogleADK:
 
         Args:
             content: Information to save to memory
-            source: Source identifier for the memory
+            source: Episode type - must be "text", "message", or "json"
 
         Returns:
             Dict with status and episode_id
@@ -125,11 +125,17 @@ class RyumemGoogleADK:
         logger.info(f"Saving memory: {content[:50]}...")
 
         try:
+            # Validate source type
+            valid_sources = ["text", "message", "json"]
+            if source not in valid_sources:
+                source = "text"  # Default to text if invalid
+
             episode_id = self.ryumem.add_episode(
                 content=content,
                 group_id=self.group_id,
                 user_id=self.user_id,
-                source=source
+                source=source,
+                metadata={"integration": "google_adk"}
             )
             logger.info(f"Saved memory with episode_id: {episode_id}")
             return {

@@ -96,9 +96,12 @@ class SearchEngine:
             SearchResult
         """
         # Generate query embedding
+        logger.debug(f"🔍 Generating embedding for query: '{config.query}'")
         query_embedding = self.embedding_client.embed(config.query)
+        logger.debug(f"✅ Generated embedding: {len(query_embedding)} dimensions")
 
         # Search similar entities
+        logger.debug(f"🔎 Searching for similar entities (threshold: {config.similarity_threshold}, limit: {config.limit})")
         entity_results = self.db.search_similar_entities(
             embedding=query_embedding,
             group_id=config.group_id,
@@ -106,14 +109,17 @@ class SearchEngine:
             limit=config.limit,
             user_id=config.user_id,
         )
+        logger.debug(f"📊 Found {len(entity_results)} similar entities")
 
         # Search similar edges
+        logger.debug(f"🔎 Searching for similar edges (threshold: {config.similarity_threshold}, limit: {config.limit})")
         edge_results = self.db.search_similar_edges(
             embedding=query_embedding,
             group_id=config.group_id,
             threshold=config.similarity_threshold,
             limit=config.limit,
         )
+        logger.debug(f"📊 Found {len(edge_results)} similar edges")
 
         # Convert to models
         entities: List[EntityNode] = []

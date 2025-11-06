@@ -230,8 +230,8 @@ class SearchConfig(BaseModel):
         description='Search strategy: semantic, traversal, or hybrid'
     )
     similarity_threshold: float = Field(
-        default=0.7,
-        description='Minimum similarity score for results',
+        default=0.5,
+        description='Minimum similarity score for results (lowered to 0.5 for better recall)',
         ge=0.0,
         le=1.0
     )

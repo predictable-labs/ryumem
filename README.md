@@ -391,11 +391,55 @@ stats = ryumem.prune_memories(
 )
 ```
 
+## Integrations
+
+### 🚀 Google ADK Integration (Zero Boilerplate!)
+
+Ryumem provides **one-line memory integration** for Google's Agent Developer Kit:
+
+```python
+from google import genai
+from ryumem.integrations import enable_memory
+
+# Create your agent
+agent = genai.Agent(
+    name="assistant",
+    model="gemini-2.0-flash-exp",
+    instruction="You are a helpful assistant with memory."
+)
+
+# Enable memory - that's it! 🎉
+enable_memory(agent, user_id="user_123")
+
+# Agent now has 3 auto-generated memory tools:
+# - search_memory() - Find relevant information
+# - save_memory() - Store new information
+# - get_entity_context() - Get full context about entities
+```
+
+**Why Ryumem > mem0?**
+
+| Feature | mem0 | Ryumem |
+|---------|------|--------|
+| Setup Code | ~20 lines | **1 line** |
+| Custom Functions | Must write | **Auto-generated** |
+| Memory Type | Flat | **Knowledge Graph** |
+| Local LLMs | Limited | **Full Ollama Support** |
+
+See [docs/GOOGLE_ADK_INTEGRATION.md](docs/GOOGLE_ADK_INTEGRATION.md) for the complete guide.
+
+### Coming Soon
+
+- 🔜 **LangChain** integration
+- 🔜 **LlamaIndex** integration
+- 🔜 **Vercel AI SDK** integration (TypeScript)
+
 ## Examples
 
 See the [examples/](examples/) directory for more examples:
 - [basic_usage.py](examples/basic_usage.py) - Complete walkthrough of core features
 - [ollama_usage.py](examples/ollama_usage.py) - Using local Ollama models instead of OpenAI
+- [google_adk_usage.py](examples/google_adk_usage.py) - Zero-boilerplate Google ADK integration
 
 ## Documentation
 

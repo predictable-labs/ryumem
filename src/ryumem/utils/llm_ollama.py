@@ -7,10 +7,11 @@ Supports models like Llama, Mistral, Qwen, etc.
 
 import json
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +61,6 @@ class OllamaClient:
 
         logger.info(f"Initialized OllamaClient with model: {model}")
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        reraise=True,
-    )
     def generate(
         self,
         messages: List[Dict[str, str]],
@@ -73,7 +69,7 @@ class OllamaClient:
         response_format: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
-        Generate completion using Ollama.
+        Generate completion using Ollama with retry logic.
 
         Args:
             messages: List of message dicts with 'role' and 'content'
@@ -91,48 +87,85 @@ class OllamaClient:
             ])
             print(response["content"])
         """
-        try:
-            # Build prompt from messages
-            prompt = self._messages_to_prompt(messages)
+        # Build prompt from messages
+        prompt = self._messages_to_prompt(messages)
 
-            # Prepare request
-            payload = {
-                "model": self.model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": temperature,
-                },
-            }
+        # Prepare request
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+            },
+        }
 
-            if max_tokens:
-                payload["options"]["num_predict"] = max_tokens
+        if max_tokens:
+            payload["options"]["num_predict"] = max_tokens
 
-            # Add JSON format if requested
-            if response_format and response_format.get("type") == "json_object":
-                payload["format"] = "json"
-                logger.debug(f"🔧 Requesting JSON format from Ollama")
+        # Add JSON format if requested
+        if response_format and response_format.get("type") == "json_object":
+            payload["format"] = "json"
+            logger.debug(f"🔧 Requesting JSON format from Ollama")
 
-            # Make request
-            logger.debug(f"📤 Sending to Ollama: model={self.model}, format={payload.get('format', 'text')}")
-            response = requests.post(
-                f"{self.base_url}/api/generate",
-                json=payload,
-                timeout=self.timeout,
-            )
-            response.raise_for_status()
+        # Retry logic with exponential backoff
+        last_exception = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                # Make request
+                logger.debug(f"📤 Ollama request (attempt {attempt}/{self.max_retries}): model={self.model}, format={payload.get('format', 'text')}, timeout={self.timeout}s")
 
-            result = response.json()
-            content = result.get("response", "").strip()
+                response = requests.post(
+                    f"{self.base_url}/api/generate",
+                    json=payload,
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
 
-            logger.debug(f"📥 Ollama response length: {len(content)} chars")
-            logger.debug(f"Generated response: '{content[:100]}...'")
+                result = response.json()
+                content = result.get("response", "").strip()
 
-            return {"content": content}
+                logger.debug(f"✅ Ollama response received (attempt {attempt}): {len(content)} chars")
+                logger.debug(f"Generated response: '{content[:100]}...'")
 
-        except Exception as e:
-            logger.error(f"Error generating with Ollama: {e}")
-            raise
+                return {"content": content}
+
+            except requests.exceptions.Timeout as e:
+                last_exception = e
+                if attempt < self.max_retries:
+                    # Exponential backoff: 2s, 4s, 8s, 16s, ...
+                    wait_time = min(2 ** attempt, 30)  # Cap at 30 seconds
+                    logger.warning(f"⚠️ Ollama timeout on attempt {attempt}/{self.max_retries}. Retrying in {wait_time}s... (timeout was {self.timeout}s)")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"❌ Ollama timeout after {self.max_retries} attempts (timeout: {self.timeout}s)")
+
+            except requests.exceptions.ConnectionError as e:
+                last_exception = e
+                if attempt < self.max_retries:
+                    wait_time = min(2 ** attempt, 30)
+                    logger.warning(f"⚠️ Ollama connection error on attempt {attempt}/{self.max_retries}. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"❌ Ollama connection failed after {self.max_retries} attempts")
+
+            except requests.exceptions.RequestException as e:
+                last_exception = e
+                if attempt < self.max_retries:
+                    wait_time = min(2 ** attempt, 30)
+                    logger.warning(f"⚠️ Ollama request error on attempt {attempt}/{self.max_retries}: {e}. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"❌ Ollama request failed after {self.max_retries} attempts: {e}")
+
+            except Exception as e:
+                # For unexpected errors, don't retry
+                logger.error(f"❌ Unexpected error during Ollama generation: {e}")
+                raise
+
+        # If we get here, all retries failed
+        logger.error(f"❌ Ollama generation failed after {self.max_retries} attempts")
+        raise last_exception if last_exception else Exception("Ollama generation failed")
 
     def _messages_to_prompt(self, messages: List[Dict[str, str]]) -> str:
         """

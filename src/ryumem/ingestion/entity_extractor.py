@@ -98,22 +98,28 @@ class EntityExtractor:
             entity_type = entity_data["entity_type"]
 
             # Search for similar existing entities
+            logger.info(f"🔍 Searching for similar entities to '{entity_name}' (threshold: {self.similarity_threshold})")
             similar = self.db.search_similar_entities(
                 embedding=embedding,
                 group_id=group_id,
                 threshold=self.similarity_threshold,
-                limit=1,
+                limit=5,  # Get top 5 to see what's available
                 user_id=user_id,
             )
 
             if similar:
-                # Found similar entity - update it
+                # Log all similar entities found
+                logger.info(f"📊 Found {len(similar)} similar entities for '{entity_name}':")
+                for idx, sim_entity in enumerate(similar, 1):
+                    logger.info(f"   {idx}. '{sim_entity['name']}' - similarity: {sim_entity['similarity']:.4f}, mentions: {sim_entity.get('mentions', 0)}")
+
+                # Use the most similar entity
                 existing = similar[0]
                 entity_uuid = existing["uuid"]
 
-                logger.debug(
-                    f"Resolved '{entity_name}' to existing entity '{existing['name']}' "
-                    f"(similarity: {existing['similarity']:.3f})"
+                logger.info(
+                    f"✅ Deduplicating: '{entity_name}' → existing entity '{existing['name']}' "
+                    f"(UUID: {entity_uuid[:8]}..., similarity: {existing['similarity']:.4f}, mentions: {existing.get('mentions', 0)} → {existing.get('mentions', 0) + 1})"
                 )
 
                 # Create entity node with existing UUID to update mentions
@@ -136,6 +142,7 @@ class EntityExtractor:
             else:
                 # No similar entity found - create new one
                 entity_uuid = str(uuid4())
+                logger.info(f"✨ Creating NEW entity '{entity_name}' (type: {entity_type}, UUID: {entity_uuid[:8]}...)")
 
                 entity = EntityNode(
                     uuid=entity_uuid,
@@ -154,7 +161,7 @@ class EntityExtractor:
                 resolved_entities.append(entity)
                 entity_map[entity_name.lower().replace(" ", "_")] = entity_uuid
 
-                logger.debug(f"Created new entity '{entity_name}' ({entity_type})")
+                logger.info(f"💾 Saved new entity '{entity_name}' to database")
 
         logger.info(
             f"Resolved {len(resolved_entities)} entities "

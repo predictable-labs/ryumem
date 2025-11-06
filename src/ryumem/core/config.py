@@ -55,8 +55,8 @@ class RyumemConfig(BaseModel):
 
     # Extraction settings
     entity_similarity_threshold: float = Field(
-        default=0.7,
-        description="Cosine similarity threshold for entity deduplication (0.0-1.0)",
+        default=0.65,
+        description="Cosine similarity threshold for entity deduplication (0.0-1.0). Lowered to 0.65 for better deduplication.",
         ge=0.0,
         le=1.0
     )
@@ -105,8 +105,8 @@ class RyumemConfig(BaseModel):
         description="Maximum number of retries for API calls"
     )
     timeout_seconds: int = Field(
-        default=30,
-        description="Timeout for API calls in seconds"
+        default=180,
+        description="Timeout for API calls in seconds (increased for remote Ollama servers)"
     )
 
     @field_validator("llm_provider")
