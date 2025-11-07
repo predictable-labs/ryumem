@@ -272,6 +272,9 @@ class Ryumem:
         strategy: str = "hybrid",
         similarity_threshold: Optional[float] = None,
         max_depth: int = 2,
+        min_rrf_score: Optional[float] = None,
+        min_bm25_score: Optional[float] = None,
+        rrf_k: Optional[int] = None,
     ) -> SearchResult:
         """
         Search the memory system.
@@ -284,6 +287,9 @@ class Ryumem:
             strategy: Search strategy - "semantic", "traversal", or "hybrid" (default: "hybrid")
             similarity_threshold: Minimum similarity threshold (default: from config)
             max_depth: Maximum depth for graph traversal (default: 2)
+            min_rrf_score: Minimum RRF score threshold for hybrid search (default: 0.025)
+            min_bm25_score: Minimum BM25 score threshold for keyword search (default: 0.1)
+            rrf_k: RRF constant for hybrid search (default: 60)
 
         Returns:
             SearchResult with entities, edges, and scores
@@ -314,6 +320,14 @@ class Ryumem:
             similarity_threshold=similarity_threshold,
             max_depth=max_depth,
         )
+
+        # Override with explicit parameters if provided
+        if min_rrf_score is not None:
+            config.min_rrf_score = min_rrf_score
+        if min_bm25_score is not None:
+            config.min_bm25_score = min_bm25_score
+        if rrf_k is not None:
+            config.rrf_k = rrf_k
 
         return self.search_engine.search(config)
 

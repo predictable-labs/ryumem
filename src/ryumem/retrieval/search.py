@@ -313,6 +313,10 @@ class SearchEngine:
         scores: Dict[str, float] = {}
 
         for entity_uuid, score in entity_results:
+            # Apply BM25 score threshold
+            if score < config.min_bm25_score:
+                continue
+
             # Get entity from DB
             entity_data = self.db.get_entity_by_uuid(entity_uuid)
             if entity_data:
@@ -336,6 +340,10 @@ class SearchEngine:
         edges: List[EntityEdge] = []
 
         for edge_uuid, score in edge_results:
+            # Apply BM25 score threshold
+            if score < config.min_bm25_score:
+                continue
+
             # Get edge from DB
             edge_data = self.db.get_edge_by_uuid(edge_uuid)
             if edge_data:
@@ -355,7 +363,7 @@ class SearchEngine:
                     edges.append(edge)
                     scores[edge.uuid] = score
 
-        logger.info(f"BM25 search found {len(entities)} entities, {len(edges)} edges")
+        logger.info(f"BM25 search found {len(entities)} entities, {len(edges)} edges (threshold: {config.min_bm25_score})")
 
         return SearchResult(
             entities=entities[:config.limit],
@@ -386,24 +394,35 @@ class SearchEngine:
         # Merge results using RRF (3-way fusion)
         merged_entities, merged_edges, merged_scores = self._reciprocal_rank_fusion(
             results=[semantic_result, bm25_result, traversal_result],
-            k=60,  # RRF constant
+            k=config.rrf_k,  # Use configurable RRF constant
         )
+
+        # Filter by minimum RRF score threshold
+        filtered_entities = [
+            e for e in merged_entities
+            if merged_scores.get(e.uuid, 0.0) >= config.min_rrf_score
+        ]
+        filtered_edges = [
+            e for e in merged_edges
+            if merged_scores.get(e.uuid, 0.0) >= config.min_rrf_score
+        ]
 
         # Sort by score and limit
         sorted_entities = sorted(
-            merged_entities,
+            filtered_entities,
             key=lambda e: merged_scores.get(e.uuid, 0.0),
             reverse=True
         )[:config.limit]
 
         sorted_edges = sorted(
-            merged_edges,
+            filtered_edges,
             key=lambda e: merged_scores.get(e.uuid, 0.0),
             reverse=True
         )[:config.limit]
 
         logger.info(
-            f"Hybrid search found {len(sorted_entities)} entities, {len(sorted_edges)} edges"
+            f"Hybrid search found {len(sorted_entities)} entities, {len(sorted_edges)} edges "
+            f"(RRF threshold: {config.min_rrf_score}, k={config.rrf_k})"
         )
 
         return SearchResult(

@@ -268,6 +268,26 @@ class SearchConfig(BaseModel):
         default=7,
         description='Days to consider a fact "recent" for update boost'
     )
+    # Hybrid search settings
+    rrf_k: int = Field(
+        default=60,
+        description='RRF constant for hybrid search (default: 60)',
+        ge=1,
+        le=100
+    )
+    min_rrf_score: float = Field(
+        default=0.025,
+        description='Minimum RRF score threshold for hybrid search results (filters weak matches)',
+        ge=0.0,
+        le=1.0
+    )
+    # BM25 settings
+    min_bm25_score: float = Field(
+        default=0.1,
+        description='Minimum BM25 score threshold for keyword search results (higher = stricter)',
+        ge=0.0,
+        le=20.0
+    )
 
 
 class SearchResult(BaseModel):

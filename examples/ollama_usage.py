@@ -95,6 +95,7 @@ def main():
         "Where does Alice work?",
         "What did Bob study?",
         "How are Alice and Bob related?",
+        "My name is John. Hello, how are you?"
     ]
 
     for query in queries:
@@ -104,12 +105,15 @@ def main():
             group_id="ollama_user",
             strategy="hybrid",
             limit=3,
+            min_rrf_score=0.0325,
+            min_bm25_score=0.1,
         )
 
         if results.edges:
             print("   Top facts:")
             for edge in results.edges[:3]:
-                print(f"     - {edge.fact}")
+                score = results.scores.get(edge.uuid, 0.0)
+                print(f"     - [Score: {score:.4f}] {edge.fact}")
         else:
             print("   No results found")
 
