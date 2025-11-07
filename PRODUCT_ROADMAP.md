@@ -160,3 +160,13 @@ Based on current state and likely impact:
 | Streaming & Async | Medium | Medium | 🟢 Low |
 | Plugin System | Low | High | 🟢 Low |
 | Export Formats | Low | Low | 🟢 Low |
+
+## Usecases
+
+Basically, gathering relavant information from memory and sending it to 
+
+- Get employe benefits information for a certain user (user's history is mostly static and store with us)
+    - Out of pocket health insurance charges
+    - co payment calculation in given scenarios for the users
+- Health/medicine?? 
+- what value is a tool providing in your agentic flow, so that your LLM can decide which tool to call
