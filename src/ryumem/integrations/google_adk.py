@@ -4,6 +4,11 @@ Google ADK Integration for Ryumem.
 This module provides zero-boilerplate memory integration with Google's Agent Developer Kit.
 No need to write custom search/save functions - just call enable_memory() and you're done!
 
+Architecture:
+- ryumem_customer_id: Identifies your company/app using Ryumem (required)
+- user_id: Identifies end users of your app - each user gets isolated memory (optional per-session)
+- session_id: Tracks individual conversation threads (handled by Google ADK)
+
 Example:
     ```python
     from google import genai
@@ -15,8 +20,14 @@ Example:
         instruction="You are a helpful assistant with memory."
     )
 
-    # One line to enable memory!
-    enable_memory(agent, user_id="user_123", db_path="./memory.db")
+    # One line to enable memory for your company's agent!
+    enable_memory(
+        agent,
+        ryumem_customer_id="my_company",  # Your company using Ryumem
+        db_path="./memory.db"
+    )
+
+    # The agent will use user_id from each session's runner.run(user_id=...) call
     ```
 """
 
@@ -35,28 +46,33 @@ class RyumemGoogleADK:
     This class creates search and save functions that can be automatically
     registered as tools with Google ADK agents, eliminating boilerplate code.
 
+    Multi-tenancy Architecture:
+    - ryumem_customer_id: Identifies the company/app using Ryumem (required)
+    - user_id: Identifies individual end users - each gets isolated memory (optional, can be per-session)
+    - session_id: Tracks conversation threads (handled by Google ADK sessions)
+
     Args:
         ryumem: Initialized Ryumem instance
-        user_id: User identifier for memory isolation
-        group_id: Optional group identifier (defaults to user_id)
+        ryumem_customer_id: Customer/app identifier (your company using Ryumem)
+        user_id: Default user identifier (optional - can be provided per tool call)
         auto_save: If True, automatically save all queries (default: False)
     """
 
     def __init__(
         self,
         ryumem: Ryumem,
-        user_id: str,
-        group_id: Optional[str] = None,
+        ryumem_customer_id: str,
+        user_id: Optional[str] = None,
         auto_save: bool = False
     ):
         self.ryumem = ryumem
-        self.user_id = user_id
-        self.group_id = group_id or user_id
+        self.ryumem_customer_id = ryumem_customer_id
+        self.user_id = user_id  # Default user_id, can be None
         self.auto_save = auto_save
 
-        logger.info(f"Initialized RyumemGoogleADK for user: {user_id}")
+        logger.info(f"Initialized RyumemGoogleADK for customer: {ryumem_customer_id}, default_user: {user_id or 'dynamic'}")
 
-    def search_memory(self, query: str, limit: int = 5) -> Dict[str, Any]:
+    def search_memory(self, query: str, user_id: Optional[str] = None, limit: int = 5) -> Dict[str, Any]:
         """
         Auto-generated search function for retrieving memories.
 
@@ -64,17 +80,22 @@ class RyumemGoogleADK:
 
         Args:
             query: Natural language query to search memories
+            user_id: User identifier (optional - uses instance default if not provided)
             limit: Maximum number of memories to return
 
         Returns:
             Dict with status and memories or no_memories indicator
         """
-        logger.info(f"Searching memory for: {query}")
+        # Use provided user_id or fall back to instance default
+        effective_user_id = user_id or self.user_id
+
+        logger.info(f"Searching memory for user '{effective_user_id}': {query}")
 
         try:
             results = self.ryumem.search(
                 query=query,
-                group_id=self.group_id,
+                group_id=self.ryumem_customer_id,
+                user_id=effective_user_id,
                 strategy="hybrid",
                 limit=limit
             )
@@ -89,14 +110,14 @@ class RyumemGoogleADK:
                     }
                     for edge in results.edges
                 ]
-                logger.info(f"Found {len(memories)} memories")
+                logger.info(f"Found {len(memories)} memories for user '{effective_user_id}'")
                 return {
                     "status": "success",
                     "count": len(memories),
                     "memories": memories
                 }
             else:
-                logger.info("No memories found")
+                logger.info(f"No memories found for user '{effective_user_id}'")
                 return {
                     "status": "no_memories",
                     "message": "No relevant memories found for this query"
@@ -109,7 +130,7 @@ class RyumemGoogleADK:
                 "message": str(e)
             }
 
-    def save_memory(self, content: str, source: str = "text") -> Dict[str, Any]:
+    def save_memory(self, content: str, user_id: Optional[str] = None, source: str = "text") -> Dict[str, Any]:
         """
         Auto-generated save function for persisting memories.
 
@@ -117,12 +138,16 @@ class RyumemGoogleADK:
 
         Args:
             content: Information to save to memory
+            user_id: User identifier (optional - uses instance default if not provided)
             source: Episode type - must be "text", "message", or "json"
 
         Returns:
             Dict with status and episode_id
         """
-        logger.info(f"Saving memory: {content[:50]}...")
+        # Use provided user_id or fall back to instance default
+        effective_user_id = user_id or self.user_id
+
+        logger.info(f"Saving memory for user '{effective_user_id}': {content[:50]}...")
 
         try:
             # Validate source type
@@ -132,12 +157,12 @@ class RyumemGoogleADK:
 
             episode_id = self.ryumem.add_episode(
                 content=content,
-                group_id=self.group_id,
-                user_id=self.user_id,
+                group_id=self.ryumem_customer_id,
+                user_id=effective_user_id,
                 source=source,
                 metadata={"integration": "google_adk"}
             )
-            logger.info(f"Saved memory with episode_id: {episode_id}")
+            logger.info(f"Saved memory for user '{effective_user_id}' with episode_id: {episode_id}")
             return {
                 "status": "success",
                 "episode_id": episode_id,
@@ -150,22 +175,27 @@ class RyumemGoogleADK:
                 "message": str(e)
             }
 
-    def get_entity_context(self, entity_name: str) -> Dict[str, Any]:
+    def get_entity_context(self, entity_name: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Auto-generated function to get full context about an entity.
 
         Args:
             entity_name: Name of the entity to look up
+            user_id: User identifier (optional - uses instance default if not provided)
 
         Returns:
             Dict with entity information and related facts
         """
-        logger.info(f"Getting context for entity: {entity_name}")
+        # Use provided user_id or fall back to instance default
+        effective_user_id = user_id or self.user_id
+
+        logger.info(f"Getting context for entity '{entity_name}' for user '{effective_user_id}'")
 
         try:
             context = self.ryumem.get_entity_context(
                 entity_name=entity_name,
-                group_id=self.group_id
+                group_id=self.ryumem_customer_id,
+                user_id=effective_user_id
             )
 
             if context:
@@ -202,7 +232,8 @@ class RyumemGoogleADK:
 
 def enable_memory(
     agent,
-    user_id: str,
+    ryumem_customer_id: str,
+    user_id: Optional[str] = None,
     db_path: str = "./memory.db",
     ryumem_instance: Optional[Ryumem] = None,
     **ryumem_kwargs
@@ -213,17 +244,23 @@ def enable_memory(
     This is the primary entry point for integrating Ryumem with Google ADK.
     It automatically creates and registers memory tools with your agent.
 
+    Multi-tenancy Architecture:
+    - ryumem_customer_id: Identifies your company/app (required) - all your users' data is grouped here
+    - user_id: Identifies individual end users (optional) - can be set as default or passed per tool call
+    - session_id: Conversation threads (handled by Google ADK sessions)
+
     Args:
         agent: Google ADK Agent instance to add memory to
-        user_id: User identifier for memory isolation
+        ryumem_customer_id: Customer/app identifier (your company using Ryumem)
+        user_id: Optional default user identifier. If None, user_id must be passed to each tool call
         db_path: Path to SQLite database file (default: "./memory.db")
         ryumem_instance: Optional pre-configured Ryumem instance
-        **ryumem_kwargs: Additional arguments to pass to Ryumem constructor
+        **ryumem_kwargs: Additional arguments to pass to Ryumem constructor (e.g., llm_provider, llm_model)
 
     Returns:
         RyumemGoogleADK instance for advanced usage (optional)
 
-    Example:
+    Example - Multi-user scenario (recommended):
         ```python
         from google import genai
         from ryumem.integrations import enable_memory
@@ -231,11 +268,30 @@ def enable_memory(
         agent = genai.Agent(
             name="assistant",
             model="gemini-2.0-flash",
-            instruction="You are a helpful assistant."
+            instruction=\"\"\"You are a helpful assistant with memory.
+            When using memory tools, always pass the current user_id parameter.\"\"\"
         )
 
-        # One line to enable memory!
-        enable_memory(agent, user_id="user_123")
+        # Enable memory for your company's agent
+        enable_memory(
+            agent,
+            ryumem_customer_id="my_company"  # Your company
+            # user_id is None - will be provided per tool call
+        )
+
+        # Each session uses a different user_id
+        # runner.run(user_id="alice", ...) - Alice's memories
+        # runner.run(user_id="bob", ...) - Bob's memories
+        ```
+
+    Example - Single user scenario:
+        ```python
+        # If you have a single-user agent (e.g., personal assistant)
+        enable_memory(
+            agent,
+            ryumem_customer_id="my_company",
+            user_id="alice"  # Fixed user
+        )
         ```
     """
     # Create or use existing Ryumem instance
@@ -249,6 +305,7 @@ def enable_memory(
     # Create memory integration
     memory = RyumemGoogleADK(
         ryumem=ryumem,
+        ryumem_customer_id=ryumem_customer_id,
         user_id=user_id
     )
 
