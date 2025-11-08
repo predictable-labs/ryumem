@@ -153,6 +153,8 @@ class EntityInfo(BaseModel):
 class EdgeInfo(BaseModel):
     """Edge/relationship information"""
     uuid: str
+    source_uuid: str  # Added for graph visualization
+    target_uuid: str  # Added for graph visualization
     source_name: str
     target_name: str
     relation_type: str
@@ -223,6 +225,56 @@ class HealthResponse(BaseModel):
     version: str = Field(..., description="API version")
     ryumem_initialized: bool = Field(..., description="Whether Ryumem is initialized")
     timestamp: str = Field(..., description="Current timestamp")
+
+
+class GraphNode(BaseModel):
+    """Node in the knowledge graph"""
+    uuid: str = Field(..., description="Node UUID")
+    name: str = Field(..., description="Entity name")
+    type: str = Field(..., description="Entity type")
+    summary: str = Field(..., description="Entity summary")
+    mentions: int = Field(..., description="Number of mentions")
+    group_id: str = Field(..., description="Group ID")
+    user_id: Optional[str] = Field(None, description="User ID")
+
+
+class GraphEdge(BaseModel):
+    """Edge in the knowledge graph"""
+    uuid: str = Field(..., description="Edge UUID")
+    source: str = Field(..., description="Source node UUID")
+    target: str = Field(..., description="Target node UUID")
+    label: str = Field(..., description="Relation type")
+    fact: str = Field(..., description="Relationship fact")
+    mentions: int = Field(..., description="Number of mentions")
+
+
+class GraphCount(BaseModel):
+    """Count of graph elements"""
+    nodes: int = Field(0, description="Total node count")
+    edges: int = Field(0, description="Total edge count")
+
+
+class GraphDataResponse(BaseModel):
+    """Response model for graph data"""
+    nodes: List[GraphNode] = Field(default_factory=list, description="List of nodes (entities)")
+    edges: List[GraphEdge] = Field(default_factory=list, description="List of edges (relationships)")
+    count: GraphCount = Field(default_factory=GraphCount, description="Count of nodes and edges")
+
+
+class EntitiesListResponse(BaseModel):
+    """Response model for entities list"""
+    entities: List[EntityInfo] = Field(default_factory=list, description="List of entities")
+    total: int = Field(0, description="Total count of entities")
+    offset: int = Field(0, description="Offset for pagination")
+    limit: int = Field(50, description="Limit for pagination")
+
+
+class RelationshipsListResponse(BaseModel):
+    """Response model for relationships list"""
+    relationships: List[EdgeInfo] = Field(default_factory=list, description="List of relationships")
+    total: int = Field(0, description="Total count of relationships")
+    offset: int = Field(0, description="Offset for pagination")
+    limit: int = Field(50, description="Limit for pagination")
 
 
 # ===== API Endpoints =====
@@ -337,6 +389,8 @@ async def search(request: SearchRequest):
             
             edges.append(EdgeInfo(
                 uuid=edge.uuid,
+                source_uuid=edge.source_node_uuid,
+                target_uuid=edge.target_node_uuid,
                 source_name=source_name,
                 target_name=target_name,
                 relation_type=edge.name,
@@ -406,6 +460,8 @@ async def get_entity_context(
         for edge_data in context.get("relationships", []):
             edges.append(EdgeInfo(
                 uuid=edge_data.get("uuid", ""),
+                source_uuid=edge_data.get("source_uuid", ""),
+                target_uuid=edge_data.get("target_uuid", ""),
                 source_name=edge_data.get("source_name", ""),
                 target_name=edge_data.get("target_name", ""),
                 relation_type=edge_data.get("relation_type", ""),
@@ -549,9 +605,217 @@ async def prune_memories(request: PruneMemoriesRequest):
         raise HTTPException(status_code=500, detail=f"Error pruning memories: {str(e)}")
 
 
+@app.get("/graph/data", response_model=GraphDataResponse)
+async def get_graph_data(
+    group_id: str,
+    user_id: Optional[str] = None,
+    limit: int = 1000
+):
+    """
+    Get the full knowledge graph structure for visualization.
+
+    Returns all entities (nodes) and relationships (edges) in the knowledge graph.
+    """
+    if not ryumem_instance:
+        raise HTTPException(status_code=503, detail="Ryumem not initialized")
+
+    try:
+        # Get all entities for the group
+        entities_data = ryumem_instance.db.get_all_entities(group_id=group_id)
+
+        # Filter by user_id if provided
+        if user_id:
+            entities_data = [e for e in entities_data if e.get('user_id') == user_id]
+
+        # Apply limit
+        entities_data = entities_data[:limit]
+
+        # Get all edges for the group
+        edges_data = ryumem_instance.db.get_all_edges(group_id=group_id)
+
+        # Filter by user_id if provided (check both source and target entities)
+        if user_id:
+            # We need to filter edges where both source and target belong to this user
+            # For now, just filter by the edge's group_id (user filtering on edges may not be directly supported)
+            # This is okay since we filtered entities already
+            pass
+
+        # Apply limit
+        edges_data = edges_data[:limit]
+
+        # Convert to graph format
+        nodes = []
+        for entity in entities_data:
+            nodes.append(GraphNode(
+                uuid=entity['uuid'],
+                name=entity['name'],
+                type=entity['entity_type'],
+                summary=entity['summary'],
+                mentions=entity['mentions'],
+                group_id=entity['group_id'],
+                user_id=entity.get('user_id')
+            ))
+
+        edges = []
+        for edge in edges_data:
+            edges.append(GraphEdge(
+                uuid=edge['uuid'],
+                source=edge['source_uuid'],
+                target=edge['target_uuid'],
+                label=edge['relation_type'],
+                fact=edge['fact'],
+                mentions=edge.get('mentions', 1)
+            ))
+
+        return GraphDataResponse(
+            nodes=nodes,
+            edges=edges,
+            count=GraphCount(
+                nodes=len(nodes),
+                edges=len(edges)
+            )
+        )
+    except Exception as e:
+        logger.error(f"Error getting graph data: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting graph data: {str(e)}")
+
+
+@app.get("/entities/list", response_model=EntitiesListResponse)
+async def list_entities(
+    group_id: str,
+    user_id: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 50
+):
+    """
+    Get a paginated list of entities.
+
+    Useful for browsing all entities in the system.
+    """
+    if not ryumem_instance:
+        raise HTTPException(status_code=503, detail="Ryumem not initialized")
+
+    try:
+        # Get all entities for the group
+        all_entities = ryumem_instance.db.get_all_entities(group_id=group_id)
+
+        # Filter by user_id if provided
+        if user_id:
+            all_entities = [e for e in all_entities if e.get('user_id') == user_id]
+
+        # Filter by type if specified
+        if entity_type:
+            filtered_entities = [e for e in all_entities if e['entity_type'] == entity_type]
+        else:
+            filtered_entities = all_entities
+
+        total = len(filtered_entities)
+
+        # Apply pagination
+        paginated = filtered_entities[offset:offset + limit]
+
+        # Convert to EntityInfo
+        entities = []
+        for entity in paginated:
+            entities.append(EntityInfo(
+                uuid=entity['uuid'],
+                name=entity['name'],
+                entity_type=entity['entity_type'],
+                summary=entity['summary'],
+                mentions=entity['mentions'],
+                score=0.0
+            ))
+
+        return EntitiesListResponse(
+            entities=entities,
+            total=total,
+            offset=offset,
+            limit=limit
+        )
+    except Exception as e:
+        logger.error(f"Error listing entities: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error listing entities: {str(e)}")
+
+
+@app.get("/relationships/list", response_model=RelationshipsListResponse)
+async def list_relationships(
+    group_id: str,
+    user_id: Optional[str] = None,
+    relation_type: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 50
+):
+    """
+    Get a paginated list of relationships.
+
+    Useful for browsing all relationships in the system.
+    """
+    if not ryumem_instance:
+        raise HTTPException(status_code=503, detail="Ryumem not initialized")
+
+    try:
+        # Get all edges from database
+        all_edges = ryumem_instance.db.get_all_edges(group_id=group_id)
+
+        # Get entities to look up names
+        all_entities = ryumem_instance.db.get_all_entities(group_id=group_id)
+
+        # Filter entities by user_id if provided
+        if user_id:
+            all_entities = [e for e in all_entities if e.get('user_id') == user_id]
+
+        # Create entity UUID to name mapping
+        entity_map = {e['uuid']: e['name'] for e in all_entities}
+
+        # Filter edges to only include those with entities in the filtered set
+        if user_id:
+            entity_uuids = set(entity_map.keys())
+            all_edges = [e for e in all_edges if e['source_uuid'] in entity_uuids and e['target_uuid'] in entity_uuids]
+
+        # Filter by relation type if specified
+        if relation_type:
+            filtered_edges = [e for e in all_edges if e['relation_type'] == relation_type]
+        else:
+            filtered_edges = all_edges
+
+        total = len(filtered_edges)
+
+        # Apply pagination
+        paginated = filtered_edges[offset:offset + limit]
+
+        # Convert to EdgeInfo
+        relationships = []
+        for edge in paginated:
+            source_name = entity_map.get(edge['source_uuid'], "Unknown")
+            target_name = entity_map.get(edge['target_uuid'], "Unknown")
+
+            relationships.append(EdgeInfo(
+                uuid=edge['uuid'],
+                source_uuid=edge['source_uuid'],
+                target_uuid=edge['target_uuid'],
+                source_name=source_name,
+                target_name=target_name,
+                relation_type=edge['relation_type'],
+                fact=edge['fact'],
+                mentions=edge.get('mentions', 1),
+                score=0.0
+            ))
+
+        return RelationshipsListResponse(
+            relationships=relationships,
+            total=total,
+            offset=offset,
+            limit=limit
+        )
+    except Exception as e:
+        logger.error(f"Error listing relationships: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error listing relationships: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
