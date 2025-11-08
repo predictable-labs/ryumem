@@ -48,16 +48,16 @@ async def lifespan(app: FastAPI):
     
     # Initialize Ryumem
     db_path = os.getenv("RYUMEM_DB_PATH", "./data/ollama_memory.db")
-    
-    # Ensure data directory exists
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    
+
+    # Dashboard server runs in READ_ONLY mode for concurrent access
+    # This allows usage scripts to have READ_WRITE access while the dashboard reads
     ryumem_instance = Ryumem(
         db_path=db_path,
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         llm_provider=os.getenv("RYUMEM_LLM_PROVIDER", "openai"),
         llm_model=os.getenv("RYUMEM_LLM_MODEL", "gpt-4o-mini"),
         ollama_base_url=os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://localhost:11434"),
+        read_only=True,  # Enable concurrent access with usage scripts
     )
     
     logger.info(f"Ryumem initialized: {ryumem_instance}")

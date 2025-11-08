@@ -83,9 +83,11 @@ class Ryumem:
 
         self.config = config
 
-        # Ensure database directory exists
-        db_path_obj = Path(config.db_path)
-        db_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure database directory exists (skip for read-only mode)
+        read_only = getattr(config, 'read_only', False)
+        if not read_only:
+            db_path_obj = Path(config.db_path)
+            db_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
         # Initialize core components
         logger.info("Initializing Ryumem...")
@@ -93,6 +95,7 @@ class Ryumem:
         self.db = RyugraphDB(
             db_path=config.db_path,
             embedding_dimensions=config.embedding_dimensions,
+            read_only=read_only,
         )
 
         # Initialize LLM client based on provider

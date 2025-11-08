@@ -28,25 +28,29 @@ class RyugraphDB:
     node/edge CRUD operations, and embedding-based similarity search.
     """
 
-    def __init__(self, db_path: str, embedding_dimensions: int = 3072):
+    def __init__(self, db_path: str, embedding_dimensions: int = 3072, read_only: bool = False):
         """
         Initialize Ryugraph database connection.
 
         Args:
             db_path: Path to the ryugraph database directory
             embedding_dimensions: Dimension of embedding vectors (default: 3072 for text-embedding-3-large)
+            read_only: If True, open database in READ_ONLY mode (allows concurrent access)
         """
         self.db_path = db_path
         self.embedding_dimensions = embedding_dimensions
+        self.read_only = read_only
 
         # Create database and connection
-        self.db = ryugraph.Database(db_path)
+        self.db = ryugraph.Database(db_path, read_only=read_only)
         self.conn = ryugraph.Connection(self.db)
 
-        # Initialize schema
-        self.create_schema()
+        # Initialize schema only in read-write mode
+        if not read_only:
+            self.create_schema()
 
-        logger.info(f"Initialized RyugraphDB at {db_path} with {embedding_dimensions}D embeddings")
+        mode = "READ_ONLY" if read_only else "READ_WRITE"
+        logger.info(f"Initialized RyugraphDB at {db_path} with {embedding_dimensions}D embeddings in {mode} mode")
 
     def create_schema(self) -> None:
         """

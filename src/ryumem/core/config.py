@@ -20,6 +20,10 @@ class RyumemConfig(BaseModel):
         default="./data/ryumem.db",
         description="Path to ryugraph database directory"
     )
+    read_only: bool = Field(
+        default=False,
+        description="Open database in READ_ONLY mode (allows concurrent access, no writes)"
+    )
 
     # LLM Provider settings
     llm_provider: str = Field(
