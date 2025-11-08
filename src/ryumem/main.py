@@ -85,8 +85,8 @@ class Ryumem:
 
         # Ensure database directory exists (skip for read-only mode)
         read_only = getattr(config, 'read_only', False)
+        db_path_obj = Path(config.db_path)
         if not read_only:
-            db_path_obj = Path(config.db_path)
             db_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
         # Initialize core components
