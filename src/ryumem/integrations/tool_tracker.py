@@ -55,7 +55,6 @@ class ToolTracker:
     Args:
         ryumem: Ryumem instance for storing tool usage data
         ryumem_customer_id: Customer/company identifier
-        async_classification: If True, classification doesn't block tool execution
         classification_model: LLM model to use for task classification
         summarize_large_outputs: Automatically summarize outputs >max_output_length
         max_output_length: Maximum length for output storage (chars)
@@ -70,7 +69,6 @@ class ToolTracker:
         self,
         ryumem: Ryumem,
         ryumem_customer_id: str,
-        async_classification: bool = True,
         classification_model: str = "gpt-4o-mini",
         summarize_large_outputs: bool = True,
         max_output_length: int = 1000,
@@ -82,7 +80,6 @@ class ToolTracker:
     ):
         self.ryumem = ryumem
         self.ryumem_customer_id = ryumem_customer_id
-        self.async_classification = async_classification
         self.classification_model = classification_model
         self.summarize_large_outputs = summarize_large_outputs
         self.max_output_length = max_output_length
@@ -91,15 +88,11 @@ class ToolTracker:
         self.exclude_params = exclude_params or ["password", "api_key", "secret", "token"]
         self.sampling_rate = sampling_rate
         self.fail_open = fail_open
-
-        # Store background tasks to prevent garbage collection
-        self._background_tasks = set()
-
         self._execution_count = 0
 
         logger.info(
             f"Initialized ToolTracker for customer: {ryumem_customer_id}, "
-            f"sampling: {sampling_rate*100}%, async: {async_classification}"
+            f"sampling: {sampling_rate*100}%"
         )
 
     def _should_track(self) -> bool:
@@ -203,14 +196,12 @@ Respond with ONLY a JSON object in this format:
 }}"""
 
         try:
-            print(f"[CLASSIFY] Starting classification for {tool_name}")
             # Use Ryumem's LLM client for classification
             # Format as messages array for OpenAI API
             messages = [
                 {"role": "user", "content": prompt}
             ]
 
-            print(f"[CLASSIFY] Calling LLM for {tool_name}")
             # We're in a background task - just call it directly
             # The task itself is async, so this won't block the main event loop
             response = self.ryumem.llm_client.generate(
@@ -218,14 +209,11 @@ Respond with ONLY a JSON object in this format:
                 temperature=0.3,
                 max_tokens=200,
             )
-            print(f"[CLASSIFY] LLM responded for {tool_name}")
 
             # Parse JSON response from content
             content = response.get("content", "")
-            print(f"[CLASSIFY] Parsing JSON response for {tool_name}: {content[:100]}")
             result = json.loads(content.strip())
 
-            print(f"[CLASSIFY] ✅ Classification complete for {tool_name}: {result.get('task_type')}")
             return {
                 "task_type": result.get("task_type", "unknown"),
                 "description": result.get("description", ""),
@@ -233,7 +221,6 @@ Respond with ONLY a JSON object in this format:
             }
 
         except Exception as e:
-            print(f"[CLASSIFY ERROR] Task classification failed for {tool_name}: {e}")
             logger.error(f"Task classification failed: {e}")
             return {
                 "task_type": "unknown",
@@ -285,21 +272,16 @@ Respond with ONLY a JSON object in this format:
         from ryumem.core.models import EntityNode
 
         try:
-            print(f"[ENTITY] Creating TOOL entity for {tool_name}")
             # Create or update TOOL entity
-            print(f"[ENTITY] Getting embedding for {tool_name}")
             tool_embedding = self.ryumem.embedding_client.embed(tool_name)
-            print(f"[ENTITY] Got embedding for {tool_name}")
 
             # Search for existing tool entity
-            print(f"[ENTITY] Searching for existing TOOL entity")
             similar_tools = self.ryumem.db.search_similar_entities(
                 embedding=tool_embedding,
                 group_id=self.ryumem_customer_id,
                 threshold=0.9,  # High threshold for exact tool match
                 limit=1,
             )
-            print(f"[ENTITY] Search complete, found {len(similar_tools)} similar tools")
 
             if similar_tools:
                 # Update existing tool entity (increment mentions)
@@ -419,13 +401,10 @@ Respond with ONLY a JSON object in this format:
     ) -> None:
         """Store tool execution as an episode in the knowledge graph."""
         try:
-            print(f"[STORE] Starting async storage for {tool_name}")
             # Classify task type
-            print(f"[STORE] Classifying task for {tool_name}")
             classification = await self._classify_task_async(
                 tool_name, tool_description, input_params, context
             )
-            print(f"[STORE] Classified {tool_name} as: {classification['task_type']}")
 
             # Sanitize and summarize data
             sanitized_params = self._sanitize_params(input_params)
@@ -455,7 +434,6 @@ Respond with ONLY a JSON object in this format:
             }
 
             # Store as episode (use 'json' source since we have structured metadata)
-            print(f"[STORE] Storing episode for {tool_name}")
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 _thread_pool,
@@ -467,10 +445,8 @@ Respond with ONLY a JSON object in this format:
                     metadata=metadata,
                 )
             )
-            print(f"[STORE] Episode stored for {tool_name}")
 
             # Create TOOL and TASK_TYPE entities directly
-            print(f"[STORE] Creating entities for {tool_name}")
             await loop.run_in_executor(
                 _thread_pool,
                 lambda: self._create_tool_entities(
@@ -482,16 +458,13 @@ Respond with ONLY a JSON object in this format:
                     duration_ms=duration_ms,
                 )
             )
-            print(f"[STORE] Entities created for {tool_name}")
 
             logger.info(
                 f"Tracked tool execution: {tool_name} ({classification['task_type']}) "
                 f"- {'success' if success else 'failure'} in {duration_ms}ms"
             )
-            print(f"[STORE] ✅ Successfully stored tracking data for {tool_name}")
 
         except Exception as e:
-            print(f"[STORE ERROR] Failed to store {tool_name}: {e}")
             logger.error(f"Failed to store tool execution: {e}")
             if not self.fail_open:
                 raise
@@ -802,7 +775,6 @@ Respond with ONLY a JSON object in this format:
 
         # Create tracking wrapper
         async def tracking_run_async(*, args, tool_context):
-            print(f"[TRACK] {tool_name} run_async called with args: {args}")
             start_time = time.time()
             success = True
             error = None
@@ -811,12 +783,10 @@ Respond with ONLY a JSON object in this format:
             try:
                 # Call original run_async
                 output = await original_run_async(args=args, tool_context=tool_context)
-                print(f"[TRACK] {tool_name} completed successfully")
                 return output
             except Exception as e:
                 success = False
                 error = str(e)
-                print(f"[TRACK] {tool_name} failed with error: {e}")
                 raise
             finally:
                 duration_ms = int((time.time() - start_time) * 1000)
@@ -825,30 +795,21 @@ Respond with ONLY a JSON object in this format:
                 user_id = getattr(tool_context, 'user_id', None)
                 session_id = getattr(tool_context, 'session_id', None)
 
-                print(f"[TRACK] Calling track_execution for {tool_name}")
-                # We're already in an async context, so create a background task directly
                 try:
-                    # Create background task for storage (don't await - fire and forget)
-                    task = asyncio.create_task(
-                        self._store_tool_execution_async(
-                            tool_name=tool_name,
-                            tool_description=tool_description,
-                            input_params=args,
-                            output=output,
-                            success=success,
-                            error=error,
-                            duration_ms=duration_ms,
-                            user_id=user_id,
-                            session_id=session_id,
-                            context=None,
-                        )
+                    # Store tracking data synchronously
+                    await self._store_tool_execution_async(
+                        tool_name=tool_name,
+                        tool_description=tool_description,
+                        input_params=args,
+                        output=output,
+                        success=success,
+                        error=error,
+                        duration_ms=duration_ms,
+                        user_id=user_id,
+                        session_id=session_id,
+                        context=None,
                     )
-                    # Keep reference to prevent garbage collection
-                    self._background_tasks.add(task)
-                    task.add_done_callback(self._background_tasks.discard)
-                    print(f"[TRACK] Background task created for {tool_name}")
                 except Exception as track_error:
-                    print(f"[TRACK ERROR] Tracking failed for {tool_name}: {track_error}")
                     logger.error(f"Tracking failed for {tool_name}: {track_error}")
                     if not self.fail_open:
                         raise
@@ -896,8 +857,7 @@ def enable_tool_tracking(
         tracker = enable_tool_tracking(
             agent,
             ryumem=memory.ryumem,
-            sampling_rate=0.1,
-            async_classification=True
+            sampling_rate=0.1
         )
         ```
 
@@ -910,8 +870,7 @@ def enable_tool_tracking(
             agent,
             ryumem_customer_id="my_company",
             track_tools=True,
-            sampling_rate=0.1,
-            async_classification=True
+            sampling_rate=0.1
         )
         ```
     """

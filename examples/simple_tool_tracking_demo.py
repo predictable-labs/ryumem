@@ -116,7 +116,6 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
         track_tools=True,  # 🎯 This is all you need for tool tracking!
         llm_provider="openai",
         llm_model="gpt-4o-mini",
-        async_classification=True,  # Use synchronous for now to avoid event loop issues
     )
     print("✓ Tool tracking enabled automatically!")
     print()
@@ -160,59 +159,55 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
                 print(f"🤖 Agent: {final_response}")
                 print()
 
-    # Wait for async classification to complete
-    print("Waiting for async tool classification...")
-    await asyncio.sleep(10)  # Wait for background async tasks to complete
-    print("Done waiting")
+    # Tool tracking happens automatically during execution - no waiting needed!
+
+    # Show tool analytics
+    print("=" * 60)
+    print("📊 Tool Analytics:")
+    print("=" * 60)
     print()
 
-    # # Show tool analytics
-    # print("=" * 60)
-    # print("📊 Tool Analytics:")
-    # print("=" * 60)
-    # print()
+    # Get tools used for information retrieval
+    print("Tools used for information retrieval:")
+    tools = memory.ryumem.get_tools_for_task(
+        task_type="information_retrieval",
+        group_id="demo_company",
+        limit=5
+    )
+    if tools:
+        for tool in tools:
+            print(f"  • {tool['tool_name']}: {tool['usage_count']} uses, "
+                  f"{tool['success_rate']*100:.1f}% success")
+    else:
+        print("  (No results yet - BM25 index updating)")
+    print()
 
-    # # Get tools used for information retrieval
-    # print("Tools used for information retrieval:")
-    # tools = memory.ryumem.get_tools_for_task(
-    #     task_type="information_retrieval",
-    #     group_id="demo_company",
-    #     limit=5
-    # )
-    # if tools:
-    #     for tool in tools:
-    #         print(f"  • {tool['tool_name']}: {tool['usage_count']} uses, "
-    #               f"{tool['success_rate']*100:.1f}% success")
-    # else:
-    #     print("  (No results yet - BM25 index updating)")
-    # print()
+    # Get user's tool preferences
+    print("User tool preferences:")
+    prefs = memory.ryumem.get_user_tool_preferences(
+        user_id=USER_ID,
+        group_id="demo_company",
+        limit=5
+    )
+    if prefs:
+        for pref in prefs:
+            print(f"  • {pref['tool_name']}: {pref['usage_count']} uses")
+    else:
+        print("  (No results yet - BM25 index updating)")
+    print()
 
-    # # Get user's tool preferences
-    # print("User tool preferences:")
-    # prefs = memory.ryumem.get_user_tool_preferences(
-    #     user_id=USER_ID,
-    #     group_id="demo_company",
-    #     limit=5
-    # )
-    # if prefs:
-    #     for pref in prefs:
-    #         print(f"  • {pref['tool_name']}: {pref['usage_count']} uses")
-    # else:
-    #     print("  (No results yet - BM25 index updating)")
-    # print()
-
-    # print("=" * 60)
-    # print()
-    # print("✅ Demo completed!")
-    # print()
-    # print("💡 Key takeaway: Tool tracking happened automatically!")
-    # print("   You used the agent normally via runner.run() - no wrapped functions needed!")
-    # print()
-    # print("Next steps:")
-    # print("  - View tracked data in dashboard: http://localhost:3000")
-    # print("  - Check entities for TOOL and TASK_TYPE in the graph")
-    # print("  - See TOOL_TRACKING_CONSIDERATIONS.md for details")
-    # print()
+    print("=" * 60)
+    print()
+    print("✅ Demo completed!")
+    print()
+    print("💡 Key takeaway: Tool tracking happened automatically!")
+    print("   You used the agent normally via runner.run() - no wrapped functions needed!")
+    print()
+    print("Next steps:")
+    print("  - View tracked data in dashboard: http://localhost:3000")
+    print("  - Check entities for TOOL and TASK_TYPE in the graph")
+    print("  - See TOOL_TRACKING_CONSIDERATIONS.md for details")
+    print()
 
 
 if __name__ == "__main__":

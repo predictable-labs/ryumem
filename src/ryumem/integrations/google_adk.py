@@ -258,7 +258,7 @@ def enable_memory(
         ryumem_instance: Optional pre-configured Ryumem instance
         track_tools: If True, automatically track all tool usage for analytics (default: False)
         **kwargs: Additional arguments for Ryumem constructor (llm_provider, llm_model)
-                  and tool tracking config (async_classification, sampling_rate, etc.)
+                  and tool tracking config (sampling_rate, etc.)
 
     Returns:
         RyumemGoogleADK instance for advanced usage (optional)
@@ -308,7 +308,7 @@ def enable_memory(
     ryumem_params = {'llm_provider', 'llm_model', 'openai_api_key', 'ollama_base_url', 'embedding_provider', 'embedding_model'}
 
     # Known tool tracking parameters
-    tracking_params = {'async_classification', 'summarize_large_outputs', 'max_output_length',
+    tracking_params = {'summarize_large_outputs', 'max_output_length',
                       'sanitize_pii', 'sampling_rate', 'fail_open', 'include_tools', 'exclude_tools'}
 
     for key, value in kwargs.items():

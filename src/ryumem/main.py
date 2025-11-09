@@ -460,7 +460,7 @@ class Ryumem:
         for edge in results.edges:
             # Get source node to check if it's an Episode
             episode_node = next(
-                (n for n in results.nodes if n.uuid == edge.source_node_uuid),
+                (n for n in results.episodes if n.uuid == edge.source_node_uuid),
                 None
             )
 
@@ -564,7 +564,7 @@ class Ryumem:
         # Aggregate statistics
         for edge in results.edges:
             episode_node = next(
-                (n for n in results.nodes if n.uuid == edge.source_node_uuid),
+                (n for n in results.episodes if n.uuid == edge.source_node_uuid),
                 None
             )
 
@@ -643,7 +643,7 @@ class Ryumem:
 
         for edge in results.edges:
             episode_node = next(
-                (n for n in results.nodes if n.uuid == edge.source_node_uuid),
+                (n for n in results.episodes if n.uuid == edge.source_node_uuid),
                 None
             )
 
