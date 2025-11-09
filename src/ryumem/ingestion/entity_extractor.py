@@ -5,8 +5,9 @@ Extracts entities from text and resolves them against existing entities in the g
 
 import hashlib
 import logging
+import math
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from ryumem.core.graph_db import RyugraphDB
@@ -16,6 +17,25 @@ from ryumem.utils.embeddings import EmbeddingClient
 from ryumem.utils.llm import LLMClient
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_user_id(user_id: Any) -> Optional[str]:
+    """
+    Sanitize user_id value from database.
+    Converts nan (float) to None, which can happen when SQLite returns NULL.
+
+    Args:
+        user_id: Raw user_id value from database
+
+    Returns:
+        None if user_id is None or nan, otherwise the string value
+    """
+    if user_id is None:
+        return None
+    # Check if it's a float nan
+    if isinstance(user_id, float) and math.isnan(user_id):
+        return None
+    return user_id
 
 
 class EntityExtractor:
@@ -314,7 +334,7 @@ Create an updated summary:"""
                 summary=new_summary,
                 mentions=entity_data["mentions"],
                 group_id=entity_data["group_id"],
-                user_id=entity_data.get("user_id"),
+                user_id=_sanitize_user_id(entity_data.get("user_id")),
             )
             self.db.save_entity(entity)
             logger.debug(f"Updated summary for entity {entity_data['name']}")

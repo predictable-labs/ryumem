@@ -4,9 +4,10 @@ Implements semantic search, graph traversal, BM25, and hybrid search strategies.
 """
 
 import logging
+import math
 from collections import defaultdict
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ryumem.core.graph_db import RyugraphDB
 from ryumem.core.models import EntityEdge, EntityNode, SearchConfig, SearchResult
@@ -14,6 +15,25 @@ from ryumem.retrieval.bm25 import BM25Index
 from ryumem.utils.embeddings import EmbeddingClient
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_user_id(user_id: Any) -> Optional[str]:
+    """
+    Sanitize user_id value from database.
+    Converts nan (float) to None, which can happen when SQLite returns NULL.
+
+    Args:
+        user_id: Raw user_id value from database
+
+    Returns:
+        None if user_id is None or nan, otherwise the string value
+    """
+    if user_id is None:
+        return None
+    # Check if it's a float nan
+    if isinstance(user_id, float) and math.isnan(user_id):
+        return None
+    return user_id
 
 
 class SearchEngine:
@@ -331,7 +351,7 @@ class SearchEngine:
                             summary=entity_data.get("summary", ""),
                             mentions=entity_data["mentions"],
                             group_id=entity_data["group_id"],
-                            user_id=entity_data.get("user_id"),
+                            user_id=_sanitize_user_id(entity_data.get("user_id")),
                         )
                         entities.append(entity)
                         scores[entity.uuid] = score

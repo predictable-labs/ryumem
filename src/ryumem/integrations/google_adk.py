@@ -236,7 +236,8 @@ def enable_memory(
     user_id: Optional[str] = None,
     db_path: str = "./memory.db",
     ryumem_instance: Optional[Ryumem] = None,
-    **ryumem_kwargs
+    track_tools: bool = False,
+    **kwargs
 ) -> RyumemGoogleADK:
     """
     One-line function to enable memory for a Google ADK agent.
@@ -255,7 +256,9 @@ def enable_memory(
         user_id: Optional default user identifier. If None, user_id must be passed to each tool call
         db_path: Path to SQLite database file (default: "./memory.db")
         ryumem_instance: Optional pre-configured Ryumem instance
-        **ryumem_kwargs: Additional arguments to pass to Ryumem constructor (e.g., llm_provider, llm_model)
+        track_tools: If True, automatically track all tool usage for analytics (default: False)
+        **kwargs: Additional arguments for Ryumem constructor (llm_provider, llm_model)
+                  and tool tracking config (async_classification, sampling_rate, etc.)
 
     Returns:
         RyumemGoogleADK instance for advanced usage (optional)
@@ -284,16 +287,39 @@ def enable_memory(
         # runner.run(user_id="bob", ...) - Bob's memories
         ```
 
-    Example - Single user scenario:
+    Example - Single user scenario with tool tracking:
         ```python
-        # If you have a single-user agent (e.g., personal assistant)
+        # Enable memory + automatic tool tracking
         enable_memory(
             agent,
             ryumem_customer_id="my_company",
-            user_id="alice"  # Fixed user
+            user_id="alice",
+            track_tools=True,  # Track all tool usage!
+            llm_provider="openai",
+            llm_model="gpt-4o-mini"
         )
         ```
     """
+    # Separate Ryumem kwargs from tool tracking kwargs
+    ryumem_kwargs = {}
+    tool_tracking_kwargs = {}
+
+    # Known Ryumem parameters
+    ryumem_params = {'llm_provider', 'llm_model', 'openai_api_key', 'ollama_base_url', 'embedding_provider', 'embedding_model'}
+
+    # Known tool tracking parameters
+    tracking_params = {'async_classification', 'summarize_large_outputs', 'max_output_length',
+                      'sanitize_pii', 'sampling_rate', 'fail_open', 'include_tools', 'exclude_tools'}
+
+    for key, value in kwargs.items():
+        if key in ryumem_params:
+            ryumem_kwargs[key] = value
+        elif key in tracking_params:
+            tool_tracking_kwargs[key] = value
+        else:
+            # Default to Ryumem kwargs for unknown parameters
+            ryumem_kwargs[key] = value
+
     # Create or use existing Ryumem instance
     if ryumem_instance is None:
         ryumem = Ryumem(db_path=db_path, **ryumem_kwargs)
@@ -317,5 +343,20 @@ def enable_memory(
     # Add memory tools
     agent.tools.extend(memory.tools)
     logger.info(f"Added {len(memory.tools)} memory tools to agent: {agent.name if hasattr(agent, 'name') else 'unnamed'}")
+
+    # Enable tool tracking if requested
+    if track_tools:
+        from .tool_tracker import ToolTracker
+
+        tracker = ToolTracker(
+            ryumem=ryumem,
+            ryumem_customer_id=ryumem_customer_id,
+            **tool_tracking_kwargs
+        )
+        tracker.wrap_agent_tools(agent)
+        logger.info(f"Tool tracking enabled for agent: {agent.name if hasattr(agent, 'name') else 'unnamed'}")
+
+        # Store tracker reference in memory object for advanced usage
+        memory.tracker = tracker
 
     return memory
