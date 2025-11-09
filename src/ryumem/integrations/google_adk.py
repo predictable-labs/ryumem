@@ -351,6 +351,7 @@ def enable_memory(
         tracker = ToolTracker(
             ryumem=ryumem,
             ryumem_customer_id=ryumem_customer_id,
+            default_user_id=user_id,  # Pass default user_id to tracker
             **tool_tracking_kwargs
         )
         tracker.wrap_agent_tools(agent)

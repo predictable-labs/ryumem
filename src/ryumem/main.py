@@ -630,51 +630,53 @@ class Ryumem:
             )
             # Returns: [{"tool_name": "web_search", "usage_count": 50, ...}, ...]
         """
-        # Search for all tool executions by this user
-        results = self.search(
-            query="tool execution",
-            group_id=group_id,
-            user_id=user_id,
-            limit=1000,
-            strategy="bm25",
+        import json
+
+        # Query episodes directly from database (doesn't require BM25 index)
+        result = self.db.conn.execute(
+            """
+            MATCH (e:Episode)
+            WHERE e.user_id = $user_id AND e.group_id = $group_id
+            RETURN e.metadata
+            """,
+            {"user_id": user_id, "group_id": group_id}
         )
 
         tool_usage = {}
 
-        for edge in results.edges:
-            episode_node = next(
-                (n for n in results.episodes if n.uuid == edge.source_node_uuid),
-                None
-            )
+        while result.has_next():
+            metadata_str = result.get_next()[0]
+            if not metadata_str:
+                continue
 
-            # Check if this is a tool execution episode
-            if episode_node and hasattr(episode_node, 'entity_type') and episode_node.entity_type == "Episode":
-                if not hasattr(episode_node, 'metadata'):
-                    continue
+            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+            tool_name = metadata.get('tool_name')
 
-                metadata = episode_node.metadata or {}
-                if metadata.get('tool_name') and metadata.get('user_id') == user_id:
-                    tool_name = metadata['tool_name']
+            if tool_name:
+                if tool_name not in tool_usage:
+                    tool_usage[tool_name] = {
+                        'tool_name': tool_name,
+                        'usage_count': 0,
+                        'success_count': 0,
+                        'task_types': set(),
+                    }
 
-                    if tool_name not in tool_usage:
-                        tool_usage[tool_name] = {
-                            'tool_name': tool_name,
-                            'usage_count': 0,
-                            'success_count': 0,
-                            'most_common_task': None,
-                        }
+                tool_usage[tool_name]['usage_count'] += 1
+                if metadata.get('success'):
+                    tool_usage[tool_name]['success_count'] += 1
 
-                    tool_usage[tool_name]['usage_count'] += 1
-                    if metadata.get('success'):
-                        tool_usage[tool_name]['success_count'] += 1
+                task_type = metadata.get('task_type')
+                if task_type:
+                    tool_usage[tool_name]['task_types'].add(task_type)
 
-        # Calculate success rates
+        # Calculate success rates and format
         result_list = []
         for usage in tool_usage.values():
             usage['success_rate'] = (
                 usage['success_count'] / usage['usage_count']
                 if usage['usage_count'] > 0 else 0.0
             )
+            usage['task_types'] = list(usage['task_types'])  # Convert set to list
             del usage['success_count']
             result_list.append(usage)
 

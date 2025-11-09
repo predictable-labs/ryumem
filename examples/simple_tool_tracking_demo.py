@@ -167,23 +167,8 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     print("=" * 60)
     print()
 
-    # Get tools used for information retrieval
-    print("Tools used for information retrieval:")
-    tools = memory.ryumem.get_tools_for_task(
-        task_type="information_retrieval",
-        group_id="demo_company",
-        limit=5
-    )
-    if tools:
-        for tool in tools:
-            print(f"  • {tool['tool_name']}: {tool['usage_count']} uses, "
-                  f"{tool['success_rate']*100:.1f}% success")
-    else:
-        print("  (No results yet - BM25 index updating)")
-    print()
-
-    # Get user's tool preferences
-    print("User tool preferences:")
+    # Get user's tool preferences (this works immediately!)
+    print(f"Tools used by {USER_ID}:")
     prefs = memory.ryumem.get_user_tool_preferences(
         user_id=USER_ID,
         group_id="demo_company",
@@ -191,9 +176,12 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     )
     if prefs:
         for pref in prefs:
-            print(f"  • {pref['tool_name']}: {pref['usage_count']} uses")
+            task_types = ', '.join(pref.get('task_types', []))
+            print(f"  • {pref['tool_name']}")
+            print(f"    - {pref['usage_count']} uses, {pref['success_rate']*100:.0f}% success")
+            print(f"    - Used for: {task_types}")
     else:
-        print("  (No results yet - BM25 index updating)")
+        print("  (No tools tracked yet)")
     print()
 
     print("=" * 60)

@@ -277,6 +277,11 @@ class RelationshipsListResponse(BaseModel):
     limit: int = Field(50, description="Limit for pagination")
 
 
+class EntityTypesResponse(BaseModel):
+    """Response model for entity types"""
+    entity_types: List[str] = Field(default_factory=list, description="List of unique entity types")
+
+
 # ===== API Endpoints =====
 
 @app.get("/", response_model=HealthResponse)
@@ -736,6 +741,35 @@ async def list_entities(
     except Exception as e:
         logger.error(f"Error listing entities: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error listing entities: {str(e)}")
+
+
+@app.get("/entities/types", response_model=EntityTypesResponse)
+async def get_entity_types(group_id: str):
+    """
+    Get all unique entity types in the database for a given group.
+
+    This is useful for populating dropdowns and filters in the UI.
+    """
+    if not ryumem_instance:
+        raise HTTPException(status_code=503, detail="Ryumem not initialized")
+
+    try:
+        # Query database for unique entity types
+        result = ryumem_instance.db.conn.execute(
+            "MATCH (e:Entity) WHERE e.group_id = $group_id RETURN DISTINCT e.entity_type ORDER BY e.entity_type",
+            {"group_id": group_id}
+        )
+
+        entity_types = []
+        while result.has_next():
+            entity_type = result.get_next()[0]
+            if entity_type:  # Skip null types
+                entity_types.append(entity_type)
+
+        return EntityTypesResponse(entity_types=entity_types)
+    except Exception as e:
+        logger.error(f"Error getting entity types: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting entity types: {str(e)}")
 
 
 @app.get("/relationships/list", response_model=RelationshipsListResponse)

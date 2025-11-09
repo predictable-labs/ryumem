@@ -55,6 +55,7 @@ class ToolTracker:
     Args:
         ryumem: Ryumem instance for storing tool usage data
         ryumem_customer_id: Customer/company identifier
+        default_user_id: Default user ID to use when tool context doesn't provide one
         classification_model: LLM model to use for task classification
         summarize_large_outputs: Automatically summarize outputs >max_output_length
         max_output_length: Maximum length for output storage (chars)
@@ -69,6 +70,7 @@ class ToolTracker:
         self,
         ryumem: Ryumem,
         ryumem_customer_id: str,
+        default_user_id: Optional[str] = None,
         classification_model: str = "gpt-4o-mini",
         summarize_large_outputs: bool = True,
         max_output_length: int = 1000,
@@ -80,6 +82,7 @@ class ToolTracker:
     ):
         self.ryumem = ryumem
         self.ryumem_customer_id = ryumem_customer_id
+        self.default_user_id = default_user_id
         self.classification_model = classification_model
         self.summarize_large_outputs = summarize_large_outputs
         self.max_output_length = max_output_length
@@ -792,7 +795,8 @@ Respond with ONLY a JSON object in this format:
                 duration_ms = int((time.time() - start_time) * 1000)
 
                 # Extract user_id and session_id if available in tool_context
-                user_id = getattr(tool_context, 'user_id', None)
+                # Fall back to default_user_id if tool_context doesn't provide one
+                user_id = getattr(tool_context, 'user_id', None) or self.default_user_id
                 session_id = getattr(tool_context, 'session_id', None)
 
                 try:

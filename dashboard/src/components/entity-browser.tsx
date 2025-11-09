@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from 'react';
-import { Entity, EntitiesListResponse } from '@/lib/api';
+import { Entity, EntitiesListResponse, api } from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,17 +20,8 @@ interface EntityBrowserProps {
   onEntityClick?: (entity: Entity) => void;
   onLoadMore?: (offset: number) => void;
   onFilterChange?: (entityType?: string) => void;
+  groupId: string;  // Add groupId to props
 }
-
-const entityTypes = [
-  { value: 'all', label: 'All Types' },
-  { value: 'PERSON', label: 'Person' },
-  { value: 'ORGANIZATION', label: 'Organization' },
-  { value: 'LOCATION', label: 'Location' },
-  { value: 'EVENT', label: 'Event' },
-  { value: 'CONCEPT', label: 'Concept' },
-  { value: 'OBJECT', label: 'Object' },
-];
 
 const getEntityColor = (type: string) => {
   const colors: Record<string, string> = {
@@ -40,6 +31,8 @@ const getEntityColor = (type: string) => {
     EVENT: 'bg-pink-100 text-pink-800 border-pink-200',
     CONCEPT: 'bg-purple-100 text-purple-800 border-purple-200',
     OBJECT: 'bg-orange-100 text-orange-800 border-orange-200',
+    TOOL: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+    TASK_TYPE: 'bg-indigo-100 text-indigo-800 border-indigo-200',
   };
   return colors[type] || 'bg-gray-100 text-gray-800 border-gray-200';
 };
@@ -49,10 +42,39 @@ export function EntityBrowser({
   onEntityClick,
   onLoadMore,
   onFilterChange,
+  groupId,
 }: EntityBrowserProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('all');
   const [filteredEntities, setFilteredEntities] = useState<Entity[]>(data.entities);
+  const [entityTypes, setEntityTypes] = useState<Array<{value: string; label: string}>>([
+    { value: 'all', label: 'All Types' }
+  ]);
+
+  // Fetch entity types when component mounts or groupId changes
+  useEffect(() => {
+    async function fetchEntityTypes() {
+      try {
+        const response = await api.getEntityTypes(groupId);
+        const types = [
+          { value: 'all', label: 'All Types' },
+          ...response.entity_types.map(type => ({
+            value: type,
+            label: type.split('_').map(word =>
+              word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+            ).join(' ')
+          }))
+        ];
+        setEntityTypes(types);
+      } catch (error) {
+        console.error('Failed to fetch entity types:', error);
+      }
+    }
+
+    if (groupId) {
+      fetchEntityTypes();
+    }
+  }, [groupId]);
 
   useEffect(() => {
     let filtered = data.entities;

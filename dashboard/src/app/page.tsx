@@ -209,6 +209,7 @@ export default function Home() {
                     onEntityClick={handleEntityClick}
                     onLoadMore={handleEntitiesLoadMore}
                     onFilterChange={handleEntityTypeChange}
+                    groupId={groupId}
                   />
                 ) : (
                   <Card>
