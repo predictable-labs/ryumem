@@ -92,6 +92,12 @@ class RyumemGoogleADK:
         logger.info(f"Searching memory for user '{effective_user_id}': {query}")
 
         try:
+            logger.info("="*80)
+            logger.info(f"🔍 SEARCH_MEMORY CALLED by agent!")
+            logger.info(f"   Query: '{query}'")
+            logger.info(f"   User: {effective_user_id}, Group: {self.ryumem_customer_id}")
+            logger.info("="*80)
+            
             results = self.ryumem.search(
                 query=query,
                 group_id=self.ryumem_customer_id,
@@ -360,4 +366,52 @@ def enable_memory(
         # Store tracker reference in memory object for advanced usage
         memory.tracker = tracker
 
+        # Automatically enhance agent instructions to use tool history
+        _enhance_agent_instructions_for_tool_tracking(agent)
+
     return memory
+
+
+def _enhance_agent_instructions_for_tool_tracking(agent):
+    """
+    Automatically append instructions to agent for using tool tracking history.
+    
+    This enables the agent to search memory for past tool usage patterns
+    when deciding which tools to use, making tool tracking actionable.
+    
+    Args:
+        agent: Google ADK Agent instance
+    """
+    tool_tracking_instruction = """
+
+TOOL SELECTION GUIDANCE (IMPORTANT):
+Before selecting which tool to use for a user's request, you MUST first call search_memory to check for past tool usage patterns.
+
+REQUIRED WORKFLOW:
+1. FIRST: Call search_memory with a query like "tool execution for [task type]" or "which tools were used for [similar query]?"
+2. THEN: Review the tool usage history and success rates from memory
+3. FINALLY: Select the most appropriate tool based on past performance
+
+Example queries for search_memory:
+- "Which tools were used for weather queries?"
+- "Tool execution for information retrieval tasks"
+- "What tools successfully handled external API calls?"
+
+This historical context will help you make better tool selections based on proven success rates."""
+
+    try:
+        # Check if agent has instruction attribute
+        if hasattr(agent, 'instruction'):
+            current_instruction = agent.instruction or ""
+            
+            # Only append if not already present
+            if "TOOL SELECTION GUIDANCE" not in current_instruction:
+                agent.instruction = current_instruction + tool_tracking_instruction
+                logger.info("Enhanced agent instructions with tool tracking guidance")
+            else:
+                logger.debug("Agent already has tool tracking guidance")
+        else:
+            logger.warning("Agent doesn't have 'instruction' attribute - cannot enhance instructions")
+    except Exception as e:
+        logger.error(f"Failed to enhance agent instructions: {e}")
+        # Non-critical - don't fail if we can't modify instructions
