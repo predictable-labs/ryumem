@@ -64,6 +64,7 @@ class RyugraphDB:
                 uuid STRING PRIMARY KEY,
                 name STRING,
                 content STRING,
+                content_embedding FLOAT[{self.embedding_dimensions}],
                 source STRING,
                 source_description STRING,
                 created_at TIMESTAMP,
@@ -158,6 +159,18 @@ class RyugraphDB:
             """
         )
 
+        # TRIGGERED edges (Episode -> Episode) for query-to-tool-execution linking
+        self.execute(
+            """
+            CREATE REL TABLE IF NOT EXISTS TRIGGERED(
+                FROM Episode TO Episode,
+                uuid STRING,
+                created_at TIMESTAMP,
+                group_id STRING
+            );
+            """
+        )
+
         logger.info("Graph schema created successfully")
 
     def execute(self, query: str, parameters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -195,6 +208,7 @@ class RyugraphDB:
         ON CREATE SET
             e.name = $name,
             e.content = $content,
+            e.content_embedding = $content_embedding,
             e.source = $source,
             e.source_description = $source_description,
             e.created_at = $created_at,
@@ -206,7 +220,8 @@ class RyugraphDB:
             e.metadata = $metadata,
             e.entity_edges = $entity_edges
         ON MATCH SET
-            e.entity_edges = $entity_edges
+            e.entity_edges = $entity_edges,
+            e.content_embedding = $content_embedding
         RETURN e.uuid AS uuid
         """
 
@@ -214,6 +229,7 @@ class RyugraphDB:
             "uuid": episode.uuid,
             "name": episode.name,
             "content": episode.content,
+            "content_embedding": getattr(episode, 'content_embedding', None),
             "source": episode.source.value,
             "source_description": episode.source_description,
             "created_at": episode.created_at,
@@ -241,24 +257,49 @@ class RyugraphDB:
         """
         import json
 
+        # Build dynamic query based on whether name_embedding is provided
+        # Only update embedding if explicitly provided (not None)
+        # This preserves existing embeddings when updating entity properties like summary
+        if entity.name_embedding is not None:
+            embedding_clause = f"e.name_embedding = CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]')"
+        else:
+            embedding_clause = None
+            # Log warning if creating a new entity without embedding
+            # (Note: MERGE will handle both create and update, but we can't distinguish here)
+            logger.debug(f"Saving entity '{entity.name}' without name_embedding - will preserve existing or leave NULL")
+
+        # Build CREATE clause
+        create_fields = [
+            "e.name = $name",
+            "e.entity_type = $entity_type",
+            "e.summary = $summary",
+        ]
+        if embedding_clause:
+            create_fields.append(embedding_clause)
+        create_fields.extend([
+            "e.mentions = $mentions",
+            "e.created_at = $created_at",
+            "e.group_id = $group_id",
+            "e.user_id = $user_id",
+            "e.labels = $labels",
+            "e.attributes = $attributes"
+        ])
+
+        # Build UPDATE clause (on match)
+        update_fields = [
+            "e.mentions = coalesce(e.mentions, 0) + 1",
+            "e.summary = $summary",
+        ]
+        if embedding_clause:
+            update_fields.append(embedding_clause)
+        update_fields.append("e.attributes = $attributes")
+
         query = f"""
         MERGE (e:Entity {{uuid: $uuid}})
         ON CREATE SET
-            e.name = $name,
-            e.entity_type = $entity_type,
-            e.summary = $summary,
-            e.name_embedding = CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]'),
-            e.mentions = $mentions,
-            e.created_at = $created_at,
-            e.group_id = $group_id,
-            e.user_id = $user_id,
-            e.labels = $labels,
-            e.attributes = $attributes
+            {',\n            '.join(create_fields)}
         ON MATCH SET
-            e.mentions = coalesce(e.mentions, 0) + 1,
-            e.summary = $summary,
-            e.name_embedding = CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]'),
-            e.attributes = $attributes
+            {',\n            '.join(update_fields)}
         RETURN e.uuid AS uuid
         """
 
@@ -481,6 +522,70 @@ class RyugraphDB:
 
         return self.execute(query, params)
 
+    def search_similar_episodes(
+        self,
+        embedding: List[float],
+        group_id: str,
+        threshold: float = 0.7,
+        limit: int = 10,
+        user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for episodes similar to the given embedding.
+
+        Args:
+            embedding: Query embedding vector
+            group_id: Group ID to filter by
+            threshold: Minimum similarity threshold (0.0-1.0)
+            limit: Maximum number of results
+            user_id: Optional user ID filter
+
+        Returns:
+            List of similar episodes with similarity scores
+        """
+        # Build WHERE conditions
+        conditions = [
+            "ep.content_embedding IS NOT NULL",
+            "ep.group_id = $group_id"
+        ]
+        params = {
+            "embedding": embedding,
+            "group_id": group_id,
+            "threshold": threshold,
+            "limit": limit,
+        }
+
+        if user_id:
+            conditions.append("ep.user_id = $user_id")
+            params["user_id"] = user_id
+
+        where_clause = " AND ".join(conditions)
+
+        query = f"""
+        MATCH (ep:Episode)
+        WHERE {where_clause}
+        WITH ep, array_cosine_similarity(ep.content_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
+        WHERE similarity >= $threshold
+        RETURN
+            ep.uuid AS uuid,
+            ep.name AS name,
+            ep.content AS content,
+            ep.source AS source,
+            ep.source_description AS source_description,
+            ep.created_at AS created_at,
+            ep.valid_at AS valid_at,
+            ep.group_id AS group_id,
+            ep.user_id AS user_id,
+            ep.agent_id AS agent_id,
+            ep.session_id AS session_id,
+            ep.metadata AS metadata,
+            similarity
+        ORDER BY similarity DESC
+        LIMIT $limit
+        """
+
+        return self.execute(query, params)
+
     def search_similar_edges(
         self,
         embedding: List[float],
@@ -693,6 +798,33 @@ class RyugraphDB:
         LIMIT $limit
         """
 
+        return self.execute(query, params)
+
+    def get_episode_entities(
+        self,
+        episode_uuid: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all entities mentioned in an episode.
+
+        Args:
+            episode_uuid: UUID of the episode
+
+        Returns:
+            List of entities with their properties
+        """
+        query = """
+        MATCH (ep:Episode {uuid: $episode_uuid})-[:MENTIONS]->(e:Entity)
+        RETURN
+            e.uuid AS uuid,
+            e.name AS name,
+            e.entity_type AS entity_type,
+            e.summary AS summary,
+            e.mentions AS mentions,
+            e.group_id AS group_id
+        """
+
+        params = {"episode_uuid": episode_uuid}
         return self.execute(query, params)
 
     # ===== Community Methods =====

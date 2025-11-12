@@ -106,8 +106,12 @@ class EntityExtractor:
         logger.info(f"Extracted {len(extracted)} raw entities")
 
         # Step 2: Generate embeddings for all extracted entities
-        entity_names = [e["entity"] for e in extracted]
-        embeddings = self.embedding_client.embed_batch(entity_names)
+        # Embed entity name + type for richer semantic context
+        entity_texts = [
+            f"{e['entity']} ({e['entity_type']})"
+            for e in extracted
+        ]
+        embeddings = self.embedding_client.embed_batch(entity_texts)
 
         # Step 3: Resolve each entity (find existing or create new)
         resolved_entities: List[EntityNode] = []

@@ -141,11 +141,15 @@ class EpisodeIngestion:
 
         logger.info(f"Starting ingestion for episode {episode_uuid}")
 
-        # Step 1: Create episode node
+        # Step 1: Create episode node and generate content embedding
+        # Generate embedding for episode content
+        content_embedding = self.embedding_client.embed(content)
+
         episode = EpisodeNode(
             uuid=episode_uuid,
             name=name,
             content=content,
+            content_embedding=content_embedding,
             source=source,
             source_description=source_description,
             created_at=start_time,
@@ -160,7 +164,7 @@ class EpisodeIngestion:
         # Save episode to database
         self.db.save_episode(episode)
         step_duration = (datetime.utcnow() - step_start).total_seconds()
-        logger.info(f"⏱️  [TIMING] Step 1 - Create episode node: {step_duration:.2f}s")
+        logger.info(f"⏱️  [TIMING] Step 1 - Create episode node with embedding: {step_duration:.2f}s")
         logger.debug(f"Created episode node: {episode_uuid}")
 
         # Step 2: Get context from previous episodes

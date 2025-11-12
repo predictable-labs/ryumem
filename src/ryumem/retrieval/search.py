@@ -3,6 +3,7 @@ Search and retrieval system.
 Implements semantic search, graph traversal, BM25, and hybrid search strategies.
 """
 
+import json
 import logging
 import math
 from collections import defaultdict
@@ -10,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ryumem.core.graph_db import RyugraphDB
-from ryumem.core.models import EntityEdge, EntityNode, SearchConfig, SearchResult
+from ryumem.core.models import EntityEdge, EntityNode, EpisodeNode, EpisodeType, SearchConfig, SearchResult
 from ryumem.retrieval.bm25 import BM25Index
 from ryumem.utils.embeddings import EmbeddingClient
 
@@ -76,6 +77,8 @@ class SearchEngine:
             f"query='{config.query[:50]}...', limit={config.limit}"
         )
 
+        logger.warn(f"🔥 SEARCH CONFIG inside search engine: {config}")
+
         # Run base search strategy
         if config.strategy == "semantic":
             results = self._semantic_search(config)
@@ -109,6 +112,12 @@ class SearchEngine:
         """
         Semantic search using embedding similarity.
 
+        New strategy: Episode-first search
+        1. Search episodes by content similarity
+        2. Get entities mentioned in those episodes
+        3. Get relationships between those entities
+        4. Also search entities and edges directly for additional context
+
         Args:
             config: Search configuration
 
@@ -119,8 +128,29 @@ class SearchEngine:
         logger.debug(f"🔍 Generating embedding for query: '{config.query}'")
         query_embedding = self.embedding_client.embed(config.query)
         logger.debug(f"✅ Generated embedding: {len(query_embedding)} dimensions")
+        logger.debug(f"🔍 Query embedding: {query_embedding}")
 
-        # Search similar entities
+        # Step 1: Search similar episodes (NEW)
+        logger.debug(f"🎬 Searching for similar episodes (threshold: {config.similarity_threshold}, limit: {config.limit})")
+        episode_results = self.db.search_similar_episodes(
+            embedding=query_embedding,
+            group_id=config.group_id,
+            threshold=config.similarity_threshold,
+            limit=config.limit,
+            user_id=config.user_id,
+        )
+        logger.debug(f"📊 Found {len(episode_results)} similar episodes")
+
+        # Step 2: Get entities from matched episodes
+        episode_entity_uuids = set()
+        for episode in episode_results:
+            # Get entities mentioned in this episode via MENTIONS edges
+            mentioned_entities = self.db.get_episode_entities(episode["uuid"])
+            episode_entity_uuids.update([e["uuid"] for e in mentioned_entities])
+
+        logger.debug(f"📊 Found {len(episode_entity_uuids)} entities from episodes")
+
+        # Step 3: Search similar entities (direct semantic search)
         logger.debug(f"🔎 Searching for similar entities (threshold: {config.similarity_threshold}, limit: {config.limit})")
         entity_results = self.db.search_similar_entities(
             embedding=query_embedding,
@@ -131,7 +161,7 @@ class SearchEngine:
         )
         logger.debug(f"📊 Found {len(entity_results)} similar entities")
 
-        # Search similar edges
+        # Step 4: Search similar edges
         logger.debug(f"🔎 Searching for similar edges (threshold: {config.similarity_threshold}, limit: {config.limit})")
         edge_results = self.db.search_similar_edges(
             embedding=query_embedding,
@@ -144,7 +174,9 @@ class SearchEngine:
         # Convert to models
         entities: List[EntityNode] = []
         scores: Dict[str, float] = {}
+        seen_entity_uuids = set()
 
+        # Add entities from directly-searched entity results with their similarity scores
         for result in entity_results:
             entity = EntityNode(
                 uuid=result["uuid"],
@@ -156,6 +188,26 @@ class SearchEngine:
             )
             entities.append(entity)
             scores[entity.uuid] = result["similarity"]
+            seen_entity_uuids.add(entity.uuid)
+
+        # Add entities from episodes (if not already included)
+        for entity_uuid in episode_entity_uuids:
+            if entity_uuid not in seen_entity_uuids:
+                # Fetch full entity data
+                entity_data = self.db.get_entity_by_uuid(entity_uuid)
+                if entity_data:
+                    entity = EntityNode(
+                        uuid=entity_data["uuid"],
+                        name=entity_data["name"],
+                        entity_type=entity_data["entity_type"],
+                        summary=entity_data.get("summary", ""),
+                        mentions=entity_data["mentions"],
+                        group_id=entity_data["group_id"],
+                    )
+                    entities.append(entity)
+                    # Give these entities a slightly lower score since they came from episode association
+                    scores[entity.uuid] = config.similarity_threshold * 0.9
+                    seen_entity_uuids.add(entity_uuid)
 
         edges: List[EntityEdge] = []
         for result in edge_results:
@@ -170,16 +222,59 @@ class SearchEngine:
             edges.append(edge)
             scores[edge.uuid] = result["similarity"]
 
-        logger.info(f"Semantic search found {len(entities)} entities, {len(edges)} edges")
+        # Convert episode results to EpisodeNode objects
+        episodes: List[EpisodeNode] = []
+        for result in episode_results:
+            try:
+                # Handle nan values for optional string fields
+                def safe_str_or_none(value):
+                    if value is None or (isinstance(value, float) and math.isnan(value)):
+                        return None
+                    return value
+                
+                # Handle metadata deserialization
+                metadata = result.get("metadata", {})
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except (json.JSONDecodeError, TypeError):
+                        metadata = {}
+                
+                episode = EpisodeNode(
+                    uuid=result["uuid"],
+                    name=result.get("name", ""),
+                    content=result["content"],
+                    source=EpisodeType.from_str(result.get("source", "text")),
+                    source_description=result.get("source_description", ""),
+                    group_id=result["group_id"],
+                    user_id=safe_str_or_none(result.get("user_id")),
+                    agent_id=safe_str_or_none(result.get("agent_id")),
+                    session_id=safe_str_or_none(result.get("session_id")),
+                    metadata=metadata,
+                )
+                episodes.append(episode)
+                scores[episode.uuid] = result["similarity"]
+            except Exception as e:
+                logger.warning(f"Failed to convert episode result to EpisodeNode: {e}, skipping episode {result.get('uuid', 'unknown')}")
+                continue
+
+        logger.info(
+            f"Semantic search found {len(episode_results)} episodes, "
+            f"{len(entities)} entities ({len(episode_entity_uuids)} from episodes), "
+            f"{len(edges)} edges"
+        )
 
         return SearchResult(
             entities=entities,
             edges=edges,
+            episodes=episodes,  # Add episodes to the result!
             scores=scores,
             metadata={
                 "strategy": "semantic",
                 "query": config.query,
                 "threshold": config.similarity_threshold,
+                "episodes_found": len(episode_results),
+                "entities_from_episodes": len(episode_entity_uuids),
             }
         )
 
@@ -408,11 +503,14 @@ class SearchEngine:
         """
         # Run all three search strategies
         semantic_result = self._semantic_search(config)
+        logger.warn(f"🔥 SEMANTIC SEARCH RESULTS: {semantic_result}")
         bm25_result = self._bm25_search(config)
+        logger.warn(f"🔥 BM25 SEARCH RESULTS: {bm25_result}")
         traversal_result = self._traversal_search(config)
+        logger.warn(f"🔥 TRAVERSAL SEARCH RESULTS: {traversal_result}")
 
         # Merge results using RRF (3-way fusion)
-        merged_entities, merged_edges, merged_scores = self._reciprocal_rank_fusion(
+        merged_entities, merged_edges, merged_episodes, merged_scores = self._reciprocal_rank_fusion(
             results=[semantic_result, bm25_result, traversal_result],
             k=config.rrf_k,  # Use configurable RRF constant
         )
@@ -424,6 +522,10 @@ class SearchEngine:
         ]
         filtered_edges = [
             e for e in merged_edges
+            if merged_scores.get(e.uuid, 0.0) >= config.min_rrf_score
+        ]
+        filtered_episodes = [
+            e for e in merged_episodes
             if merged_scores.get(e.uuid, 0.0) >= config.min_rrf_score
         ]
 
@@ -440,14 +542,21 @@ class SearchEngine:
             reverse=True
         )[:config.limit]
 
+        sorted_episodes = sorted(
+            filtered_episodes,
+            key=lambda e: merged_scores.get(e.uuid, 0.0),
+            reverse=True
+        )[:config.limit]
+
         logger.info(
-            f"Hybrid search found {len(sorted_entities)} entities, {len(sorted_edges)} edges "
-            f"(RRF threshold: {config.min_rrf_score}, k={config.rrf_k})"
+            f"Hybrid search found {len(sorted_entities)} entities, {len(sorted_edges)} edges, "
+            f"{len(sorted_episodes)} episodes (RRF threshold: {config.min_rrf_score}, k={config.rrf_k})"
         )
 
         return SearchResult(
             entities=sorted_entities,
             edges=sorted_edges,
+            episodes=sorted_episodes,  # Add episodes to the result!
             scores=merged_scores,
             metadata={
                 "strategy": "hybrid",
@@ -455,6 +564,8 @@ class SearchEngine:
                 "semantic_entities": len(semantic_result.entities),
                 "bm25_entities": len(bm25_result.entities),
                 "traversal_entities": len(traversal_result.entities),
+                "episodes_found": semantic_result.metadata.get("episodes_found", 0),
+                "entities_from_episodes": semantic_result.metadata.get("entities_from_episodes", 0),
             }
         )
 
@@ -462,7 +573,7 @@ class SearchEngine:
         self,
         results: List[SearchResult],
         k: int = 60,
-    ) -> Tuple[List[EntityNode], List[EntityEdge], Dict[str, float]]:
+    ) -> Tuple[List[EntityNode], List[EntityEdge], List[EpisodeNode], Dict[str, float]]:
         """
         Merge multiple search results using Reciprocal Rank Fusion.
 
@@ -473,11 +584,12 @@ class SearchEngine:
             k: RRF constant (typically 60)
 
         Returns:
-            Tuple of (merged_entities, merged_edges, merged_scores)
+            Tuple of (merged_entities, merged_edges, merged_episodes, merged_scores)
         """
-        # Track entities and edges by UUID
+        # Track entities, edges, and episodes by UUID
         entity_map: Dict[str, EntityNode] = {}
         edge_map: Dict[str, EntityEdge] = {}
+        episode_map: Dict[str, EpisodeNode] = {}
         rrf_scores: Dict[str, float] = defaultdict(float)
 
         for result in results:
@@ -491,10 +603,16 @@ class SearchEngine:
                 edge_map[edge.uuid] = edge
                 rrf_scores[edge.uuid] += 1.0 / (k + rank)
 
+            # Process episodes
+            for rank, episode in enumerate(result.episodes, start=1):
+                episode_map[episode.uuid] = episode
+                rrf_scores[episode.uuid] += 1.0 / (k + rank)
+
         merged_entities = list(entity_map.values())
         merged_edges = list(edge_map.values())
+        merged_episodes = list(episode_map.values())
 
-        return merged_entities, merged_edges, dict(rrf_scores)
+        return merged_entities, merged_edges, merged_episodes, dict(rrf_scores)
 
     def get_entity_context(
         self,

@@ -272,7 +272,7 @@ class Ryumem:
         group_id: str,
         user_id: Optional[str] = None,
         limit: int = 10,
-        strategy: str = "hybrid",
+        strategy: str = "semantic",
         similarity_threshold: Optional[float] = None,
         max_depth: int = 2,
         min_rrf_score: Optional[float] = None,
@@ -323,6 +323,8 @@ class Ryumem:
             similarity_threshold=similarity_threshold,
             max_depth=max_depth,
         )
+
+        logger.warn(f"🔥 SEARCH CONFIG: {config}")
 
         # Override with explicit parameters if provided
         if min_rrf_score is not None:

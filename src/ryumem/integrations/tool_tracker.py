@@ -27,6 +27,8 @@ import json
 import inspect
 import functools
 import asyncio
+import threading
+import contextvars
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
@@ -37,12 +39,110 @@ logger = logging.getLogger(__name__)
 # Shared thread pool for blocking operations
 _thread_pool = ThreadPoolExecutor(max_workers=4)
 
+# Context variable for parent episode tracking (async-safe)
+# This allows tool executions to be linked to their triggering user query
+# Uses contextvars instead of threading.local for proper async context propagation
+_query_episode_context = contextvars.ContextVar('query_episode_id', default=None)
+
+# Fallback: Session-based storage for episode tracking
+# Used when contextvars don't propagate correctly across async boundaries
+# Key: (session_id, user_id), Value: episode_id
+# Protected by lock for thread safety
+_session_episode_map: Dict[tuple, str] = {}
+_session_episode_lock = threading.RLock()
+
 # Blacklist of Ryumem memory tools to prevent circular dependencies
 RYUMEM_TOOL_BLACKLIST = {
     "search_memory",
     "save_memory",
     "get_entity_context",
 }
+
+
+def set_current_query_episode(episode_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
+    """
+    Set the current query episode ID in context variable storage.
+
+    This is called when a user query is processed, allowing subsequent
+    tool executions to link back to the query that triggered them.
+
+    Uses dual storage: contextvars (primary) + session map (fallback)
+
+    Args:
+        episode_id: UUID of the user query episode
+        session_id: Optional session ID for fallback storage
+        user_id: Optional user ID for fallback storage
+    """
+    # Primary: Set in context variable
+    _query_episode_context.set(episode_id)
+
+    # Fallback: Store in session map for contexts where contextvars don't propagate
+    if session_id and user_id:
+        with _session_episode_lock:
+            _session_episode_map[(session_id, user_id)] = episode_id
+        logger.debug(f"Set query episode in both contextvar and session map: {episode_id}")
+    else:
+        logger.warn(f"Set query episode in contextvar only (no session/user): {episode_id}")
+
+
+def get_current_query_episode(session_id: Optional[str] = None, user_id: Optional[str] = None) -> Optional[str]:
+    """
+    Get the current query episode ID from context variable storage or session map.
+
+    Tries contextvars first, falls back to session map if not found.
+
+    Args:
+        session_id: Optional session ID for fallback lookup
+        user_id: Optional user ID for fallback lookup
+
+    Returns:
+        Episode ID of the current query, or None if not set
+    """
+    # Try contextvar first (primary mechanism)
+    episode_id = _query_episode_context.get()
+
+    if episode_id:
+        return episode_id
+
+    # Fallback: Try session map (thread-safe)
+    with _session_episode_lock:
+        # Try exact match first: (session_id, user_id)
+        if session_id and user_id:
+            episode_id = _session_episode_map.get((session_id, user_id))
+            if episode_id:
+                logger.debug(f"Retrieved query episode from session map (contextvar was None): {episode_id}")
+                return episode_id
+
+        # If session_id is None (tool_context doesn't provide it), try finding by user_id alone
+        # This happens when Google ADK's tool_context doesn't include session_id
+        if user_id and not session_id:
+            # Search for any entry with matching user_id
+            for (sid, uid), ep_id in _session_episode_map.items():
+                if uid == user_id:
+                    logger.debug(f"Retrieved query episode from session map by user_id only (session_id was None): {ep_id}")
+                    return ep_id
+
+    return None
+
+
+def clear_current_query_episode(session_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
+    """
+    Clear the current query episode from context variable storage and session map.
+
+    Args:
+        session_id: Optional session ID for clearing from session map
+        user_id: Optional user ID for clearing from session map
+    """
+    # Clear from contextvar
+    _query_episode_context.set(None)
+
+    # Clear from session map (thread-safe)
+    if session_id and user_id:
+        with _session_episode_lock:
+            _session_episode_map.pop((session_id, user_id), None)
+        logger.debug(f"Cleared query episode from both contextvar and session map")
+    else:
+        logger.debug("Cleared query episode from contextvar only")
 
 
 class ToolTracker:
@@ -248,6 +348,56 @@ Respond with ONLY a JSON object in this format:
         finally:
             loop.close()
 
+    def _link_episodes(
+        self,
+        parent_episode_uuid: str,
+        child_episode_uuid: str,
+    ) -> None:
+        """
+        Create a TRIGGERED relationship between query and tool execution episodes.
+
+        This links a tool execution episode back to the user query that triggered it,
+        allowing for hierarchical episode tracking.
+
+        Args:
+            parent_episode_uuid: UUID of the parent query episode
+            child_episode_uuid: UUID of the child tool execution episode
+        """
+        try:
+            from uuid import uuid4
+
+            # Create a TRIGGERED relationship in the graph
+            # Episode(query) -[TRIGGERED]-> Episode(tool_execution)
+            # Note: Store timestamp as string since datetime() function may not be available
+            query = """
+            MATCH (parent:Episode {uuid: $parent_uuid})
+            MATCH (child:Episode {uuid: $child_uuid})
+            MERGE (parent)-[r:TRIGGERED {
+                uuid: $relationship_uuid,
+                created_at: $timestamp,
+                group_id: $group_id
+            }]->(child)
+            RETURN r
+            """
+
+            self.ryumem.db.execute(query, {
+                "parent_uuid": parent_episode_uuid,
+                "child_uuid": child_episode_uuid,
+                "relationship_uuid": str(uuid4()),
+                "timestamp": datetime.utcnow(),  # Pass datetime object, not ISO string
+                "group_id": self.ryumem_customer_id,
+            })
+
+            logger.debug(
+                f"Created TRIGGERED relationship: {parent_episode_uuid} -> {child_episode_uuid}"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to link episodes: {e}")
+            # Non-critical - don't fail if linking fails
+            if not self.fail_open:
+                raise
+
     def _create_tool_entities(
         self,
         tool_name: str,
@@ -413,6 +563,29 @@ Respond with ONLY a JSON object in this format:
             sanitized_params = self._sanitize_params(input_params)
             output_summary = self._summarize_output(output) if success else None
 
+            # Get parent query episode ID from multiple sources (priority order):
+            # 1. Context variable (primary - works for same async context)
+            # 2. Session map (fallback - works cross-context)
+            # 3. Runner instance (most reliable - always available via ToolTracker)
+            parent_episode_id = get_current_query_episode(session_id=session_id, user_id=user_id)
+
+            # If not found in context/session, try getting from runner instance
+            if parent_episode_id is None and hasattr(self, '_runner'):
+                parent_episode_id = getattr(self._runner, '_ryumem_query_episode', None)
+                if parent_episode_id:
+                    logger.debug(f"Retrieved query episode from runner instance: {parent_episode_id}")
+
+            # Defensive logging for debugging context propagation issues
+            if parent_episode_id is None:
+                logger.warning(
+                    f"⚠️  Tool execution '{tool_name}' has no parent query episode. "
+                    f"Session: {session_id}, User: {user_id}. "
+                    "This means the query context was not set or was cleared too early. "
+                    "Tool executions will not be linked to their triggering query."
+                )
+            else:
+                logger.info(f"✓ Tool execution '{tool_name}' linked to query episode: {parent_episode_id}")
+
             # Build episode content
             content = (
                 f"Tool execution: {tool_name} for {classification['task_type']}. "
@@ -434,11 +607,12 @@ Respond with ONLY a JSON object in this format:
                 "timestamp": datetime.utcnow().isoformat(),
                 "user_id": user_id,
                 "session_id": session_id,
+                "parent_episode_id": parent_episode_id,  # Link to query episode
             }
 
             # Store as episode (use 'json' source since we have structured metadata)
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
+            tool_episode_id = await loop.run_in_executor(
                 _thread_pool,
                 lambda: self.ryumem.add_episode(
                     content=content,
@@ -448,6 +622,17 @@ Respond with ONLY a JSON object in this format:
                     metadata=metadata,
                 )
             )
+
+            logger.warn(f"🔥 TOOL EPISODE ID: {tool_episode_id}")
+            logger.warn(f"🔥 PARENT EPISODE ID: {parent_episode_id}")
+
+            # Link tool episode to parent query episode if available
+            if parent_episode_id and tool_episode_id:
+                await loop.run_in_executor(
+                    _thread_pool,
+                    lambda: self._link_episodes(parent_episode_id, tool_episode_id)
+                )
+                logger.debug(f"Linked tool episode {tool_episode_id} to query {parent_episode_id}")
 
             # Create TOOL and TASK_TYPE entities directly
             await loop.run_in_executor(
@@ -465,6 +650,7 @@ Respond with ONLY a JSON object in this format:
             logger.info(
                 f"Tracked tool execution: {tool_name} ({classification['task_type']}) "
                 f"- {'success' if success else 'failure'} in {duration_ms}ms"
+                + (f" [linked to query: {parent_episode_id}]" if parent_episode_id else "")
             )
 
         except Exception as e:

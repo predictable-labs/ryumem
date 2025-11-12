@@ -43,6 +43,10 @@ class EpisodeNode(BaseModel):
     uuid: str = Field(default_factory=lambda: str(uuid4()))
     name: str = Field(description='Name/title of the episode')
     content: str = Field(description='Raw episode data/content')
+    content_embedding: list[float] | None = Field(
+        default=None,
+        description='Embedding vector for the episode content'
+    )
     source: EpisodeType = Field(description='Source type of episode')
     source_description: str = Field(default='', description='Description of the data source')
     created_at: datetime = Field(default_factory=datetime.utcnow)
