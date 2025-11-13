@@ -92,12 +92,6 @@ class RyumemGoogleADK:
         logger.info(f"Searching memory for user '{effective_user_id}': {query}")
 
         try:
-            logger.info("="*80)
-            logger.info(f"🔍 SEARCH_MEMORY CALLED by agent!")
-            logger.info(f"   Query: '{query}'")
-            logger.info(f"   User: {effective_user_id}, Group: {self.ryumem_customer_id}")
-            logger.info("="*80)
-            
             results = self.ryumem.search(
                 query=query,
                 group_id=self.ryumem_customer_id,
@@ -433,8 +427,6 @@ def _augment_query_with_history(
             limit=top_k if top_k > 0 else 100  # Cap at 100 for -1
         )
 
-        logger.warn(f"🔥 SEARCH RESULTS: {search_results}")
-
         if not search_results.episodes:
             logger.debug("No similar query episodes found for augmentation")
             return query_text
@@ -444,22 +436,16 @@ def _augment_query_with_history(
         # Filter by similarity threshold and source type (message = user queries)
         similar_queries = []
         for episode in search_results.episodes:
-            logger.warn(f"🔥 EPISODE: {episode}")
             # score = search_results.scores.get(episode.uuid, 0.0)
             episode_similarity = episode.metadata.get("augmentation_config", {}).get("similarity_threshold", 0.0)
-            logger.warn(f"🔥 EPISODE SIMILARITY: {episode_similarity}")
 
             # Only include episodes that are:
             # 1. Above similarity threshold
             # 2. From 'message' source (user queries, not tool executions)
             # 3. Not the exact same query (to avoid self-reference)
-            logger.warn(f"🔥 EPISODE SOURCE: {episode.source}")
-            logger.warn(f"🔥 EPISODE CONTENT: {episode.content}")
-            logger.warn(f"🔥 QUERY TEXT: {query_text}")
             if (episode_similarity >= similarity_threshold and
                 episode.source == EpisodeType.message and
                 episode.content != query_text):
-                logger.warn(f"🔥 ADDING EPISODE TO SIMILAR QUERIES")
 
                 similar_queries.append({
                     "content": episode.content,
@@ -476,9 +462,6 @@ def _augment_query_with_history(
                 if episode.content == query_text:
                     reasons.append("exact same query")
                 logger.debug(f"  ✗ Filtered out: {', '.join(reasons)}")
-
-        logger.warn(f"🔥 SIMILAR QUERIES: {similar_queries}")
-
 
         if not similar_queries:
             logger.debug(f"No queries above threshold {similarity_threshold} after filtering")
@@ -609,11 +592,9 @@ def create_query_tracking_runner(
         query_episode_id = None
         original_query_text = None
         augmented_query_text = None
-        logger.warn(f"🔥 WRAPPED RUN CALLED for user {user_id}, session {session_id}, new message: {new_message}")
 
         # Extract query text from new_message
         if new_message and hasattr(new_message, 'parts'):
-            logger.warn(f"🔥 NEW MESSAGE: {new_message}")
             query_text = ' '.join([
                 p.text for p in new_message.parts
                 if hasattr(p, 'text') and p.text
@@ -621,9 +602,6 @@ def create_query_tracking_runner(
 
             if query_text:
                 original_query_text = query_text
-
-                logger.warn(f"🔥 ORIGINAL QUERY: {original_query_text}")
-                logger.warn(f"🔥 AUGMENTATION ENABLED: {augment_queries}")
 
                 # Augment query with historical context if enabled
                 if augment_queries:
@@ -634,13 +612,10 @@ def create_query_tracking_runner(
                         similarity_threshold=similarity_threshold,
                         top_k=top_k_similar,
                     )
-                    logger.warn(f"🔥 AUGMENTED QUERY: {augmented_query_text}")
 
                     # Check if query was actually augmented
                     if augmented_query_text != original_query_text:
-                        logger.info(f"✨ 🔍 AUGMENTED QUERY - Sending enriched query to Gemini")
-                        logger.info(f"   Original: {original_query_text}")
-                        logger.info(f"   Augmented length: {len(augmented_query_text)} chars (added {len(augmented_query_text) - len(original_query_text)} chars)")
+                        logger.info(f"Query augmented with historical context (added {len(augmented_query_text) - len(original_query_text)} chars)")
 
                         # Update new_message with augmented query
                         new_message = types.Content(
@@ -674,7 +649,6 @@ def create_query_tracking_runner(
                 # 1. Context variable (for same-context async tasks)
                 # 2. Session map (for cross-context/thread scenarios)
                 # 3. Runner instance (always accessible, Google ADK propagates this)
-                logger.warn(f"🔥 SETTING CURRENT QUERY EPISODE: {query_episode_id}")
                 set_current_query_episode(query_episode_id, session_id=session_id, user_id=user_id)
 
                 # Store on runner instance for reliable access from tools

@@ -20,28 +20,7 @@ Setup:
 
 import os
 import asyncio
-import logging
 from dotenv import load_dotenv
-
-logger = logging.getLogger(__name__)
-
-# # Configure logging - only show important messages
-# logging.basicConfig(
-#     level=logging.INFO,
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#     datefmt='%H:%M:%S'
-# )
-
-# # Show only warnings and errors from verbose libraries
-# logging.getLogger('google.adk').setLevel(logging.WARNING)
-# logging.getLogger('google.genai').setLevel(logging.WARNING)
-# logging.getLogger('httpx').setLevel(logging.WARNING)
-# logging.getLogger('httpcore').setLevel(logging.WARNING)
-# logging.getLogger('urllib3').setLevel(logging.WARNING)
-# logging.getLogger('asyncio').setLevel(logging.WARNING)
-
-# Enable INFO logs for ryumem to see augmentation messages
-# logging.getLogger('ryumem.integrations.google_adk').setLevel(logging.INFO)
 
 # Load environment variables
 load_dotenv()
@@ -58,7 +37,6 @@ except ImportError:
     exit(1)
 
 from ryumem.integrations import enable_memory, create_query_tracking_runner
-import json
 
 # App configuration
 APP_NAME = "weather_sentiment_agent"
@@ -108,16 +86,6 @@ def analyze_sentiment(text: str) -> dict:
         return {"sentiment": "neutral", "confidence": 0.6}
 
 
-def log_request_payload(func_name, *args, **kwargs):
-    """Helper to log function calls with their arguments."""
-    logger = logging.getLogger(__name__)
-    logger.info(f"\n{'='*60}")
-    logger.info(f"🔍 {func_name} called")
-    logger.info(f"Args: {args}")
-    logger.info(f"Kwargs: {json.dumps({k: str(v)[:200] for k, v in kwargs.items()}, indent=2)}")
-    logger.info(f"{'='*60}\n")
-
-
 async def main():
     """Main function to run the agent with automatic tool tracking."""
 
@@ -158,11 +126,10 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
         top_k_similar=5,  # Use top 5 similar queries
         llm_provider="ollama",
         llm_model="qwen2.5:7b",
-        ollama_base_url="http://100.108.18.43:11434/"
+        ollama_base_url="http://100.108.18.43:11434/",
+        # llm_provider="openai",
+        # llm_model="gpt-4o",
     )
-    # print("✓ Tool tracking enabled automatically!")
-    # print("✓ Query augmentation enabled!")
-    # print()
 
     # Session and Runner Setup (standard Google ADK usage)
     session_service = InMemorySessionService()
@@ -186,14 +153,6 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
         similarity_threshold=0.3,  # Match queries with 30%+ similarity
         top_k_similar=5            # Use top 5 similar queries
     )
-    # print("✓ Query tracking enabled - all user queries will be saved as episodes!")
-    # print("✓ Query augmentation enabled - similar past queries will enrich new queries!")
-    # print()
-
-    # # Agent Interaction - use the agent normally, tracking happens automatically!
-    # print("-" * 60)
-    # print("Agent Conversation:")
-    # print("-" * 60)
 
     queries = [
         "What's the weather in London?",
@@ -211,7 +170,6 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
 
         # Run the agent - tools are automatically tracked!
         events = runner.run(user_id=USER_ID, session_id=SESSION_ID, new_message=content)
-        logger.warn("########################################################")
 
         # Collect the final response
         final_response = None
@@ -221,70 +179,6 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
 
         if final_response:
             print(f"\n🤖 Agent: {final_response}")
-        print()
-
-    # Tool tracking happens automatically during execution - no waiting needed!
-
-    # Save detailed logs to file
-    # with open(log_file, 'w') as f:
-    #     json.dump(request_log, f, indent=2)
-    # print(f"\n💾 Detailed request/response log saved to: {log_file}")
-    # print()
-
-    # Show tool analytics
-    # print("=" * 60)
-    # print("📊 Tool Analytics:")
-    # print("=" * 60)
-    # print()
-
-    # Get user's tool preferences (this works immediately!)
-    # print(f"Tools used by {USER_ID}:")
-    # prefs = memory.ryumem.get_user_tool_preferences(
-    #     user_id=USER_ID,
-    #     group_id="demo_company",
-    #     limit=5
-    # )
-    # if prefs:
-    #     for pref in prefs:
-    #         task_types = ', '.join(pref.get('task_types', []))
-    #         print(f"  • {pref['tool_name']}")
-    #         print(f"    - {pref['usage_count']} uses, {pref['success_rate']*100:.0f}% success")
-    #         print(f"    - Used for: {task_types}")
-    # else:
-    #     print("  (No tools tracked yet)")
-    # print()
-
-    # print("=" * 60)
-    # print()
-    # print("✅ Demo completed!")
-    # print()
-    # print("💡 Key takeaways:")
-    # print("   • User queries AND tool executions are both tracked as episodes")
-    # print("   • Tool executions are automatically linked to the queries that triggered them")
-    # print("   • Similar queries are augmented with historical tool usage patterns")
-    # print("   • You used the agent normally via runner.run() - no manual tracking needed!")
-    # print()
-    # print("What was tracked:")
-    # print("  • 4 user query episodes (message source)")
-    # print("  • Tool execution episodes (json source)")
-    # print("  • Hierarchical relationships: Query -[TRIGGERED]-> Tool Execution")
-    # print("  • Query augmentation: Similar queries enriched with past tool usage")
-    # print()
-    # print("Query Augmentation:")
-    # print("  • Query #4 'What's the weather like in London today?' is similar to Query #1")
-    # print("  • The system automatically detected similarity and augmented it with:")
-    # print("    - Past tool executions (get_weather_report)")
-    # print("    - Tool arguments (city=London)")
-    # print("    - Tool outputs and success rates")
-    # print("  • Look for the ✨ 🔍 AUGMENTED QUERY log above!")
-    # print()
-    # print("Next steps:")
-    # print("  - View tracked data in dashboard: http://localhost:3000")
-    # print("  - Check episodes: Both queries and tool executions")
-    # print("  - Check entities: TOOL and TASK_TYPE nodes")
-    # print("  - Check relationships: TRIGGERED edges between episodes")
-    # print("  - Read augmentation docs: AUGMENTING_QUERY_IMPLEMENTATION.md")
-    # print()
 
 
 if __name__ == "__main__":

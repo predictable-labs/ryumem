@@ -122,7 +122,7 @@ class EntityExtractor:
             entity_type = entity_data["entity_type"]
 
             # Search for similar existing entities
-            logger.info(f"🔍 Searching for similar entities to '{entity_name}' (threshold: {self.similarity_threshold})")
+            logger.debug(f"Searching for similar entities to '{entity_name}' (threshold: {self.similarity_threshold})")
             similar = self.db.search_similar_entities(
                 embedding=embedding,
                 group_id=group_id,

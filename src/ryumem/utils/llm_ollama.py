@@ -255,9 +255,9 @@ User ID: {user_id} (use this for resolving "I", "me", "my")"""
             content = response["content"].strip()
 
             # Debug logging to see raw response
-            logger.info(f"🔍 Raw Ollama response for entity extraction:")
-            logger.info(f"   Prompt: {user_prompt[:100]}...")
-            logger.info(f"   Response: {content}")
+            logger.debug(f"Raw Ollama response for entity extraction:")
+            logger.debug(f"   Prompt: {user_prompt[:100]}...")
+            logger.debug(f"   Response: {content}")
 
             # Try multiple JSON extraction strategies
             entities = self._extract_json_array(content)

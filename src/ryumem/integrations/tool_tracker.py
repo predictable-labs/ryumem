@@ -82,7 +82,7 @@ def set_current_query_episode(episode_id: str, session_id: Optional[str] = None,
             _session_episode_map[(session_id, user_id)] = episode_id
         logger.debug(f"Set query episode in both contextvar and session map: {episode_id}")
     else:
-        logger.warn(f"Set query episode in contextvar only (no session/user): {episode_id}")
+        logger.debug(f"Set query episode in contextvar only (no session/user): {episode_id}")
 
 
 def get_current_query_episode(session_id: Optional[str] = None, user_id: Optional[str] = None) -> Optional[str]:
@@ -622,9 +622,6 @@ Respond with ONLY a JSON object in this format:
                     metadata=metadata,
                 )
             )
-
-            logger.warn(f"🔥 TOOL EPISODE ID: {tool_episode_id}")
-            logger.warn(f"🔥 PARENT EPISODE ID: {parent_episode_id}")
 
             # Link tool episode to parent query episode if available
             if parent_episode_id and tool_episode_id:

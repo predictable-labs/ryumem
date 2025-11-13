@@ -77,8 +77,6 @@ class SearchEngine:
             f"query='{config.query[:50]}...', limit={config.limit}"
         )
 
-        logger.warn(f"🔥 SEARCH CONFIG inside search engine: {config}")
-
         # Run base search strategy
         if config.strategy == "semantic":
             results = self._semantic_search(config)
@@ -503,11 +501,8 @@ class SearchEngine:
         """
         # Run all three search strategies
         semantic_result = self._semantic_search(config)
-        logger.warn(f"🔥 SEMANTIC SEARCH RESULTS: {semantic_result}")
         bm25_result = self._bm25_search(config)
-        logger.warn(f"🔥 BM25 SEARCH RESULTS: {bm25_result}")
         traversal_result = self._traversal_search(config)
-        logger.warn(f"🔥 TRAVERSAL SEARCH RESULTS: {traversal_result}")
 
         # Merge results using RRF (3-way fusion)
         merged_entities, merged_edges, merged_episodes, merged_scores = self._reciprocal_rank_fusion(

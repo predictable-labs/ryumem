@@ -324,8 +324,6 @@ class Ryumem:
             max_depth=max_depth,
         )
 
-        logger.warn(f"🔥 SEARCH CONFIG: {config}")
-
         # Override with explicit parameters if provided
         if min_rrf_score is not None:
             config.min_rrf_score = min_rrf_score
