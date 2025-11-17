@@ -113,7 +113,6 @@ export interface AgentInstruction {
   instruction_type?: string;
   description?: string;
   user_id?: string;
-  active?: boolean;
   original_user_request?: string;
 }
 
@@ -124,7 +123,6 @@ export interface AgentInstructionResponse {
   agent_type: string;
   instruction_type: string;
   version: number;
-  active: boolean;
   description: string;
   original_user_request: string;
   converted_instruction: string;
@@ -318,29 +316,14 @@ class RyumemAPI {
   async listAgentInstructions(
     agentType?: string,
     instructionType?: string,
-    activeOnly: boolean = false,
     limit: number = 50
   ): Promise<AgentInstructionResponse[]> {
     const params = new URLSearchParams({
       ...(agentType && { agent_type: agentType }),
       ...(instructionType && { instruction_type: instructionType }),
-      active_only: activeOnly.toString(),
       limit: limit.toString(),
     });
     return this.request(`/agent-instructions?${params}`);
-  }
-
-  async getActiveAgentInstruction(
-    agentType: string,
-    instructionType: string = 'tool_tracking',
-    userId?: string
-  ): Promise<AgentInstructionResponse | null> {
-    const params = new URLSearchParams({
-      agent_type: agentType,
-      instruction_type: instructionType,
-      ...(userId && { user_id: userId }),
-    });
-    return this.request(`/agent-instructions/active?${params}`);
   }
 
   // ============================================================================

@@ -9,9 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Save, RotateCcw, History, CheckCircle2, XCircle } from "lucide-react"
+import { Loader2, Save, RotateCcw, History, CheckCircle2 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
 
 interface AgentInstructionEditorProps {
   userId?: string
@@ -42,11 +41,10 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [activeInstruction, setActiveInstruction] = useState<AgentInstructionResponse | null>(null)
-  const [history, setHistory] = useState<AgentInstructionResponse[]>([])
+  const [instructions, setInstructions] = useState<AgentInstructionResponse[]>([])
   const [showHistory, setShowHistory] = useState(false)
 
-  // Load active instruction and history
+  // Load all cached instructions
   useEffect(() => {
     loadInstructions()
   }, [agentType, instructionType])
@@ -56,35 +54,27 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
     setError(null)
 
     try {
-      // Load active instruction
-      const active = await api.getActiveAgentInstruction(
+      // Load all instructions for this agent_type + instruction_type
+      const allInstructions = await api.listAgentInstructions(
         agentType,
         instructionType,
-        userId
+        20
       )
 
-      setActiveInstruction(active)
+      setInstructions(allInstructions)
 
-      if (active) {
-        setOriginalUserRequest(active.original_user_request)
-        setInstructionText(active.converted_instruction)
-        setDescription(active.description)
+      // Load the most recent one into the form
+      if (allInstructions.length > 0) {
+        const latest = allInstructions[0]
+        setOriginalUserRequest(latest.original_user_request)
+        setInstructionText(latest.converted_instruction)
+        setDescription(latest.description)
       } else {
-        // No custom instruction - show default
+        // No instructions yet
         setOriginalUserRequest("")
         setInstructionText("")
         setDescription("")
       }
-
-      // Load history
-      const allInstructions = await api.listAgentInstructions(
-        agentType,
-        instructionType,
-        false,
-        20
-      )
-
-      setHistory(allInstructions)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load instructions")
       console.error("Error loading instructions:", err)
@@ -111,7 +101,6 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
         instruction_type: instructionType,
         description: description,
         user_id: userId,
-        active: true,
       })
 
       setSuccess("Instruction saved successfully!")
@@ -182,19 +171,19 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
             </div>
           </div>
 
-          {activeInstruction && (
+          {instructions.length > 0 && (
             <Alert>
               <CheckCircle2 className="h-4 w-4" />
               <AlertDescription>
-                Currently using custom instruction (v{activeInstruction.version})
+                {instructions.length} cached instruction{instructions.length > 1 ? 's' : ''} for this agent type
               </AlertDescription>
             </Alert>
           )}
 
-          {!activeInstruction && !loading && (
+          {instructions.length === 0 && !loading && (
             <Alert>
               <AlertDescription>
-                No custom instruction set - agent will use default hardcoded instruction
+                No cached instructions yet - save one to cache it
               </AlertDescription>
             </Alert>
           )}
@@ -296,18 +285,18 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
         </CardContent>
       </Card>
 
-      {/* Version History Section */}
+      {/* Cached Instructions Section */}
       {showHistory && (
         <Card>
           <CardHeader>
-            <CardTitle>Version History</CardTitle>
+            <CardTitle>Cached Instructions</CardTitle>
             <CardDescription>
-              Previous versions of instructions for this agent
+              All cached instructions for this agent type
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {history.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No version history available</p>
+            {instructions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No cached instructions available</p>
             ) : (
               <Table>
                 <TableHeader>
@@ -315,13 +304,12 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                     <TableHead>Version</TableHead>
                     <TableHead>Original Request</TableHead>
                     <TableHead>Description</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead>Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {history.map((instr) => (
+                  {instructions.map((instr) => (
                     <TableRow key={instr.instruction_id}>
                       <TableCell className="font-medium">v{instr.version}</TableCell>
                       <TableCell className="max-w-md truncate">
@@ -329,13 +317,6 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                       </TableCell>
                       <TableCell className="max-w-md truncate">
                         {instr.description || instr.name}
-                      </TableCell>
-                      <TableCell>
-                        {instr.active ? (
-                          <Badge variant="default">Active</Badge>
-                        ) : (
-                          <Badge variant="outline">Inactive</Badge>
-                        )}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {new Date(instr.created_at).toLocaleString()}

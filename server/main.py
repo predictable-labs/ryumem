@@ -858,7 +858,6 @@ class AgentInstructionRequest(BaseModel):
     instruction_type: str = Field("tool_tracking", description="Type of instruction (e.g., tool_tracking, memory_guidance)")
     description: str = Field("", description="User-friendly description of what this instruction does")
     user_id: Optional[str] = Field(None, description="Optional user ID for user-specific instructions")
-    active: bool = Field(True, description="Whether this instruction is currently active")
     original_user_request: Optional[str] = Field(None, description="Original request from user before conversion")
 
     class Config:
@@ -868,8 +867,7 @@ class AgentInstructionRequest(BaseModel):
                 "instruction_text": "TOOL SELECTION GUIDANCE:\nAlways check memory before selecting tools...",
                 "agent_type": "google_adk",
                 "instruction_type": "tool_tracking",
-                "description": "Custom tool selection guidance for improved performance",
-                "active": True
+                "description": "Custom tool selection guidance for improved performance"
             }
         }
 
@@ -882,7 +880,6 @@ class AgentInstructionResponse(BaseModel):
     agent_type: str = Field(..., description="Type of agent")
     instruction_type: str = Field(..., description="Type of instruction")
     version: int = Field(..., description="Version number")
-    active: bool = Field(..., description="Whether this instruction is active")
     description: str = Field(..., description="Description of the instruction")
     original_user_request: str = Field("", description="Original request from user")
     converted_instruction: str = Field("", description="Converted/final instruction")
@@ -895,8 +892,7 @@ async def create_agent_instruction(request: AgentInstructionRequest):
     Create a new custom agent instruction.
 
     The instruction will be stored in the database and can be retrieved
-    by agents to customize their behavior. If active=True, this will
-    deactivate other instructions of the same type.
+    by agents to customize their behavior.
     """
     try:
         # Validate ryumem instance
@@ -914,7 +910,6 @@ async def create_agent_instruction(request: AgentInstructionRequest):
             instruction_type=request.instruction_type,
             description=request.description,
             user_id=request.user_id,
-            active=request.active,
             original_user_request=request.original_user_request
         )
 
@@ -937,7 +932,6 @@ async def create_agent_instruction(request: AgentInstructionRequest):
             agent_type=created["agent_type"],
             instruction_type=created["instruction_type"],
             version=created["version"],
-            active=created["active"],
             description=created["description"],
             original_user_request=created.get("original_user_request", ""),
             converted_instruction=created.get("converted_instruction", created["instruction_text"]),
@@ -953,14 +947,12 @@ async def create_agent_instruction(request: AgentInstructionRequest):
 async def list_agent_instructions(
     agent_type: Optional[str] = None,
     instruction_type: Optional[str] = None,
-    active_only: bool = False,
     limit: int = 50
 ):
     """
     List all agent instructions with optional filters.
 
     Returns instructions ordered by creation date (newest first).
-    Use active_only=True to get only currently active instructions.
     """
     try:
         if not ryumem_instance:
@@ -969,7 +961,6 @@ async def list_agent_instructions(
         instructions = ryumem_instance.list_agent_instructions(
             agent_type=agent_type,
             instruction_type=instruction_type,
-            active_only=active_only,
             limit=limit
         )
 
@@ -981,7 +972,6 @@ async def list_agent_instructions(
                 agent_type=instr["agent_type"],
                 instruction_type=instr["instruction_type"],
                 version=instr["version"],
-                active=instr["active"],
                 description=instr["description"],
                 original_user_request=instr.get("original_user_request", ""),
                 converted_instruction=instr.get("converted_instruction", instr["instruction_text"]),
@@ -993,53 +983,6 @@ async def list_agent_instructions(
     except Exception as e:
         logger.error(f"Error listing agent instructions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error listing agent instructions: {str(e)}")
-
-
-@app.get("/agent-instructions/active", response_model=Optional[AgentInstructionResponse], tags=["Agent Instructions"])
-async def get_active_instruction(
-    agent_type: str,
-    instruction_type: str = "tool_tracking",
-    user_id: Optional[str] = None
-):
-    """
-    Get the currently active instruction for an agent.
-
-    Returns the active instruction if found, or null if no custom instruction is configured.
-    """
-    try:
-        if not ryumem_instance:
-            raise HTTPException(status_code=500, detail="Ryumem not initialized")
-
-        # Get active instructions
-        instructions = ryumem_instance.list_agent_instructions(
-            agent_type=agent_type,
-            instruction_type=instruction_type,
-            active_only=True,
-            limit=1
-        )
-
-        if not instructions:
-            return None
-
-        active = instructions[0]
-
-        return AgentInstructionResponse(
-            instruction_id=active["instruction_id"],
-            instruction_text=active["instruction_text"],
-            name=active["name"],
-            agent_type=active["agent_type"],
-            instruction_type=active["instruction_type"],
-            version=active["version"],
-            active=active["active"],
-            description=active["description"],
-            original_user_request=active.get("original_user_request", ""),
-            converted_instruction=active.get("converted_instruction", active["instruction_text"]),
-            created_at=active["created_at"]
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting active instruction: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error getting active instruction: {str(e)}")
 
 
 # ============================================================================

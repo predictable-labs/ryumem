@@ -716,9 +716,7 @@ def wrap_runner_with_tracking(
 def _enhance_agent_instructions_for_tool_tracking(agent, ryumem, agent_type: str = "google_adk"):
     """
     Enhances agent.instruction with tool-tracking guidance.
-    DB is the source of truth:
-      - If DB has an active tool-tracking instruction → use that.
-      - If DB does not have one → generate new, save both old/new in DB.
+    Checks if instruction already exists in DB before saving.
     """
 
     import traceback
@@ -740,40 +738,36 @@ Example queries for search_memory:
 
     old_instruction = agent.instruction or ""
 
-    # --- 2) Try loading existing instruction from DB ---
-    try:
-        db_instruction = ryumem.get_active_agent_instruction(
-            agent_type=agent_type,
-            instruction_type="tool_tracking"
-        )
-    except Exception:
-        db_instruction = None
-
-    # --- 3) If DB has instruction → use it and apply to agent ---
-    if db_instruction:
-        agent.instruction = db_instruction
-        return
-
-    # --- 4) No DB instruction exists → create new one ---
+    # --- 1) Create the new instruction text ---
     # Only append guidance if not already present
     if "TOOL SELECTION GUIDANCE" in old_instruction:
         new_instruction = old_instruction
     else:
         new_instruction = old_instruction + "\n\n" + default_block
 
-    # --- 5) Save the new instruction version to DB ---
+    # --- 2) Check if this instruction already exists in DB ---
     try:
-        ryumem.save_agent_instruction(
+        existing_uuid = ryumem.get_instruction_by_text(
             instruction_text=new_instruction,
-            original_user_request=old_instruction,
             agent_type=agent_type,
-            instruction_type="tool_tracking",
-            description="Generated tool-tracking instruction",
-            active=True
+            instruction_type="tool_tracking"
         )
     except Exception:
-        # if DB save fails, continue but do not crash
-        pass
+        existing_uuid = None
 
-    # --- 6) Update agent instruction with new version ---
+    # --- 3) If instruction doesn't exist in DB, save it ---
+    if not existing_uuid:
+        try:
+            ryumem.save_agent_instruction(
+                instruction_text=new_instruction,
+                original_user_request=old_instruction,
+                agent_type=agent_type,
+                instruction_type="tool_tracking",
+                description="Generated tool-tracking instruction"
+            )
+        except Exception:
+            # if DB save fails, continue but do not crash
+            pass
+
+    # --- 4) Update agent instruction ---
     agent.instruction = new_instruction

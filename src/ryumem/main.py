@@ -686,6 +686,48 @@ class Ryumem:
 
         return result_list[:limit]
 
+    def get_instruction_by_text(
+        self,
+        instruction_text: str,
+        agent_type: str,
+        instruction_type: str,
+    ) -> Optional[str]:
+        """
+        Check if an instruction with the given text already exists.
+
+        Args:
+            instruction_text: The instruction text to search for
+            agent_type: Type of agent (e.g., "google_adk")
+            instruction_type: Type of instruction (e.g., "tool_tracking")
+
+        Returns:
+            UUID of the existing instruction if found, None otherwise
+        """
+        logger.info(f"[DB] get_instruction_by_text called: agent_type={agent_type}, instruction_type={instruction_type}")
+
+        query = """
+        MATCH (i:AgentInstruction)
+        WHERE i.instruction_text = $instruction_text
+          AND i.agent_type = $agent_type
+          AND i.instruction_type = $instruction_type
+        RETURN i.uuid AS uuid
+        ORDER BY i.created_at DESC
+        LIMIT 1
+        """
+
+        result = self.db.execute(query, {
+            "instruction_text": instruction_text,
+            "agent_type": agent_type,
+            "instruction_type": instruction_type
+        })
+
+        if result and len(result) > 0:
+            logger.info(f"[DB] Found existing instruction: {result[0]['uuid']}")
+            return result[0]["uuid"]
+
+        logger.info(f"[DB] No existing instruction found")
+        return None
+
     def save_agent_instruction(
         self,
         instruction_text: str,
@@ -693,7 +735,6 @@ class Ryumem:
         instruction_type: str = "tool_tracking",
         description: str = "",
         user_id: Optional[str] = None,
-        active: bool = True,
         original_user_request: Optional[str] = None,
     ) -> str:
         """
@@ -708,7 +749,6 @@ class Ryumem:
             instruction_type: Type of instruction (e.g., "tool_tracking", "memory_guidance")
             description: User-friendly description of what this instruction does
             user_id: Optional user ID for user-specific instructions
-            active: Whether this instruction is currently active
             original_user_request: Optional original request from user before conversion
 
         Returns:
@@ -725,25 +765,9 @@ class Ryumem:
         import uuid
         from datetime import datetime
 
-        logger.info(f"[DB] save_agent_instruction called: agent_type={agent_type}, instruction_type={instruction_type}, active={active}")
+        logger.info(f"[DB] save_agent_instruction called: agent_type={agent_type}, instruction_type={instruction_type}")
 
-        # If marking as active, deactivate other instructions of same type
-        if active:
-            logger.info(f"[DB] Deactivating other instructions of type {agent_type}/{instruction_type}")
-            deactivate_query = """
-            MATCH (i:AgentInstruction)
-            WHERE i.agent_type = $agent_type
-              AND i.instruction_type = $instruction_type
-              AND i.active = true
-            SET i.active = false
-            """
-            deactivate_result = self.db.execute(deactivate_query, {
-                "agent_type": agent_type,
-                "instruction_type": instruction_type
-            })
-            logger.info(f"[DB] Deactivate query executed")
-
-        # Get version number (count of existing instructions + 1)
+        # Get version number (count of existing instructions for this type + 1)
         logger.info(f"[DB] Counting existing instructions for versioning...")
         count_query = """
         MATCH (i:AgentInstruction)
@@ -770,7 +794,6 @@ class Ryumem:
             original_user_request: $original_user_request,
             description: $description,
             version: $version,
-            active: $active,
             created_at: $created_at,
             user_id: $user_id
         })
@@ -785,7 +808,6 @@ class Ryumem:
             "original_user_request": original_user_request or "",
             "description": description,
             "version": version,
-            "active": active,
             "created_at": datetime.utcnow(),
             "user_id": user_id
         })
@@ -794,65 +816,10 @@ class Ryumem:
 
         return instruction_id
 
-    def get_active_agent_instruction(
-        self,
-        agent_type: str,
-        instruction_type: str = "tool_tracking",
-        user_id: Optional[str] = None,
-    ) -> Optional[str]:
-        """
-        Retrieve the currently active instruction text for an agent.
-
-        Args:
-            agent_type: Type of agent (e.g., "google_adk")
-            instruction_type: Type of instruction (e.g., "tool_tracking")
-            user_id: Optional user ID for user-specific instructions
-
-        Returns:
-            The instruction text if found, None otherwise
-
-        Example:
-            instruction = ryumem.get_active_agent_instruction(
-                agent_type="google_adk",
-                instruction_type="tool_tracking"
-            )
-            if instruction:
-                print(f"Using custom instruction: {instruction}")
-            else:
-                print("No custom instruction found, using default")
-        """
-        logger.info(f"[DB] get_active_agent_instruction called: agent_type={agent_type}, instruction_type={instruction_type}")
-
-        # Query for active instruction
-        query = """
-        MATCH (i:AgentInstruction)
-        WHERE i.agent_type = $agent_type
-          AND i.instruction_type = $instruction_type
-          AND i.active = true
-        RETURN i.instruction_text AS instruction_text
-        ORDER BY i.created_at DESC
-        LIMIT 1
-        """
-
-        result = self.db.execute(query, {
-            "agent_type": agent_type,
-            "instruction_type": instruction_type
-        })
-
-        logger.info(f"[DB] Query returned {len(result)} result(s)")
-
-        if result and len(result) > 0:
-            logger.info(f"[DB] Found active instruction (length: {len(result[0]['instruction_text'])} chars)")
-            return result[0]["instruction_text"]
-
-        logger.info(f"[DB] No active instruction found")
-        return None
-
     def list_agent_instructions(
         self,
         agent_type: Optional[str] = None,
         instruction_type: Optional[str] = None,
-        active_only: bool = False,
         limit: int = 50
     ) -> List[Dict]:
         """
@@ -861,7 +828,6 @@ class Ryumem:
         Args:
             agent_type: Optional filter by agent type
             instruction_type: Optional filter by instruction type
-            active_only: If True, only return active instructions
             limit: Maximum number of instructions to return
 
         Returns:
@@ -869,13 +835,12 @@ class Ryumem:
 
         Example:
             instructions = ryumem.list_agent_instructions(
-                agent_type="google_adk",
-                active_only=True
+                agent_type="google_adk"
             )
             for instr in instructions:
                 print(f"Version {instr['version']}: {instr['description']}")
         """
-        logger.info(f"[DB] list_agent_instructions called: agent_type={agent_type}, instruction_type={instruction_type}, active_only={active_only}, limit={limit}")
+        logger.info(f"[DB] list_agent_instructions called: agent_type={agent_type}, instruction_type={instruction_type}, limit={limit}")
 
         # Build query
         query = "MATCH (i:AgentInstruction) WHERE true"
@@ -889,9 +854,6 @@ class Ryumem:
             query += " AND i.instruction_type = $instruction_type"
             params["instruction_type"] = instruction_type
 
-        if active_only:
-            query += " AND i.active = true"
-
         query += """
         RETURN i.uuid AS instruction_id,
                i.instruction_text AS instruction_text,
@@ -900,7 +862,6 @@ class Ryumem:
                i.original_user_request AS original_user_request,
                i.description AS description,
                i.version AS version,
-               i.active AS active,
                i.created_at AS created_at
         ORDER BY i.created_at DESC
         LIMIT $limit
@@ -915,7 +876,7 @@ class Ryumem:
         # Format results
         formatted_results = []
         for row in result:
-            logger.info(f"[DB]   - Found instruction: id={row['instruction_id']}, version={row['version']}, active={row['active']}")
+            logger.info(f"[DB]   - Found instruction: id={row['instruction_id']}, version={row['version']}")
             formatted_results.append({
                 "instruction_id": row["instruction_id"],
                 "instruction_text": row["instruction_text"],
@@ -923,7 +884,6 @@ class Ryumem:
                 "agent_type": row["agent_type"],
                 "instruction_type": row["instruction_type"],
                 "version": row["version"],
-                "active": row["active"],
                 "description": row["description"],
                 "original_user_request": row["original_user_request"],
                 "converted_instruction": row["instruction_text"],
