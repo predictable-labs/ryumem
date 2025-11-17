@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -35,39 +35,41 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# Global Ryumem instance
-ryumem_instance: Optional[Ryumem] = None
+# Dependency injection for per-request Ryumem instances
+def get_ryumem():
+    """
+    Create a new Ryumem instance per request with automatic connection cleanup.
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Initialize and cleanup Ryumem on startup/shutdown"""
-    global ryumem_instance
-    
-    logger.info("Starting Ryumem server...")
-    
-    # Initialize Ryumem
+    This ensures:
+    - Database connections are only opened when API requests arrive
+    - Connections are automatically closed after the request completes
+    - READ_ONLY mode is maintained for safe concurrent access
+    - No persistent connections that could leak resources
+    """
     db_path = os.getenv("RYUMEM_DB_PATH", "../data/memory.db")
 
-    # Dashboard server runs in READ_ONLY mode for concurrent access
-    # This allows usage scripts to have READ_WRITE access while the dashboard reads
-    ryumem_instance = Ryumem(
+    # Create new instance with context manager for automatic cleanup
+    with Ryumem(
         db_path=db_path,
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         llm_provider=os.getenv("RYUMEM_LLM_PROVIDER", "openai"),
         llm_model=os.getenv("RYUMEM_LLM_MODEL", "gpt-4o-mini"),
         ollama_base_url=os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://localhost:11434"),
-        read_only=True,  # Enable concurrent access with usage scripts
-    )
-    
-    logger.info(f"Ryumem initialized: {ryumem_instance}")
-    
+        read_only=True,  # Always use READ_ONLY mode for dashboard server
+    ) as ryumem:
+        yield ryumem
+    # Connection automatically closed when request completes
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Server startup/shutdown lifecycle"""
+    logger.info("Starting Ryumem server...")
+    logger.info("Using per-request database connections in READ_ONLY mode")
+
     yield
-    
-    # Cleanup
+
     logger.info("Shutting down Ryumem server...")
-    if ryumem_instance:
-        ryumem_instance.close()
     logger.info("Server shutdown complete")
 
 
@@ -290,7 +292,7 @@ async def root():
     return HealthResponse(
         status="healthy",
         version="1.0.0",
-        ryumem_initialized=ryumem_instance is not None,
+        ryumem_initialized=True,  # Always true since we use per-request instances
         timestamp=datetime.now().isoformat()
     )
 
@@ -301,27 +303,30 @@ async def health():
     return HealthResponse(
         status="healthy",
         version="1.0.0",
-        ryumem_initialized=ryumem_instance is not None,
+        ryumem_initialized=True,  # Always true since we use per-request instances
         timestamp=datetime.now().isoformat()
     )
 
 
 @app.post("/episodes", response_model=AddEpisodeResponse)
-async def add_episode(request: AddEpisodeRequest):
+async def add_episode(
+    request: AddEpisodeRequest,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
     """
     Add a new episode to the memory system.
-    
+
     This will:
     1. Create an episode node
     2. Extract entities and relationships
     3. Update the knowledge graph
     4. Detect and handle contradictions
+
+    Note: This endpoint will fail in READ_ONLY mode.
+    Use a separate write instance for adding episodes.
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-    
     try:
-        episode_id = ryumem_instance.add_episode(
+        episode_id = ryumem.add_episode(
             content=request.content,
             group_id=request.group_id,
             user_id=request.user_id,
@@ -330,7 +335,7 @@ async def add_episode(request: AddEpisodeRequest):
             source=request.source,
             metadata=request.metadata,
         )
-        
+
         return AddEpisodeResponse(
             episode_id=episode_id,
             message="Episode added successfully",
@@ -342,21 +347,21 @@ async def add_episode(request: AddEpisodeRequest):
 
 
 @app.post("/search", response_model=SearchResponse)
-async def search(request: SearchRequest):
+async def search(
+    request: SearchRequest,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
     """
     Search the knowledge graph.
-    
+
     Supports multiple strategies:
     - semantic: Embedding-based similarity search
     - bm25: Keyword-based search
     - traversal: Graph-based navigation
     - hybrid: Combines all strategies (recommended)
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-    
     try:
-        results = ryumem_instance.search(
+        results = ryumem.search(
             query=request.query,
             group_id=request.group_id,
             user_id=request.user_id,
@@ -421,21 +426,19 @@ async def get_entity_context(
     entity_name: str,
     group_id: str,
     user_id: Optional[str] = None,
-    max_depth: int = 2
+    max_depth: int = 2,
+    ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
     Get comprehensive context for an entity by name.
-    
+
     Returns:
     - Entity details
     - All relationships
     - Related entities
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-    
     try:
-        context = ryumem_instance.get_entity_context(
+        context = ryumem.get_entity_context(
             entity_name=entity_name,
             group_id=group_id,
             user_id=user_id,
@@ -487,61 +490,61 @@ async def get_entity_context(
 
 
 @app.get("/stats", response_model=StatsResponse)
-async def get_stats(group_id: Optional[str] = None):
+async def get_stats(
+    group_id: Optional[str] = None,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
     """
     Get system statistics.
-    
+
     Returns counts of episodes, entities, relationships, and communities.
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-    
     try:
         # Query database for stats
         group_filter = f"WHERE e.group_id = '{group_id}'" if group_id else ""
-        
+
         # Count episodes
         episode_query = f"""
         MATCH (ep:Episode)
         {group_filter.replace('e.', 'ep.')}
         RETURN COUNT(ep) AS count
         """
-        episode_result = ryumem_instance.db.execute(episode_query, {})
+        episode_result = ryumem.db.execute(episode_query, {})
         total_episodes = episode_result[0]["count"] if episode_result else 0
-        
+
         # Count entities
         entity_query = f"""
         MATCH (e:Entity)
         {group_filter}
         RETURN COUNT(e) AS count
         """
-        entity_result = ryumem_instance.db.execute(entity_query, {})
+        entity_result = ryumem.db.execute(entity_query, {})
         total_entities = entity_result[0]["count"] if entity_result else 0
-        
+
         # Count relationships
         rel_query = f"""
         MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
         {group_filter.replace('e.', 's.')}
         RETURN COUNT(r) AS count
         """
-        rel_result = ryumem_instance.db.execute(rel_query, {})
+        rel_result = ryumem.db.execute(rel_query, {})
         total_relationships = rel_result[0]["count"] if rel_result else 0
-        
+
         # Count communities
         comm_query = f"""
         MATCH (c:Community)
         {group_filter.replace('e.', 'c.')}
         RETURN COUNT(c) AS count
         """
-        comm_result = ryumem_instance.db.execute(comm_query, {})
+        comm_result = ryumem.db.execute(comm_query, {})
         total_communities = comm_result[0]["count"] if comm_result else 0
-        
+
         return StatsResponse(
             total_episodes=total_episodes,
             total_entities=total_entities,
             total_relationships=total_relationships,
             total_communities=total_communities,
-            db_path=ryumem_instance.config.db_path
+            db_path=ryumem.config.db_path
         )
     except Exception as e:
         logger.error(f"Error getting stats: {e}", exc_info=True)
@@ -549,20 +552,22 @@ async def get_stats(group_id: Optional[str] = None):
 
 
 @app.post("/communities/update", response_model=UpdateCommunitiesResponse)
-async def update_communities(request: UpdateCommunitiesRequest):
+async def update_communities(
+    request: UpdateCommunitiesRequest,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
     """
     Detect and update communities using Louvain algorithm.
-    
+
     Communities cluster related entities together for:
     - More efficient retrieval
     - Higher-level reasoning
     - Better organization
+
+    Note: This endpoint will fail in READ_ONLY mode.
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-    
     try:
-        num_communities = ryumem_instance.update_communities(
+        num_communities = ryumem.update_communities(
             group_id=request.group_id,
             resolution=request.resolution,
             min_community_size=request.min_community_size,
@@ -578,20 +583,22 @@ async def update_communities(request: UpdateCommunitiesRequest):
 
 
 @app.post("/prune", response_model=PruneMemoriesResponse)
-async def prune_memories(request: PruneMemoriesRequest):
+async def prune_memories(
+    request: PruneMemoriesRequest,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
     """
     Prune and compact memories to keep the graph efficient.
-    
+
     This performs:
     - Delete facts that were invalidated/expired long ago
     - Remove entities with very few mentions (likely noise)
     - Merge near-duplicate relationship facts
+
+    Note: This endpoint will fail in READ_ONLY mode.
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-    
     try:
-        stats = ryumem_instance.prune_memories(
+        stats = ryumem.prune_memories(
             group_id=request.group_id,
             expired_cutoff_days=request.expired_cutoff_days,
             min_mentions=request.min_mentions,
@@ -614,19 +621,17 @@ async def prune_memories(request: PruneMemoriesRequest):
 async def get_graph_data(
     group_id: str,
     user_id: Optional[str] = None,
-    limit: int = 1000
+    limit: int = 1000,
+    ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
     Get the full knowledge graph structure for visualization.
 
     Returns all entities (nodes) and relationships (edges) in the knowledge graph.
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-
     try:
         # Get all entities for the group
-        entities_data = ryumem_instance.db.get_all_entities(group_id=group_id)
+        entities_data = ryumem.db.get_all_entities(group_id=group_id)
 
         # Filter by user_id if provided
         if user_id:
@@ -636,7 +641,7 @@ async def get_graph_data(
         entities_data = entities_data[:limit]
 
         # Get all edges for the group
-        edges_data = ryumem_instance.db.get_all_edges(group_id=group_id)
+        edges_data = ryumem.db.get_all_edges(group_id=group_id)
 
         # Filter by user_id if provided (check both source and target entities)
         if user_id:
@@ -691,19 +696,17 @@ async def list_entities(
     user_id: Optional[str] = None,
     entity_type: Optional[str] = None,
     offset: int = 0,
-    limit: int = 50
+    limit: int = 50,
+    ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
     Get a paginated list of entities.
 
     Useful for browsing all entities in the system.
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-
     try:
         # Get all entities for the group
-        all_entities = ryumem_instance.db.get_all_entities(group_id=group_id)
+        all_entities = ryumem.db.get_all_entities(group_id=group_id)
 
         # Filter by user_id if provided
         if user_id:
@@ -744,18 +747,18 @@ async def list_entities(
 
 
 @app.get("/entities/types", response_model=EntityTypesResponse)
-async def get_entity_types(group_id: str):
+async def get_entity_types(
+    group_id: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
     """
     Get all unique entity types in the database for a given group.
 
     This is useful for populating dropdowns and filters in the UI.
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-
     try:
         # Query database for unique entity types
-        result = ryumem_instance.db.conn.execute(
+        result = ryumem.db.conn.execute(
             "MATCH (e:Entity) WHERE e.group_id = $group_id RETURN DISTINCT e.entity_type ORDER BY e.entity_type",
             {"group_id": group_id}
         )
@@ -778,22 +781,20 @@ async def list_relationships(
     user_id: Optional[str] = None,
     relation_type: Optional[str] = None,
     offset: int = 0,
-    limit: int = 50
+    limit: int = 50,
+    ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
     Get a paginated list of relationships.
 
     Useful for browsing all relationships in the system.
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-
     try:
         # Get all edges from database
-        all_edges = ryumem_instance.db.get_all_edges(group_id=group_id)
+        all_edges = ryumem.db.get_all_edges(group_id=group_id)
 
         # Get entities to look up names
-        all_entities = ryumem_instance.db.get_all_entities(group_id=group_id)
+        all_entities = ryumem.db.get_all_entities(group_id=group_id)
 
         # Filter entities by user_id if provided
         if user_id:
@@ -887,24 +888,23 @@ class AgentInstructionResponse(BaseModel):
 
 
 @app.post("/agent-instructions", response_model=AgentInstructionResponse, tags=["Agent Instructions"])
-async def create_agent_instruction(request: AgentInstructionRequest):
+async def create_agent_instruction(
+    request: AgentInstructionRequest,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
     """
     Create a new custom agent instruction.
 
     The instruction will be stored in the database and can be retrieved
     by agents to customize their behavior.
+
+    Note: This endpoint will fail in READ_ONLY mode.
     """
     try:
-        # Validate ryumem instance
-        if not ryumem_instance:
-            raise HTTPException(status_code=500, detail="Ryumem not initialized")
-
-        # Note: Server runs in read-only mode, so this will fail
-        # In production, you'd want a separate write instance or endpoint
         logger.warning("Server is in read-only mode - agent instruction creation may fail")
 
         # Save the instruction
-        instruction_id = ryumem_instance.save_agent_instruction(
+        instruction_id = ryumem.save_agent_instruction(
             instruction_text=request.instruction_text,
             agent_type=request.agent_type,
             instruction_type=request.instruction_type,
@@ -914,7 +914,7 @@ async def create_agent_instruction(request: AgentInstructionRequest):
         )
 
         # Get the created instruction details
-        instructions = ryumem_instance.list_agent_instructions(
+        instructions = ryumem.list_agent_instructions(
             agent_type=request.agent_type,
             instruction_type=request.instruction_type,
             limit=1
@@ -947,7 +947,8 @@ async def create_agent_instruction(request: AgentInstructionRequest):
 async def list_agent_instructions(
     agent_type: Optional[str] = None,
     instruction_type: Optional[str] = None,
-    limit: int = 50
+    limit: int = 50,
+    ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
     List all agent instructions with optional filters.
@@ -955,10 +956,7 @@ async def list_agent_instructions(
     Returns instructions ordered by creation date (newest first).
     """
     try:
-        if not ryumem_instance:
-            raise HTTPException(status_code=500, detail="Ryumem not initialized")
-
-        instructions = ryumem_instance.list_agent_instructions(
+        instructions = ryumem.list_agent_instructions(
             agent_type=agent_type,
             instruction_type=instruction_type,
             limit=limit
@@ -1006,17 +1004,14 @@ class ToolPreferenceResponse(BaseModel):
 
 
 @app.get("/tools", tags=["Tool Analytics"])
-async def get_all_tools():
+async def get_all_tools(ryumem: Ryumem = Depends(get_ryumem)):
     """
     Get all registered tools.
 
     Returns list of all tools with their descriptions.
     """
     try:
-        if not ryumem_instance:
-            raise HTTPException(status_code=500, detail="Ryumem not initialized")
-
-        tools = ryumem_instance.get_all_tools()
+        tools = ryumem.get_all_tools()
         return tools
 
     except Exception as e:
@@ -1029,7 +1024,8 @@ async def get_tool_metrics(
     tool_name: str,
     group_id: str,
     user_id: Optional[str] = None,
-    min_executions: int = 1
+    min_executions: int = 1,
+    ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
     Get detailed metrics for a specific tool.
@@ -1037,10 +1033,7 @@ async def get_tool_metrics(
     Includes success rate, usage count, average duration, and recent errors.
     """
     try:
-        if not ryumem_instance:
-            raise HTTPException(status_code=500, detail="Ryumem not initialized")
-
-        metrics = ryumem_instance.get_tool_success_rate(
+        metrics = ryumem.get_tool_success_rate(
             tool_name=tool_name,
             group_id=group_id,
             user_id=user_id,
@@ -1069,7 +1062,8 @@ async def get_tool_metrics(
 async def get_user_tool_preferences(
     user_id: str,
     group_id: str,
-    limit: int = 10
+    limit: int = 10,
+    ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
     Get user's most frequently used tools.
@@ -1077,10 +1071,7 @@ async def get_user_tool_preferences(
     Returns tools ordered by usage frequency.
     """
     try:
-        if not ryumem_instance:
-            raise HTTPException(status_code=500, detail="Ryumem not initialized")
-
-        preferences = ryumem_instance.get_user_tool_preferences(
+        preferences = ryumem.get_user_tool_preferences(
             user_id=user_id,
             group_id=group_id,
             limit=limit
