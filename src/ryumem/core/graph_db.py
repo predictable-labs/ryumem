@@ -874,14 +874,13 @@ class RyugraphDB:
             e.source_description AS source_description,
             e.created_at AS created_at,
             e.valid_at AS valid_at,
-            e.group_id AS group_id,
             e.user_id AS user_id,
             e.agent_id AS agent_id,
             e.session_id AS session_id,
             e.metadata AS metadata
         ORDER BY e.created_at {order_clause}
+        SKIP $offset
         LIMIT $limit
-        OFFSET $offset
         """
 
         episodes = self.execute(episodes_query, params)
