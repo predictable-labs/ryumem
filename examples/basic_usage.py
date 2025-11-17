@@ -32,7 +32,7 @@ def main():
     # Initialize Ryumem
     print("\n1. Initializing Ryumem...")
     ryumem = Ryumem(
-        db_path="./data/example_memory.db",
+        db_path="./data/memory.db",
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         llm_model="gpt-4",
         embedding_model="text-embedding-3-large",

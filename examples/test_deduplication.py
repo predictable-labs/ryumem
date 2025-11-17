@@ -33,7 +33,7 @@ def main():
     # Initialize Ryumem
     print("\n1. Initializing Ryumem...")
     ryumem = Ryumem(
-        db_path="./data/dedup_test.db",  # Different DB to avoid conflicts
+        db_path="./data/memory.db",  # Different DB to avoid conflicts
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         llm_model="gpt-4",
         embedding_model="text-embedding-3-large",

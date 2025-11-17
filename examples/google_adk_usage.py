@@ -139,7 +139,7 @@ Always personalize responses based on what you remember about the specific user.
     memory = add_memory_to_agent(
         agent,
         user_id="alice",  # User identifier for memory isolation
-        db_path="./server/data/google_adk_demo.db",  # Shared with dashboard server
+        db_path="./data/memory.db",  # Shared with dashboard server
         # Optional: Use Ollama for LLM (uncomment below)
         llm_provider="ollama",
         llm_model="qwen2.5:7b",

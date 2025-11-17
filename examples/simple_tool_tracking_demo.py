@@ -154,11 +154,11 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     )
 
     queries = [
-        "What's the weather in London?",
+        "What's the weather in Paris?",
         # "That sounds nice!",
         # "How about Paris?",
         # Add similar query to test augmentation
-        "What's the weather like in London today?",  # Similar to query 1 - should trigger augmentation!
+        # "What's the weather like in London today?",  # Similar to query 1 - should trigger augmentation!
     ]
 
     for query_idx, query in enumerate(queries):

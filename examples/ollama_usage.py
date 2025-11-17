@@ -62,7 +62,7 @@ def main():
     print(f"\n   ⚠️  Make sure you have pulled the model: ollama pull {model_name}")
 
     ryumem = Ryumem(
-        db_path="./data/ollama_memory.db",
+        db_path="./data/memory.db",
         llm_provider="ollama",  # Use Ollama instead of OpenAI
         llm_model=model_name,  # Local Ollama model
         ollama_base_url=os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://localhost:11434"),  # Default Ollama URL
