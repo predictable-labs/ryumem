@@ -295,14 +295,14 @@ export default function Home() {
           <p>
             Powered by{" "}
             <a
-              href="https://github.com/yourusername/ryumem"
+              href="https://github.com/predictable-labs/ryumem"
               className="underline hover:text-primary"
               target="_blank"
               rel="noopener noreferrer"
             >
               Ryumem
             </a>{" "}
-            - A bi-temporal knowledge graph memory system inspired by Zep
+            - Memory layer for your agentic workflow.
           </p>
         </div>
       </div>
