@@ -12,7 +12,6 @@ import { Search, Loader2, User, Link as LinkIcon, TrendingUp, Sparkles } from "l
 import { Label } from "@/components/ui/label";
 
 interface ChatInterfaceProps {
-  groupId: string;
   userId?: string;
 }
 
@@ -24,7 +23,7 @@ interface QueryResult {
   count: number;
 }
 
-export function ChatInterface({ groupId, userId }: ChatInterfaceProps) {
+export function ChatInterface({ userId }: ChatInterfaceProps) {
   const [query, setQuery] = useState("");
   const [strategy, setStrategy] = useState<"hybrid" | "semantic" | "bm25" | "traversal">("hybrid");
   const [isSearching, setIsSearching] = useState(false);
@@ -48,8 +47,7 @@ export function ChatInterface({ groupId, userId }: ChatInterfaceProps) {
     try {
       const searchResult = await api.search({
         query: query.trim(),
-        group_id: groupId,
-        user_id: userId,
+        user_id: userId || "",
         limit: 10,
         strategy,
       });

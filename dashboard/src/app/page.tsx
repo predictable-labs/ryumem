@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings } from "lucide-react";
+import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User } from "lucide-react";
 import { EpisodeForm } from "@/components/episode-form";
 import { ChatInterface } from "@/components/chat-interface";
 import { StatsPanel } from "@/components/stats-panel";
@@ -12,11 +12,14 @@ import { ToolAnalyticsPanel } from "@/components/tool-analytics-panel";
 import { AgentInstructionEditor } from "@/components/agent-instruction-editor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { api, Entity, GraphDataResponse, EntitiesListResponse, Edge } from "@/lib/api";
 
 export default function Home() {
-  const [groupId, setGroupId] = useState("demo_company");
-  const [userId, setUserId] = useState("");
+  const [users, setUsers] = useState<string[]>([]);
+  const [userId, setUserId] = useState<string>("");
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
   const [refreshStats, setRefreshStats] = useState(0);
 
   // Graph visualization state
@@ -31,6 +34,26 @@ export default function Home() {
   const [entityType, setEntityType] = useState<string | undefined>(undefined);
   const [entitiesOffset, setEntitiesOffset] = useState(0);
 
+  // Load users on mount
+  useEffect(() => {
+    const loadUsers = async () => {
+      setIsLoadingUsers(true);
+      try {
+        const usersList = await api.getUsers();
+        setUsers(usersList);
+        if (usersList.length > 0) {
+          setUserId(usersList[0]); // Set first user as default
+        }
+      } catch (error) {
+        console.error("Failed to load users:", error);
+      } finally {
+        setIsLoadingUsers(false);
+      }
+    };
+
+    loadUsers();
+  }, []);
+
   const handleEpisodeAdded = () => {
     // Trigger stats refresh
     setRefreshStats(prev => prev + 1);
@@ -40,7 +63,7 @@ export default function Home() {
   const loadGraphData = async () => {
     setIsLoadingGraph(true);
     try {
-      const data = await api.getGraphData(groupId, userId, 1000);
+      const data = await api.getGraphData(userId, 1000);
       setGraphData(data);
     } catch (error) {
       console.error("Failed to load graph data:", error);
@@ -53,7 +76,7 @@ export default function Home() {
   const loadEntities = async (offset: number = 0, type?: string) => {
     setIsLoadingEntities(true);
     try {
-      const data = await api.getEntitiesList(groupId, userId, type, offset, 50);
+      const data = await api.getEntitiesList(userId, type, offset, 50);
       setEntitiesData(data);
     } catch (error) {
       console.error("Failed to load entities:", error);
@@ -68,7 +91,7 @@ export default function Home() {
 
     // Load all relationships for this entity
     try {
-      const allRelationships = await api.getRelationshipsList(groupId, userId, undefined, 0, 1000);
+      const allRelationships = await api.getRelationshipsList(userId, undefined, 0, 1000);
       const entityRels = allRelationships.relationships.filter(
         (rel) => rel.source_name === entity.name || rel.target_name === entity.name
       );
@@ -109,9 +132,46 @@ export default function Home() {
           </div>
         </div>
 
+        {/* User Selector */}
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <User className="h-5 w-5 text-muted-foreground" />
+              <div className="flex-1">
+                <Label htmlFor="user-select" className="text-sm font-medium">
+                  Select User
+                </Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Choose a user to filter episodes, entities, and graph data
+                </p>
+                {isLoadingUsers ? (
+                  <div className="text-sm text-muted-foreground">Loading users...</div>
+                ) : users.length > 0 ? (
+                  <Select value={userId} onValueChange={setUserId}>
+                    <SelectTrigger id="user-select" className="w-full max-w-md">
+                      <SelectValue placeholder="Select a user" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {users.map((user) => (
+                        <SelectItem key={user} value={user}>
+                          {user}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    No users found. Add some episodes first.
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Stats Panel */}
         <div className="mb-6">
-          <StatsPanel groupId={groupId} refreshKey={refreshStats} />
+          <StatsPanel refreshKey={refreshStats} />
         </div>
 
         {/* Main Content */}
@@ -164,7 +224,7 @@ export default function Home() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <ChatInterface groupId={groupId} userId={userId} />
+                <ChatInterface userId={userId} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -219,7 +279,7 @@ export default function Home() {
                     onEntityClick={handleEntityClick}
                     onLoadMore={handleEntitiesLoadMore}
                     onFilterChange={handleEntityTypeChange}
-                    groupId={groupId}
+                    userId={userId}
                   />
                 ) : (
                   <Card>
@@ -260,7 +320,6 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <EpisodeForm
-                  groupId={groupId}
                   userId={userId}
                   onEpisodeAdded={handleEpisodeAdded}
                 />
@@ -269,7 +328,7 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="analytics" className="space-y-4">
-            <ToolAnalyticsPanel groupId={groupId} userId={userId} />
+            <ToolAnalyticsPanel userId={userId} />
           </TabsContent>
 
           <TabsContent value="settings" className="space-y-4">

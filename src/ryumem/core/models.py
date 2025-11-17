@@ -56,7 +56,6 @@ class EpisodeNode(BaseModel):
     )
 
     # Multi-tenancy fields
-    group_id: str = Field(description='Partition/group ID for multi-tenancy')
     user_id: str | None = Field(default=None, description='User ID for multi-tenancy')
     agent_id: str | None = Field(default=None, description='Agent ID for multi-tenancy')
     session_id: str | None = Field(default=None, description='Session ID for multi-tenancy')
@@ -75,7 +74,6 @@ class EpisodeNode(BaseModel):
                 "name": "User message",
                 "content": "user: I love Python programming",
                 "source": "message",
-                "group_id": "user_123",
                 "user_id": "user_123",
             }
         }
@@ -98,7 +96,6 @@ class EntityNode(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     # Multi-tenancy fields
-    group_id: str = Field(description='Partition/group ID for multi-tenancy')
     user_id: str | None = Field(default=None, description='User ID for multi-tenancy')
 
     # Additional attributes
@@ -115,7 +112,6 @@ class EntityNode(BaseModel):
                 "name": "Python",
                 "entity_type": "PROGRAMMING_LANGUAGE",
                 "summary": "A high-level programming language",
-                "group_id": "user_123",
                 "mentions": 5
             }
         }
@@ -134,9 +130,6 @@ class CommunityNode(BaseModel):
         description='Embedding of the community name (3072 dimensions)'
     )
     created_at: datetime = Field(default_factory=datetime.utcnow)
-
-    # Multi-tenancy fields
-    group_id: str = Field(description='Partition/group ID for multi-tenancy')
 
     # Additional attributes
     member_count: int = Field(default=0, description='Number of entities in this community')
@@ -163,9 +156,6 @@ class EntityEdge(BaseModel):
     invalid_at: datetime | None = Field(default=None, description='When the fact stopped being true')
     expired_at: datetime | None = Field(default=None, description='When the edge was invalidated/superseded')
 
-    # Multi-tenancy fields
-    group_id: str = Field(description='Partition/group ID for multi-tenancy')
-
     # Metadata
     episodes: list[str] = Field(
         default_factory=list,
@@ -185,7 +175,6 @@ class EntityEdge(BaseModel):
                 "target_node_uuid": "entity_2_uuid",
                 "name": "WORKS_AT",
                 "fact": "Alice works at Google",
-                "group_id": "user_123",
                 "valid_at": "2024-01-01T00:00:00Z"
             }
         }
@@ -201,9 +190,6 @@ class EpisodicEdge(BaseModel):
     target_node_uuid: str = Field(description='UUID of entity (target)')
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Multi-tenancy fields
-    group_id: str = Field(description='Partition/group ID for multi-tenancy')
-
 
 class CommunityEdge(BaseModel):
     """
@@ -215,16 +201,12 @@ class CommunityEdge(BaseModel):
     target_node_uuid: str = Field(description='UUID of entity (target)')
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Multi-tenancy fields
-    group_id: str = Field(description='Partition/group ID for multi-tenancy')
-
 
 # Search and retrieval models
 
 class SearchConfig(BaseModel):
     """Configuration for search operations"""
     query: str = Field(description='Search query text')
-    group_id: str = Field(description='Group ID to search within')
     user_id: str | None = Field(default=None, description='Optional user ID filter')
     agent_id: str | None = Field(default=None, description='Optional agent ID filter')
     session_id: str | None = Field(default=None, description='Optional session ID filter')

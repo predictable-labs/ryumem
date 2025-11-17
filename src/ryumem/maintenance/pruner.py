@@ -41,7 +41,7 @@ class MemoryPruner:
 
     def prune_expired_edges(
         self,
-        group_id: str,
+        user_id: str,
         cutoff_date: datetime,
     ) -> int:
         """
@@ -51,7 +51,7 @@ class MemoryPruner:
         and are no longer contextually relevant.
 
         Args:
-            group_id: Group ID to prune
+            user_id: User ID to prune
             cutoff_date: Delete edges expired before this date
 
         Returns:
@@ -67,25 +67,23 @@ class MemoryPruner:
         """
         query = """
         MATCH ()-[e:RELATES_TO]->()
-        WHERE e.group_id = $group_id
-          AND e.expired_at IS NOT NULL
+        WHERE e.expired_at IS NOT NULL
           AND e.expired_at < $cutoff_date
         DELETE e
         RETURN COUNT(e) AS deleted_count
         """
 
         result = self.db.execute(query, {
-            "group_id": group_id,
             "cutoff_date": cutoff_date,
         })
 
         deleted_count = result[0]["deleted_count"] if result else 0
-        logger.info(f"Deleted {deleted_count} expired edges for group {group_id}")
+        logger.info(f"Deleted {deleted_count} expired edges for user {user_id}")
         return deleted_count
 
     def prune_low_mention_entities(
         self,
-        group_id: str,
+        user_id: str,
         min_mentions: int = 2,
         min_age_days: int = 30,
     ) -> int:
@@ -98,7 +96,7 @@ class MemoryPruner:
         - Tangential/irrelevant entities
 
         Args:
-            group_id: Group ID to prune
+            user_id: User ID to prune
             min_mentions: Minimum mentions required to keep (default: 2)
             min_age_days: Minimum age in days before pruning (default: 30)
 
@@ -114,29 +112,27 @@ class MemoryPruner:
 
         query = """
         MATCH (e:Entity)
-        WHERE e.group_id = $group_id
-          AND e.mentions < $min_mentions
+        WHERE e.mentions < $min_mentions
           AND e.created_at < $cutoff_date
         DETACH DELETE e
         RETURN COUNT(e) AS deleted_count
         """
 
         result = self.db.execute(query, {
-            "group_id": group_id,
             "min_mentions": min_mentions,
             "cutoff_date": cutoff_date,
         })
 
         deleted_count = result[0]["deleted_count"] if result else 0
         logger.info(
-            f"Deleted {deleted_count} low-mention entities for group {group_id} "
+            f"Deleted {deleted_count} low-mention entities for user {user_id} "
             f"(min_mentions={min_mentions}, min_age_days={min_age_days})"
         )
         return deleted_count
 
     def compact_redundant_edges(
         self,
-        group_id: str,
+        user_id: str,
         similarity_threshold: float = 0.95,
     ) -> int:
         """
@@ -150,7 +146,7 @@ class MemoryPruner:
         This method uses fact_embedding similarity to detect redundancy.
 
         Args:
-            group_id: Group ID to compact
+            user_id: User ID to compact
             similarity_threshold: Minimum cosine similarity to consider duplicate (default: 0.95)
 
         Returns:
@@ -161,11 +157,11 @@ class MemoryPruner:
             merged = pruner.compact_redundant_edges("user_123")
             print(f"Merged {merged} redundant edges")
         """
-        # Fetch all edges for this group
-        edges = self.db.get_all_edges(group_id)
+        # Fetch all edges for this user
+        edges = self.db.get_all_edges(user_id)
 
         if not edges:
-            logger.info(f"No edges found for group {group_id}")
+            logger.info(f"No edges found for user {user_id}")
             return 0
 
         # Group edges by (source, target) pair
@@ -221,7 +217,7 @@ class MemoryPruner:
                             f"(similarity: {similarity:.3f})"
                         )
 
-        logger.info(f"Merged {merged_count} redundant edges for group {group_id}")
+        logger.info(f"Merged {merged_count} redundant edges for user {user_id}")
         return merged_count
 
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
@@ -302,7 +298,7 @@ class MemoryPruner:
 
     def prune_all(
         self,
-        group_id: str,
+        user_id: str,
         expired_cutoff_days: int = 90,
         min_mentions: int = 2,
         min_age_days: int = 30,
@@ -310,12 +306,12 @@ class MemoryPruner:
         similarity_threshold: float = 0.95,
     ) -> Dict[str, int]:
         """
-        Run all pruning operations for a group.
+        Run all pruning operations for a user.
 
         This is a convenience method that executes all pruning strategies.
 
         Args:
-            group_id: Group ID to prune
+            user_id: User ID to prune
             expired_cutoff_days: Delete expired edges older than N days
             min_mentions: Minimum mentions for entities
             min_age_days: Minimum age before pruning entities
@@ -330,14 +326,14 @@ class MemoryPruner:
             print(f"Pruning results: {stats}")
             # Output: {'expired_edges_deleted': 15, 'entities_deleted': 3, 'edges_merged': 8}
         """
-        logger.info(f"Starting comprehensive pruning for group {group_id}")
+        logger.info(f"Starting comprehensive pruning for user {user_id}")
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=expired_cutoff_days)
 
         stats = {
-            "expired_edges_deleted": self.prune_expired_edges(group_id, cutoff),
+            "expired_edges_deleted": self.prune_expired_edges(user_id, cutoff),
             "entities_deleted": self.prune_low_mention_entities(
-                group_id,
+                user_id,
                 min_mentions=min_mentions,
                 min_age_days=min_age_days,
             ),
@@ -346,9 +342,9 @@ class MemoryPruner:
 
         if compact_redundant:
             stats["edges_merged"] = self.compact_redundant_edges(
-                group_id,
+                user_id,
                 similarity_threshold=similarity_threshold,
             )
 
-        logger.info(f"Pruning complete for group {group_id}: {stats}")
+        logger.info(f"Pruning complete for user {user_id}: {stats}")
         return stats

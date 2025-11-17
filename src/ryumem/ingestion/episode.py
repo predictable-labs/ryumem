@@ -75,8 +75,7 @@ class EpisodeIngestion:
     def ingest(
         self,
         content: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         agent_id: Optional[str] = None,
         session_id: Optional[str] = None,
         source: EpisodeType = EpisodeType.text,
@@ -100,8 +99,7 @@ class EpisodeIngestion:
 
         Args:
             content: Episode content (text, message, or JSON)
-            group_id: Group ID for multi-tenancy
-            user_id: Optional user ID
+            user_id: User ID (required)
             agent_id: Optional agent ID
             session_id: Optional session ID
             source: Type of episode (message, json, text)
@@ -115,7 +113,6 @@ class EpisodeIngestion:
         # Check for duplicate episode FIRST (before expensive LLM calls)
         existing_episode = self.db.find_similar_episode(
             content=content,
-            group_id=group_id,
             user_id=user_id,
             time_window_hours=24,
         )
@@ -154,7 +151,6 @@ class EpisodeIngestion:
             source_description=source_description,
             created_at=start_time,
             valid_at=start_time,
-            group_id=group_id,
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
@@ -170,7 +166,6 @@ class EpisodeIngestion:
         # Step 2: Get context from previous episodes
         step_start = datetime.utcnow()
         context = self._get_episode_context(
-            group_id=group_id,
             user_id=user_id,
             session_id=session_id,
         )
@@ -181,7 +176,6 @@ class EpisodeIngestion:
         step_start = datetime.utcnow()
         entities, entity_map = self.entity_extractor.extract_and_resolve(
             content=content,
-            group_id=group_id,
             user_id=user_id,
             context=context,
         )
@@ -208,7 +202,7 @@ class EpisodeIngestion:
             entities=entities,
             entity_map=entity_map,
             episode_uuid=episode_uuid,
-            group_id=group_id,
+            user_id=user_id,
             context=context,
         )
         step_duration = (datetime.utcnow() - step_start).total_seconds()
@@ -228,7 +222,6 @@ class EpisodeIngestion:
         self._create_mentions_edges(
             episode_uuid=episode_uuid,
             entity_uuids=[e.uuid for e in entities],
-            group_id=group_id,
         )
         step_duration = (datetime.utcnow() - step_start).total_seconds()
         logger.info(f"⏱️  [TIMING] Step 5 - Create MENTIONS edges: {step_duration:.2f}s")
@@ -238,7 +231,7 @@ class EpisodeIngestion:
         if edges:
             contradicting_edges = self.relation_extractor.detect_contradictions(
                 new_edges=edges,
-                group_id=group_id,
+                user_id=user_id,
             )
 
             if contradicting_edges:
@@ -278,7 +271,7 @@ class EpisodeIngestion:
     def ingest_batch(
         self,
         episodes: List[Dict],
-        group_id: str,
+        user_id: str,
     ) -> List[str]:
         """
         Ingest multiple episodes in batch.
@@ -286,12 +279,11 @@ class EpisodeIngestion:
         Args:
             episodes: List of episode dictionaries with keys:
                 - content: Episode content
-                - user_id: Optional user ID
                 - agent_id: Optional agent ID
                 - session_id: Optional session ID
                 - source: Optional episode type
                 - metadata: Optional metadata
-            group_id: Group ID for all episodes
+            user_id: User ID (required)
 
         Returns:
             List of episode UUIDs
@@ -302,8 +294,7 @@ class EpisodeIngestion:
             try:
                 uuid = self.ingest(
                     content=episode_data["content"],
-                    group_id=group_id,
-                    user_id=episode_data.get("user_id"),
+                    user_id=user_id,
                     agent_id=episode_data.get("agent_id"),
                     session_id=episode_data.get("session_id"),
                     source=episode_data.get("source", EpisodeType.text),
@@ -321,16 +312,14 @@ class EpisodeIngestion:
 
     def _get_episode_context(
         self,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         session_id: Optional[str] = None,
     ) -> str:
         """
         Get context from previous episodes.
 
         Args:
-            group_id: Group ID
-            user_id: Optional user ID filter
+            user_id: User ID (required)
             session_id: Optional session ID filter
 
         Returns:
@@ -338,9 +327,8 @@ class EpisodeIngestion:
         """
         try:
             recent_episodes = self.db.get_episode_context(
-                group_id=group_id,
-                limit=self.max_context_episodes,
                 user_id=user_id,
+                limit=self.max_context_episodes,
                 session_id=session_id,
             )
 
@@ -362,7 +350,6 @@ class EpisodeIngestion:
         self,
         episode_uuid: str,
         entity_uuids: List[str],
-        group_id: str,
     ) -> None:
         """
         Create MENTIONS edges from episode to entities.
@@ -370,7 +357,6 @@ class EpisodeIngestion:
         Args:
             episode_uuid: UUID of the episode
             entity_uuids: List of entity UUIDs mentioned in the episode
-            group_id: Group ID
         """
         for entity_uuid in entity_uuids:
             try:
@@ -379,7 +365,6 @@ class EpisodeIngestion:
                     source_node_uuid=episode_uuid,
                     target_node_uuid=entity_uuid,
                     created_at=datetime.utcnow(),
-                    group_id=group_id,
                 )
 
                 self.db.save_episodic_edge(edge)

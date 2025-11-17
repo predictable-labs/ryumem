@@ -6,8 +6,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export interface Episode {
   content: string;
-  group_id: string;
-  user_id?: string;
+  user_id: string;
   agent_id?: string;
   session_id?: string;
   source?: string;
@@ -16,8 +15,7 @@ export interface Episode {
 
 export interface SearchQuery {
   query: string;
-  group_id: string;
-  user_id?: string;
+  user_id: string;
   limit?: number;
   strategy?: 'semantic' | 'bm25' | 'traversal' | 'hybrid';
   min_rrf_score?: number;
@@ -67,7 +65,6 @@ export interface GraphNode {
   type: string;
   summary: string;
   mentions: number;
-  group_id: string;
   user_id?: string;
 }
 
@@ -195,31 +192,26 @@ class RyumemAPI {
 
   async getEntityContext(
     entityName: string,
-    groupId: string,
     userId?: string
   ) {
     const params = new URLSearchParams({
-      group_id: groupId,
       ...(userId && { user_id: userId }),
     });
-    
+
     return this.request(`/entity/${encodeURIComponent(entityName)}?${params}`);
   }
 
-  async getStats(groupId?: string): Promise<Stats> {
-    const params = groupId ? `?group_id=${groupId}` : '';
-    return this.request(`/stats${params}`);
+  async getStats(): Promise<Stats> {
+    return this.request('/stats');
   }
 
   async updateCommunities(
-    groupId: string,
     resolution: number = 1.0,
     minCommunitySize: number = 2
   ) {
     return this.request('/communities/update', {
       method: 'POST',
       body: JSON.stringify({
-        group_id: groupId,
         resolution,
         min_community_size: minCommunitySize,
       }),
@@ -227,7 +219,7 @@ class RyumemAPI {
   }
 
   async pruneMemories(
-    groupId: string,
+    userId: string,
     expiredCutoffDays: number = 90,
     minMentions: number = 2,
     minAgeDays: number = 30,
@@ -236,7 +228,7 @@ class RyumemAPI {
     return this.request('/prune', {
       method: 'POST',
       body: JSON.stringify({
-        group_id: groupId,
+        user_id: userId,
         expired_cutoff_days: expiredCutoffDays,
         min_mentions: minMentions,
         min_age_days: minAgeDays,
@@ -246,12 +238,10 @@ class RyumemAPI {
   }
 
   async getGraphData(
-    groupId: string,
     userId?: string,
     limit: number = 1000
   ): Promise<GraphDataResponse> {
     const params = new URLSearchParams({
-      group_id: groupId,
       ...(userId && { user_id: userId }),
       limit: limit.toString(),
     });
@@ -259,14 +249,12 @@ class RyumemAPI {
   }
 
   async getEntitiesList(
-    groupId: string,
     userId?: string,
     entityType?: string,
     offset: number = 0,
     limit: number = 50
   ): Promise<EntitiesListResponse> {
     const params = new URLSearchParams({
-      group_id: groupId,
       ...(userId && { user_id: userId }),
       ...(entityType && { entity_type: entityType }),
       offset: offset.toString(),
@@ -275,20 +263,20 @@ class RyumemAPI {
     return this.request(`/entities/list?${params}`);
   }
 
-  async getEntityTypes(groupId: string): Promise<EntityTypesResponse> {
-    const params = new URLSearchParams({ group_id: groupId });
+  async getEntityTypes(userId?: string): Promise<EntityTypesResponse> {
+    const params = new URLSearchParams({
+      ...(userId && { user_id: userId }),
+    });
     return this.request(`/entities/types?${params}`);
   }
 
   async getRelationshipsList(
-    groupId: string,
     userId?: string,
     relationType?: string,
     offset: number = 0,
     limit: number = 50
   ): Promise<RelationshipsListResponse> {
     const params = new URLSearchParams({
-      group_id: groupId,
       ...(userId && { user_id: userId }),
       ...(relationType && { relation_type: relationType }),
       offset: offset.toString(),
@@ -299,6 +287,11 @@ class RyumemAPI {
 
   async health() {
     return this.request('/health');
+  }
+
+  async getUsers(): Promise<string[]> {
+    const response = await this.request<{ users: string[] }>('/users');
+    return response.users;
   }
 
   // ============================================================================
@@ -335,12 +328,10 @@ class RyumemAPI {
 
   async getToolMetrics(
     toolName: string,
-    groupId: string,
     userId?: string,
     minExecutions: number = 1
   ): Promise<ToolMetrics> {
     const params = new URLSearchParams({
-      group_id: groupId,
       ...(userId && { user_id: userId }),
       min_executions: minExecutions.toString(),
     });
@@ -349,11 +340,9 @@ class RyumemAPI {
 
   async getUserToolPreferences(
     userId: string,
-    groupId: string,
     limit: number = 10
   ): Promise<ToolPreference[]> {
     const params = new URLSearchParams({
-      group_id: groupId,
       limit: limit.toString(),
     });
     return this.request(`/users/${encodeURIComponent(userId)}/tool-preferences?${params}`);

@@ -52,7 +52,7 @@ class RelationExtractor:
         entities: List[EntityNode],
         entity_map: Dict[str, str],
         episode_uuid: str,
-        group_id: str,
+        user_id: str,
         context: Optional[str] = None,
     ) -> List[EntityEdge]:
         """
@@ -63,7 +63,7 @@ class RelationExtractor:
             entities: List of resolved entities
             entity_map: Mapping of entity names to UUIDs
             episode_uuid: UUID of the current episode
-            group_id: Group ID for multi-tenancy
+            user_id: User ID (required)
             context: Optional context from previous episodes
 
         Returns:
@@ -78,7 +78,7 @@ class RelationExtractor:
         extracted = self._extract_relationships_with_llm(
             content=content,
             entities=entity_names,
-            user_id=group_id,
+            user_id=user_id,
             context=context,
         )
 
@@ -115,7 +115,7 @@ class RelationExtractor:
             # Search for similar existing relationships
             similar = self.db.search_similar_edges(
                 embedding=embedding,
-                group_id=group_id,
+                user_id=user_id,
                 threshold=self.similarity_threshold,
                 limit=1,
             )
@@ -142,7 +142,6 @@ class RelationExtractor:
                     fact_embedding=embedding,
                     episodes=[episode_uuid],  # Add current episode
                     mentions=1,  # Will be incremented in DB
-                    group_id=group_id,
                 )
 
             else:
@@ -160,7 +159,6 @@ class RelationExtractor:
                     valid_at=datetime.utcnow(),  # Assume valid from now
                     episodes=[episode_uuid],
                     mentions=1,
-                    group_id=group_id,
                 )
 
                 logger.debug(
@@ -241,14 +239,14 @@ class RelationExtractor:
     def detect_contradictions(
         self,
         new_edges: List[EntityEdge],
-        group_id: str,
+        user_id: str,
     ) -> List[str]:
         """
         Detect contradicting edges that should be invalidated.
 
         Args:
             new_edges: List of newly extracted edges
-            group_id: Group ID
+            user_id: User ID (required)
 
         Returns:
             List of edge UUIDs to invalidate

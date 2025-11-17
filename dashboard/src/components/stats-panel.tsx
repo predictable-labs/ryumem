@@ -6,11 +6,10 @@ import { api, Stats } from "@/lib/api";
 import { Database, Network, Users, Globe, Loader2 } from "lucide-react";
 
 interface StatsPanelProps {
-  groupId?: string;
   refreshKey?: number;
 }
 
-export function StatsPanel({ groupId, refreshKey }: StatsPanelProps) {
+export function StatsPanel({ refreshKey }: StatsPanelProps) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +19,7 @@ export function StatsPanel({ groupId, refreshKey }: StatsPanelProps) {
       setIsLoading(true);
       setError(null);
       try {
-        const data = await api.getStats(groupId);
+        const data = await api.getStats();
         setStats(data);
       } catch (err) {
         console.error("Error fetching stats:", err);
@@ -31,7 +30,7 @@ export function StatsPanel({ groupId, refreshKey }: StatsPanelProps) {
     };
 
     fetchStats();
-  }, [groupId, refreshKey]);
+  }, [refreshKey]);
 
   if (isLoading) {
     return (

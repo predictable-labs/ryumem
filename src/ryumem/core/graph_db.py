@@ -69,7 +69,6 @@ class RyugraphDB:
                 source_description STRING,
                 created_at TIMESTAMP,
                 valid_at TIMESTAMP,
-                group_id STRING,
                 user_id STRING,
                 agent_id STRING,
                 session_id STRING,
@@ -121,7 +120,6 @@ class RyugraphDB:
                 name_embedding FLOAT[{self.embedding_dimensions}],
                 mentions INT64,
                 created_at TIMESTAMP,
-                group_id STRING,
                 user_id STRING,
                 labels STRING[],
                 attributes STRING
@@ -138,7 +136,6 @@ class RyugraphDB:
                 summary STRING,
                 name_embedding FLOAT[{self.embedding_dimensions}],
                 created_at TIMESTAMP,
-                group_id STRING,
                 members STRING[],
                 member_count INT64
             );
@@ -160,8 +157,7 @@ class RyugraphDB:
                 expired_at TIMESTAMP,
                 episodes STRING[],
                 mentions INT64,
-                attributes STRING,
-                group_id STRING
+                attributes STRING
             );
             """
         )
@@ -172,8 +168,7 @@ class RyugraphDB:
             CREATE REL TABLE IF NOT EXISTS MENTIONS(
                 FROM Episode TO Entity,
                 uuid STRING,
-                created_at TIMESTAMP,
-                group_id STRING
+                created_at TIMESTAMP
             );
             """
         )
@@ -184,8 +179,7 @@ class RyugraphDB:
             CREATE REL TABLE IF NOT EXISTS HAS_MEMBER(
                 FROM Community TO Entity,
                 uuid STRING,
-                created_at TIMESTAMP,
-                group_id STRING
+                created_at TIMESTAMP
             );
             """
         )
@@ -196,8 +190,7 @@ class RyugraphDB:
             CREATE REL TABLE IF NOT EXISTS TRIGGERED(
                 FROM Episode TO Episode,
                 uuid STRING,
-                created_at TIMESTAMP,
-                group_id STRING
+                created_at TIMESTAMP
             );
             """
         )
@@ -244,7 +237,6 @@ class RyugraphDB:
             e.source_description = $source_description,
             e.created_at = $created_at,
             e.valid_at = $valid_at,
-            e.group_id = $group_id,
             e.user_id = $user_id,
             e.agent_id = $agent_id,
             e.session_id = $session_id,
@@ -265,7 +257,6 @@ class RyugraphDB:
             "source_description": episode.source_description,
             "created_at": episode.created_at,
             "valid_at": episode.valid_at,
-            "group_id": episode.group_id,
             "user_id": episode.user_id,
             "agent_id": episode.agent_id,
             "session_id": episode.session_id,
@@ -310,7 +301,6 @@ class RyugraphDB:
         create_fields.extend([
             "e.mentions = $mentions",
             "e.created_at = $created_at",
-            "e.group_id = $group_id",
             "e.user_id = $user_id",
             "e.labels = $labels",
             "e.attributes = $attributes"
@@ -346,7 +336,6 @@ class RyugraphDB:
             "name_embedding": entity.name_embedding,
             "mentions": entity.mentions,
             "created_at": entity.created_at,
-            "group_id": entity.group_id,
             "user_id": entity.user_id,
             "labels": entity.labels,
             "attributes": json.dumps(entity.attributes),
@@ -382,8 +371,7 @@ class RyugraphDB:
             r.expired_at = $expired_at,
             r.episodes = $episodes,
             r.mentions = $mentions,
-            r.attributes = $attributes,
-            r.group_id = $group_id
+            r.attributes = $attributes
         ON MATCH SET
             r.mentions = coalesce(r.mentions, 0) + 1,
             r.fact = $fact,
@@ -407,7 +395,6 @@ class RyugraphDB:
             "episodes": edge.episodes,
             "mentions": edge.mentions,
             "attributes": json.dumps(edge.attributes),
-            "group_id": edge.group_id,
         }
 
         return self.execute(query, params)
@@ -427,8 +414,7 @@ class RyugraphDB:
         MATCH (entity:Entity {uuid: $entity_uuid})
         MERGE (episode)-[r:MENTIONS {uuid: $uuid}]->(entity)
         ON CREATE SET
-            r.created_at = $created_at,
-            r.group_id = $group_id
+            r.created_at = $created_at
         RETURN r.uuid AS uuid
         """
 
@@ -437,7 +423,6 @@ class RyugraphDB:
             "entity_uuid": edge.target_node_uuid,
             "uuid": edge.uuid,
             "created_at": edge.created_at,
-            "group_id": edge.group_id,
         }
 
         return self.execute(query, params)
@@ -445,8 +430,7 @@ class RyugraphDB:
     def find_similar_episode(
         self,
         content: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         time_window_hours: int = 24,
     ) -> Optional[Dict[str, Any]]:
         """
@@ -456,8 +440,7 @@ class RyugraphDB:
 
         Args:
             content: Episode content to check
-            group_id: Group ID
-            user_id: Optional user ID
+            user_id: User ID (required)
             time_window_hours: Look back this many hours for duplicates
 
         Returns:
@@ -469,14 +452,8 @@ class RyugraphDB:
         query = """
         MATCH (e:Episode)
         WHERE e.content = $content
-          AND e.group_id = $group_id
+          AND e.user_id = $user_id
           AND e.created_at > $time_cutoff
-        """
-
-        if user_id:
-            query += " AND e.user_id = $user_id"
-
-        query += """
         RETURN
             e.uuid AS uuid,
             e.content AS content,
@@ -489,12 +466,9 @@ class RyugraphDB:
 
         params = {
             "content": content,
-            "group_id": group_id,
+            "user_id": user_id,
             "time_cutoff": time_cutoff,
         }
-
-        if user_id:
-            params["user_id"] = user_id
 
         results = self.execute(query, params)
         return results[0] if results else None
@@ -502,45 +476,26 @@ class RyugraphDB:
     def search_similar_entities(
         self,
         embedding: List[float],
-        group_id: str,
+        user_id: str,
         threshold: float = 0.7,
         limit: int = 10,
-        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search for entities similar to the given embedding.
 
         Args:
             embedding: Query embedding vector
-            group_id: Group ID to filter by
+            user_id: User ID (required)
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
-            user_id: Optional user ID filter
 
         Returns:
             List of similar entities with similarity scores
         """
-        # Build WHERE conditions
-        conditions = [
-            "e.name_embedding IS NOT NULL",
-            "e.group_id = $group_id"
-        ]
-        params = {
-            "embedding": embedding,
-            "group_id": group_id,
-            "threshold": threshold,
-            "limit": limit,
-        }
-
-        if user_id:
-            conditions.append("e.user_id = $user_id")
-            params["user_id"] = user_id
-
-        where_clause = " AND ".join(conditions)
-
         query = f"""
         MATCH (e:Entity)
-        WHERE {where_clause}
+        WHERE e.name_embedding IS NOT NULL
+          AND e.user_id = $user_id
         WITH e, array_cosine_similarity(e.name_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
         WHERE similarity >= $threshold
         RETURN
@@ -549,56 +504,43 @@ class RyugraphDB:
             e.entity_type AS entity_type,
             e.summary AS summary,
             e.mentions AS mentions,
-            e.group_id AS group_id,
             similarity
         ORDER BY similarity DESC
         LIMIT $limit
         """
+
+        params = {
+            "embedding": embedding,
+            "user_id": user_id,
+            "threshold": threshold,
+            "limit": limit,
+        }
 
         return self.execute(query, params)
 
     def search_similar_episodes(
         self,
         embedding: List[float],
-        group_id: str,
+        user_id: str,
         threshold: float = 0.7,
         limit: int = 10,
-        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search for episodes similar to the given embedding.
 
         Args:
             embedding: Query embedding vector
-            group_id: Group ID to filter by
+            user_id: User ID (required)
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
-            user_id: Optional user ID filter
 
         Returns:
             List of similar episodes with similarity scores
         """
-        # Build WHERE conditions
-        conditions = [
-            "ep.content_embedding IS NOT NULL",
-            "ep.group_id = $group_id"
-        ]
-        params = {
-            "embedding": embedding,
-            "group_id": group_id,
-            "threshold": threshold,
-            "limit": limit,
-        }
-
-        if user_id:
-            conditions.append("ep.user_id = $user_id")
-            params["user_id"] = user_id
-
-        where_clause = " AND ".join(conditions)
-
         query = f"""
         MATCH (ep:Episode)
-        WHERE {where_clause}
+        WHERE ep.content_embedding IS NOT NULL
+          AND ep.user_id = $user_id
         WITH ep, array_cosine_similarity(ep.content_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
         WHERE similarity >= $threshold
         RETURN
@@ -609,7 +551,6 @@ class RyugraphDB:
             ep.source_description AS source_description,
             ep.created_at AS created_at,
             ep.valid_at AS valid_at,
-            ep.group_id AS group_id,
             ep.user_id AS user_id,
             ep.agent_id AS agent_id,
             ep.session_id AS session_id,
@@ -619,12 +560,19 @@ class RyugraphDB:
         LIMIT $limit
         """
 
+        params = {
+            "embedding": embedding,
+            "user_id": user_id,
+            "threshold": threshold,
+            "limit": limit,
+        }
+
         return self.execute(query, params)
 
     def search_similar_edges(
         self,
         embedding: List[float],
-        group_id: str,
+        user_id: str,
         threshold: float = 0.8,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
@@ -633,7 +581,7 @@ class RyugraphDB:
 
         Args:
             embedding: Query embedding vector
-            group_id: Group ID to filter by
+            user_id: User ID (required)
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
 
@@ -643,8 +591,9 @@ class RyugraphDB:
         query = f"""
         MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity)
         WHERE r.fact_embedding IS NOT NULL
-          AND r.group_id = $group_id
           AND (r.expired_at IS NULL OR r.expired_at > current_timestamp())
+          AND source.user_id = $user_id
+          AND target.user_id = $user_id
         WITH source, r, target,
              array_cosine_similarity(r.fact_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
         WHERE similarity >= $threshold
@@ -663,7 +612,7 @@ class RyugraphDB:
 
         params = {
             "embedding": embedding,
-            "group_id": group_id,
+            "user_id": user_id,
             "threshold": threshold,
             "limit": limit,
         }
@@ -681,7 +630,6 @@ class RyugraphDB:
             e.summary AS summary,
             e.mentions AS mentions,
             e.created_at AS created_at,
-            e.group_id AS group_id,
             e.user_id AS user_id
         """
         results = self.execute(query, {"uuid": uuid})
@@ -703,8 +651,7 @@ class RyugraphDB:
             r.expired_at AS expired_at,
             r.created_at AS created_at,
             r.mentions AS mentions,
-            r.episodes AS episodes,
-            r.group_id AS group_id
+            r.episodes AS episodes
         """
         results = self.execute(query, {"uuid": uuid})
         return results[0] if results else None
@@ -762,58 +709,52 @@ class RyugraphDB:
 
         return self.execute(query, {"uuid": edge_uuid})
 
-    def delete_by_group_id(self, group_id: str) -> None:
+    def delete_by_user_id(self, user_id: str) -> None:
         """
-        Delete all data for a specific group_id.
+        Delete all data for a specific user_id.
 
         Args:
-            group_id: Group ID to delete
+            user_id: User ID to delete
         """
-        # Delete in order: edges first, then nodes
+        # Delete episodes for user
         self.execute(
             """
-            MATCH ()-[r:MENTIONS|RELATES_TO|HAS_MEMBER {group_id: $group_id}]->()
-            DELETE r
+            MATCH (n:Episode {user_id: $user_id})
+            DETACH DELETE n
             """,
-            {"group_id": group_id}
+            {"user_id": user_id}
         )
 
-        for node_type in ["Episode", "Entity", "Community"]:
-            self.execute(
-                f"""
-                MATCH (n:{node_type} {{group_id: $group_id}})
-                DETACH DELETE n
-                """,
-                {"group_id": group_id}
-            )
+        # Delete entities for user
+        self.execute(
+            """
+            MATCH (n:Entity {user_id: $user_id})
+            DETACH DELETE n
+            """,
+            {"user_id": user_id}
+        )
 
-        logger.info(f"Deleted all data for group_id: {group_id}")
+        logger.info(f"Deleted all data for user_id: {user_id}")
 
     def get_episode_context(
         self,
-        group_id: str,
+        user_id: str,
         limit: int = 5,
-        user_id: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Get recent episodes for context in extraction.
 
         Args:
-            group_id: Group ID to filter by
+            user_id: User ID to filter by (required)
             limit: Maximum number of episodes to return
-            user_id: Optional user ID filter
             session_id: Optional session ID filter
 
         Returns:
             List of recent episodes
         """
-        conditions = ["e.group_id = $group_id"]
-        params = {"group_id": group_id, "limit": limit}
-
-        if user_id:
-            conditions.append("e.user_id = $user_id")
-            params["user_id"] = user_id
+        conditions = ["e.user_id = $user_id"]
+        params = {"user_id": user_id, "limit": limit}
 
         if session_id:
             conditions.append("e.session_id = $session_id")
@@ -856,7 +797,7 @@ class RyugraphDB:
             e.entity_type AS entity_type,
             e.summary AS summary,
             e.mentions AS mentions,
-            e.group_id AS group_id
+            e.user_id AS user_id
         """
 
         params = {"episode_uuid": episode_uuid}
@@ -885,7 +826,6 @@ class RyugraphDB:
             c.name = $name,
             c.summary = $summary,
             c.created_at = $created_at,
-            c.group_id = $group_id,
             c.members = $members,
             c.member_count = $member_count
         ON MATCH SET
@@ -900,7 +840,6 @@ class RyugraphDB:
             "name": community.name,
             "summary": community.summary,
             "created_at": community.created_at,
-            "group_id": community.group_id,
             "members": members_json,
             "member_count": len(community.members),
         }
@@ -932,8 +871,7 @@ class RyugraphDB:
         MATCH (e:Entity {uuid: $entity_uuid})
         CREATE (c)-[r:HAS_MEMBER {
             uuid: $uuid,
-            created_at: $created_at,
-            group_id: c.group_id
+            created_at: $created_at
         }]->(e)
         RETURN r.uuid AS uuid
         """
@@ -949,56 +887,99 @@ class RyugraphDB:
         logger.debug(f"Created HAS_MEMBER edge: {community_uuid} -> {entity_uuid}")
         return result
 
-    def get_all_entities(self, group_id: str) -> List[Dict[str, Any]]:
+    def get_all_entities(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Get all entities for a group.
+        Get all entities, optionally filtered by user.
 
         Args:
-            group_id: Group ID
+            user_id: User ID for filtering (optional - returns all users if None)
 
         Returns:
             List of entity dictionaries
         """
-        query = """
-        MATCH (e:Entity)
-        WHERE e.group_id = $group_id
-        RETURN
-            e.uuid AS uuid,
-            e.name AS name,
-            e.entity_type AS entity_type,
-            e.summary AS summary,
-            e.mentions AS mentions,
-            e.group_id AS group_id
-        """
+        if user_id:
+            query = """
+            MATCH (e:Entity)
+            WHERE e.user_id = $user_id
+            RETURN
+                e.uuid AS uuid,
+                e.name AS name,
+                e.entity_type AS entity_type,
+                e.summary AS summary,
+                e.mentions AS mentions,
+                e.user_id AS user_id
+            """
+            return self.execute(query, {"user_id": user_id})
+        else:
+            query = """
+            MATCH (e:Entity)
+            RETURN
+                e.uuid AS uuid,
+                e.name AS name,
+                e.entity_type AS entity_type,
+                e.summary AS summary,
+                e.mentions AS mentions,
+                e.user_id AS user_id
+            """
+            return self.execute(query, {})
 
-        return self.execute(query, {"group_id": group_id})
-
-    def get_all_edges(self, group_id: str) -> List[Dict[str, Any]]:
+    def get_all_edges(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Get all relationship edges for a group.
+        Get all relationship edges, optionally filtered by user.
 
         Args:
-            group_id: Group ID
+            user_id: User ID for filtering (optional - returns all users if None)
 
         Returns:
             List of edge dictionaries
         """
+        if user_id:
+            query = """
+            MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity)
+            WHERE source.user_id = $user_id
+              AND target.user_id = $user_id
+            RETURN
+                r.uuid AS uuid,
+                source.uuid AS source_uuid,
+                target.uuid AS target_uuid,
+                r.name AS relation_type,
+                r.fact AS fact,
+                r.valid_at AS valid_at,
+                r.invalid_at AS invalid_at,
+                r.expired_at AS expired_at
+            """
+            return self.execute(query, {"user_id": user_id})
+        else:
+            query = """
+            MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity)
+            RETURN
+                r.uuid AS uuid,
+                source.uuid AS source_uuid,
+                target.uuid AS target_uuid,
+                r.name AS relation_type,
+                r.fact AS fact,
+                r.valid_at AS valid_at,
+                r.invalid_at AS invalid_at,
+                r.expired_at AS expired_at
+            """
+            return self.execute(query, {})
+
+    def get_all_users(self) -> List[str]:
+        """
+        Get all distinct user IDs in the database.
+
+        Returns:
+            List of user_id strings
+        """
         query = """
-        MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity)
-        WHERE r.group_id = $group_id
-        RETURN
-            r.uuid AS uuid,
-            source.uuid AS source_uuid,
-            target.uuid AS target_uuid,
-            r.name AS relation_type,
-            r.fact AS fact,
-            r.valid_at AS valid_at,
-            r.invalid_at AS invalid_at,
-            r.expired_at AS expired_at,
-            r.group_id AS group_id
+        MATCH (e:Entity)
+        WHERE e.user_id IS NOT NULL
+        RETURN DISTINCT e.user_id AS user_id
+        ORDER BY user_id
         """
 
-        return self.execute(query, {"group_id": group_id})
+        results = self.execute(query, {})
+        return [r["user_id"] for r in results if r.get("user_id")]
 
     def get_community_by_uuid(self, community_uuid: str) -> Optional[Dict[str, Any]]:
         """
@@ -1019,7 +1000,6 @@ class RyugraphDB:
             c.name AS name,
             c.summary AS summary,
             c.created_at AS created_at,
-            c.group_id AS group_id,
             c.members AS members,
             c.member_count AS member_count
         """
@@ -1035,20 +1015,17 @@ class RyugraphDB:
 
         return None
 
-    def delete_communities(self, group_id: str) -> None:
+    def delete_communities(self) -> None:
         """
-        Delete all communities for a group.
-
-        Args:
-            group_id: Group ID
+        Delete all communities.
         """
         query = """
-        MATCH (c:Community {group_id: $group_id})
+        MATCH (c:Community)
         DETACH DELETE c
         """
 
-        self.execute(query, {"group_id": group_id})
-        logger.info(f"Deleted all communities for group: {group_id}")
+        self.execute(query)
+        logger.info("Deleted all communities")
 
     # ===== Tool Methods =====
 
