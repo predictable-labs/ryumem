@@ -202,6 +202,93 @@ class ToolTracker:
             f"sampling: {sampling_rate*100}%"
         )
 
+    def register_tools(self, tools: List[Dict[str, str]]) -> None:
+        """
+        Register tools in the database at startup.
+
+        Only generates descriptions for new tools (doesn't re-process existing ones).
+
+        Args:
+            tools: List of tool dicts with 'name' and 'description' keys
+        """
+        try:
+            for tool in tools:
+                tool_name = tool.get("name")
+                tool_description = tool.get("description", "")
+
+                if not tool_name:
+                    logger.warning(f"Skipping tool with no name: {tool}")
+                    continue
+
+                # Check if tool already exists
+                existing_tool = self.ryumem.db.get_tool_by_name(tool_name)
+                if existing_tool:
+                    logger.debug(f"Tool already registered: {tool_name}")
+                    continue
+
+                # New tool - generate enhanced description using LLM
+                enhanced_description = tool_description
+                if tool_description:
+                    enhanced_description = self._generate_tool_description(
+                        tool_name=tool_name,
+                        base_description=tool_description
+                    )
+
+                # Create embedding for tool name
+                tool_embedding = self.ryumem.embedding_client.embed(tool_name)
+
+                # Save tool to database
+                self.ryumem.db.save_tool(
+                    tool_name=tool_name,
+                    description=enhanced_description or f"Tool: {tool_name}",
+                    name_embedding=tool_embedding,
+                )
+
+                logger.debug(f"Registered new tool: {tool_name}")
+
+        except Exception as e:
+            logger.error(f"Failed to register tools: {e}")
+            if not self.fail_open:
+                raise
+
+    def _generate_tool_description(self, tool_name: str, base_description: str) -> str:
+        """
+        Use LLM to generate an enhanced, user-friendly description of the tool.
+
+        Args:
+            tool_name: Name of the tool
+            base_description: Base description from the tool's docstring
+
+        Returns:
+            Enhanced description suitable for UI display
+        """
+        prompt = f"""Generate a clear, user-friendly description of this tool for display in a UI.
+
+Tool Name: {tool_name}
+Technical Description: {base_description}
+
+Provide a concise description (1-2 sentences, max 150 characters) that explains:
+1. What the tool does
+2. When it should be used
+
+Make it user-friendly and avoid technical jargon. Just return the description text, nothing else.
+"""
+
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            response = self.ryumem.llm_client.generate(
+                messages,
+                temperature=0.3,
+                max_tokens=100,
+            )
+
+            description = response.get("content", "").strip()
+            return description or base_description
+
+        except Exception as e:
+            logger.error(f"Tool description generation failed for {tool_name}: {e}")
+            return base_description
+
     def _should_track(self) -> bool:
         """Determine if this execution should be tracked based on sampling rate."""
         import random
@@ -260,98 +347,6 @@ class ToolTracker:
 
         return self._sanitize_value(output_str[:self.max_output_length])
 
-    async def _classify_task_async(
-        self,
-        tool_name: str,
-        tool_description: str,
-        input_params: Dict[str, Any],
-        context: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        Use LLM to classify the task type from tool and context information.
-
-        Returns:
-            Dict with 'task_type', 'description', and 'confidence'
-        """
-        # Build classification prompt
-        prompt = f"""Analyze this tool execution and classify the task type.
-
-Tool Name: {tool_name}
-Tool Description: {tool_description or 'No description provided'}
-Input Parameters: {json.dumps(input_params, indent=2)}
-
-Recent Conversation Context:
-{context or 'No context available'}
-
-Based on this information, classify the task into one of these categories:
-- information_retrieval (searching, fetching data)
-- data_transformation (processing, converting, formatting)
-- calculation (mathematical, statistical operations)
-- external_api (calling external services)
-- file_operation (reading, writing files)
-- database_operation (queries, updates)
-- communication (sending messages, emails)
-- automation (scheduled tasks, workflows)
-- analysis (data analysis, insights)
-- other (specify)
-
-Respond with ONLY a JSON object in this format:
-{{
-    "task_type": "category_name",
-    "description": "brief description of what this tool execution accomplishes",
-    "confidence": 0.0-1.0
-}}"""
-
-        try:
-            # Use Ryumem's LLM client for classification
-            # Format as messages array for OpenAI API
-            messages = [
-                {"role": "user", "content": prompt}
-            ]
-
-            # We're in a background task - just call it directly
-            # The task itself is async, so this won't block the main event loop
-            response = self.ryumem.llm_client.generate(
-                messages,
-                temperature=0.3,
-                max_tokens=200,
-            )
-
-            # Parse JSON response from content
-            content = response.get("content", "")
-            result = json.loads(content.strip())
-
-            return {
-                "task_type": result.get("task_type", "unknown"),
-                "description": result.get("description", ""),
-                "confidence": result.get("confidence", 0.0),
-            }
-
-        except Exception as e:
-            logger.error(f"Task classification failed: {e}")
-            return {
-                "task_type": "unknown",
-                "description": f"Classification failed: {str(e)}",
-                "confidence": 0.0,
-            }
-
-    def _classify_task_sync(
-        self,
-        tool_name: str,
-        tool_description: str,
-        input_params: Dict[str, Any],
-        context: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Synchronous wrapper for task classification."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(
-                self._classify_task_async(tool_name, tool_description, input_params, context)
-            )
-        finally:
-            loop.close()
-
     def _link_episodes(
         self,
         parent_episode_uuid: str,
@@ -402,147 +397,6 @@ Respond with ONLY a JSON object in this format:
             if not self.fail_open:
                 raise
 
-    def _create_tool_entities(
-        self,
-        tool_name: str,
-        tool_description: Optional[str],
-        task_type: str,
-        task_description: str,
-        success: bool,
-        duration_ms: int,
-    ) -> None:
-        """
-        Directly create TOOL and TASK_TYPE entities in the knowledge graph.
-
-        This bypasses LLM-based entity extraction and creates structured entities
-        from tool tracking metadata.
-
-        Args:
-            tool_name: Name of the tool
-            tool_description: Tool's docstring/description
-            task_type: Classified task type
-            task_description: Description of the task
-            success: Whether execution succeeded
-            duration_ms: Execution duration
-        """
-        from uuid import uuid4
-        from ryumem.core.models import EntityNode
-
-        try:
-            # Create or update TOOL entity
-            tool_embedding = self.ryumem.embedding_client.embed(tool_name)
-
-            # Search for existing tool entity
-            similar_tools = self.ryumem.db.search_similar_entities(
-                embedding=tool_embedding,
-                group_id=self.ryumem_customer_id,
-                threshold=0.9,  # High threshold for exact tool match
-                limit=1,
-            )
-
-            if similar_tools:
-                # Update existing tool entity (increment mentions)
-                tool_entity = similar_tools[0]
-                tool_uuid = tool_entity["uuid"]
-                tool_mentions = tool_entity.get("mentions", 0) + 1
-
-                logger.debug(f"Updating existing TOOL entity: {tool_name} (mentions: {tool_mentions})")
-            else:
-                # Create new TOOL entity
-                tool_uuid = str(uuid4())
-                tool_mentions = 1
-
-                logger.debug(f"Creating new TOOL entity: {tool_name}")
-
-            # Save/update tool entity
-            # Note: Omit user_id entirely for group-level entities instead of None
-            tool_entity_node = EntityNode(
-                uuid=tool_uuid,
-                name=tool_name,
-                entity_type="TOOL",
-                summary=tool_description or f"Tool: {tool_name}",
-                name_embedding=tool_embedding,
-                mentions=tool_mentions,
-                group_id=self.ryumem_customer_id,
-            )
-            self.ryumem.db.save_entity(tool_entity_node)
-
-            # Create or update TASK_TYPE entity
-            task_embedding = self.ryumem.embedding_client.embed(task_type)
-
-            similar_tasks = self.ryumem.db.search_similar_entities(
-                embedding=task_embedding,
-                group_id=self.ryumem_customer_id,
-                threshold=0.9,
-                limit=1,
-            )
-
-            if similar_tasks:
-                # Update existing task type entity
-                task_entity = similar_tasks[0]
-                task_uuid = task_entity["uuid"]
-                task_mentions = task_entity.get("mentions", 0) + 1
-
-                logger.debug(f"Updating existing TASK_TYPE entity: {task_type} (mentions: {task_mentions})")
-            else:
-                # Create new TASK_TYPE entity
-                task_uuid = str(uuid4())
-                task_mentions = 1
-
-                logger.debug(f"Creating new TASK_TYPE entity: {task_type}")
-
-            # Save/update task type entity
-            # Note: Omit user_id entirely for group-level entities instead of None
-            task_entity_node = EntityNode(
-                uuid=task_uuid,
-                name=task_type,
-                entity_type="TASK_TYPE",
-                summary=task_description or f"Task type: {task_type}",
-                name_embedding=task_embedding,
-                mentions=task_mentions,
-                group_id=self.ryumem_customer_id,
-            )
-            self.ryumem.db.save_entity(task_entity_node)
-
-            # Create relationship: TOOL -[USED_FOR]-> TASK_TYPE
-            from ryumem.core.models import EntityEdge
-
-            relationship_metadata = {
-                "success": success,
-                "duration_ms": duration_ms,
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-
-            # Create EntityEdge for the USED_FOR relationship
-            edge = EntityEdge(
-                uuid=str(uuid4()),
-                source_node_uuid=tool_uuid,
-                target_node_uuid=task_uuid,
-                name="USED_FOR",
-                fact=f"{tool_name} is used for {task_type}",
-                fact_embedding=self.ryumem.embedding_client.embed(f"{tool_name} used for {task_type}"),
-                episodes=[],
-                mentions=1,
-                group_id=self.ryumem_customer_id,
-                attributes=relationship_metadata,
-            )
-
-            self.ryumem.db.save_entity_edge(
-                edge=edge,
-                source_uuid=tool_uuid,
-                target_uuid=task_uuid,
-            )
-
-            logger.debug(
-                f"Created entities and relationship: {tool_name} -[USED_FOR]-> {task_type}"
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to create tool entities: {e}")
-            # Don't fail the tracking if entity creation fails
-            if not self.fail_open:
-                raise
-
     async def _store_tool_execution_async(
         self,
         tool_name: str,
@@ -558,11 +412,6 @@ Respond with ONLY a JSON object in this format:
     ) -> None:
         """Store tool execution as an episode in the knowledge graph."""
         try:
-            # Classify task type
-            classification = await self._classify_task_async(
-                tool_name, tool_description, input_params, context
-            )
-
             # Sanitize and summarize data
             sanitized_params = self._sanitize_params(input_params)
             output_summary = self._summarize_output(output) if success else None
@@ -591,18 +440,11 @@ Respond with ONLY a JSON object in this format:
                 logger.info(f"✓ Tool execution '{tool_name}' linked to query episode: {parent_episode_id}")
 
             # Build episode content
-            content = (
-                f"Tool execution: {tool_name} for {classification['task_type']}. "
-                f"{classification['description']}"
-            )
+            content = f"Tool execution: {tool_name}"
 
-            # Build metadata
+            # Build metadata (simplified - no task classification)
             metadata = {
                 "tool_name": tool_name,
-                "tool_description": tool_description,
-                "task_type": classification["task_type"],
-                "task_description": classification["description"],
-                "task_confidence": classification["confidence"],
                 "input_params": sanitized_params,
                 "output_summary": output_summary,
                 "success": success,
@@ -635,21 +477,8 @@ Respond with ONLY a JSON object in this format:
                 )
                 logger.debug(f"Linked tool episode {tool_episode_id} to query {parent_episode_id}")
 
-            # Create TOOL and TASK_TYPE entities directly
-            await loop.run_in_executor(
-                _thread_pool,
-                lambda: self._create_tool_entities(
-                    tool_name=tool_name,
-                    tool_description=tool_description,
-                    task_type=classification["task_type"],
-                    task_description=classification["description"],
-                    success=success,
-                    duration_ms=duration_ms,
-                )
-            )
-
             logger.info(
-                f"Tracked tool execution: {tool_name} ({classification['task_type']}) "
+                f"Tracked tool execution: {tool_name} "
                 f"- {'success' if success else 'failure'} in {duration_ms}ms"
                 + (f" [linked to query: {parent_episode_id}]" if parent_episode_id else "")
             )

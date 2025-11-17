@@ -420,101 +420,18 @@ class Ryumem:
 
     # Tool Analytics Methods
 
-    def get_tools_for_task(
-        self,
-        task_type: str,
-        group_id: str,
-        user_id: Optional[str] = None,
-        limit: int = 10,
-    ) -> List[Dict]:
+    def get_all_tools(self) -> List[Dict]:
         """
-        Get tools that have been used for a specific task type.
-
-        Args:
-            task_type: Task type to search for (e.g., "data_analysis", "web_search")
-            group_id: Group ID
-            user_id: Optional user ID for filtering
-            limit: Maximum number of results
+        Get all registered tools.
 
         Returns:
-            List of tool usage dictionaries with success rates and examples
+            List of tool dictionaries with name and description
 
         Example:
-            tools = ryumem.get_tools_for_task(
-                task_type="data_analysis",
-                group_id="my_company"
-            )
-            # Returns: [{"tool_name": "pandas_query", "success_rate": 0.95, "usage_count": 42, ...}]
+            tools = ryumem.get_all_tools()
+            # Returns: [{"tool_name": "search_database", "description": "...", ...}]
         """
-        # Search for tool executions with this task type
-        query = f"tool execution for {task_type}"
-        results = self.search(
-            query=query,
-            group_id=group_id,
-            user_id=user_id,
-            limit=limit * 5,  # Get more to aggregate
-            strategy="bm25",  # Use BM25 for keyword matching
-        )
-
-        # Aggregate by tool name
-        tool_stats = {}
-        for edge in results.edges:
-            # Get source node to check if it's an Episode
-            episode_node = next(
-                (n for n in results.episodes if n.uuid == edge.source_node_uuid),
-                None
-            )
-
-            # Check if this is a tool execution episode
-            if episode_node and hasattr(episode_node, 'entity_type') and episode_node.entity_type == "Episode":
-                if not hasattr(episode_node, 'metadata'):
-                    continue
-
-                metadata = episode_node.metadata or {}
-                if metadata.get('tool_name') and metadata.get('task_type') == task_type:
-                    tool_name = metadata['tool_name']
-
-                    if tool_name not in tool_stats:
-                        tool_stats[tool_name] = {
-                            'tool_name': tool_name,
-                            'usage_count': 0,
-                            'success_count': 0,
-                            'total_duration_ms': 0,
-                            'examples': [],
-                        }
-
-                    tool_stats[tool_name]['usage_count'] += 1
-                    if metadata.get('success'):
-                        tool_stats[tool_name]['success_count'] += 1
-                    tool_stats[tool_name]['total_duration_ms'] += metadata.get('duration_ms', 0)
-
-                    # Add example if we don't have too many
-                    if len(tool_stats[tool_name]['examples']) < 3:
-                        tool_stats[tool_name]['examples'].append({
-                            'input': metadata.get('input_params', {}),
-                            'output': metadata.get('output_summary', ''),
-                            'success': metadata.get('success', False),
-                        })
-
-        # Calculate success rates and average durations
-        result_list = []
-        for stats in tool_stats.values():
-            stats['success_rate'] = (
-                stats['success_count'] / stats['usage_count']
-                if stats['usage_count'] > 0 else 0.0
-            )
-            stats['avg_duration_ms'] = (
-                stats['total_duration_ms'] / stats['usage_count']
-                if stats['usage_count'] > 0 else 0
-            )
-            del stats['success_count']
-            del stats['total_duration_ms']
-            result_list.append(stats)
-
-        # Sort by usage count
-        result_list.sort(key=lambda x: x['usage_count'], reverse=True)
-
-        return result_list[:limit]
+        return self.db.get_all_tools()
 
     def get_tool_success_rate(
         self,
@@ -734,7 +651,6 @@ class Ryumem:
         agent_type: str = "google_adk",
         instruction_type: str = "tool_tracking",
         description: str = "",
-        user_id: Optional[str] = None,
         original_user_request: Optional[str] = None,
     ) -> str:
         """
@@ -748,7 +664,6 @@ class Ryumem:
             agent_type: Type of agent (e.g., "google_adk", "custom_agent")
             instruction_type: Type of instruction (e.g., "tool_tracking", "memory_guidance")
             description: User-friendly description of what this instruction does
-            user_id: Optional user ID for user-specific instructions
             original_user_request: Optional original request from user before conversion
 
         Returns:
@@ -794,8 +709,7 @@ class Ryumem:
             original_user_request: $original_user_request,
             description: $description,
             version: $version,
-            created_at: $created_at,
-            user_id: $user_id
+            created_at: $created_at
         })
         RETURN i.uuid AS uuid
         """
@@ -809,7 +723,6 @@ class Ryumem:
             "description": description,
             "version": version,
             "created_at": datetime.utcnow(),
-            "user_id": user_id
         })
         logger.info(f"[DB] Insert query executed, result: {insert_result}")
         logger.info(f"[DB] ✓ Instruction saved successfully with ID: {instruction_id}")

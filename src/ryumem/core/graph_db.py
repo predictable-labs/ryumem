@@ -91,8 +91,21 @@ class RyugraphDB:
                 description STRING,
                 version INT64,
                 active BOOLEAN,
-                created_at TIMESTAMP,
-                user_id STRING
+                created_at TIMESTAMP
+            );
+            """
+        )
+
+        # Tool nodes (separate from Entities)
+        self.execute(
+            f"""
+            CREATE NODE TABLE IF NOT EXISTS Tool(
+                uuid STRING PRIMARY KEY,
+                tool_name STRING,
+                description STRING,
+                name_embedding FLOAT[{self.embedding_dimensions}],
+                mentions INT64,
+                created_at TIMESTAMP
             );
             """
         )
@@ -1036,6 +1049,116 @@ class RyugraphDB:
 
         self.execute(query, {"group_id": group_id})
         logger.info(f"Deleted all communities for group: {group_id}")
+
+    # ===== Tool Methods =====
+
+    def save_tool(self, tool_name: str, description: str, name_embedding: Optional[List[float]] = None) -> Dict[str, Any]:
+        """
+        Save a tool node to the database.
+
+        Args:
+            tool_name: Name of the tool
+            description: Description of the tool
+            name_embedding: Optional embedding vector for the tool name
+
+        Returns:
+            Result dictionary
+        """
+        from datetime import datetime, timezone
+        from uuid import uuid4
+
+        # Build query based on whether embedding is provided
+        if name_embedding is not None:
+            embedding_clause = f"t.name_embedding = CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]')"
+        else:
+            embedding_clause = None
+
+        create_fields = [
+            "t.tool_name = $tool_name",
+            "t.description = $description",
+        ]
+        if embedding_clause:
+            create_fields.append(embedding_clause)
+        create_fields.extend([
+            "t.mentions = $mentions",
+            "t.created_at = $created_at"
+        ])
+
+        update_fields = [
+            "t.mentions = coalesce(t.mentions, 0) + 1",
+            "t.description = $description",
+        ]
+        if embedding_clause:
+            update_fields.append(embedding_clause)
+
+        create_clause = ',\n            '.join(create_fields)
+        update_clause = ',\n            '.join(update_fields)
+
+        query = f"""
+        MERGE (t:Tool {{tool_name: $tool_name}})
+        ON CREATE SET
+            t.uuid = $uuid,
+            {create_clause}
+        ON MATCH SET
+            {update_clause}
+        RETURN t.uuid AS uuid
+        """
+
+        params = {
+            "uuid": str(uuid4()),
+            "tool_name": tool_name,
+            "description": description,
+            "name_embedding": name_embedding,
+            "mentions": 1,
+            "created_at": datetime.now(timezone.utc),
+        }
+
+        result = self.execute(query, params)
+        logger.debug(f"Saved tool: {tool_name}")
+        return result
+
+    def get_tool_by_name(self, tool_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a tool by its name.
+
+        Args:
+            tool_name: Name of the tool
+
+        Returns:
+            Tool dictionary or None
+        """
+        query = """
+        MATCH (t:Tool {tool_name: $tool_name})
+        RETURN
+            t.uuid AS uuid,
+            t.tool_name AS tool_name,
+            t.description AS description,
+            t.mentions AS mentions,
+            t.created_at AS created_at
+        """
+
+        result = self.execute(query, {"tool_name": tool_name})
+        return result[0] if result else None
+
+    def get_all_tools(self) -> List[Dict[str, Any]]:
+        """
+        Get all tools.
+
+        Returns:
+            List of tool dictionaries
+        """
+        query = """
+        MATCH (t:Tool)
+        RETURN
+            t.uuid AS uuid,
+            t.tool_name AS tool_name,
+            t.description AS description,
+            t.mentions AS mentions,
+            t.created_at AS created_at
+        ORDER BY t.tool_name
+        """
+
+        return self.execute(query)
 
     def close(self) -> None:
         """Close the database connection"""

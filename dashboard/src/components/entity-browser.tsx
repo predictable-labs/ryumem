@@ -31,8 +31,6 @@ const getEntityColor = (type: string) => {
     EVENT: 'bg-pink-100 text-pink-800 border-pink-200',
     CONCEPT: 'bg-purple-100 text-purple-800 border-purple-200',
     OBJECT: 'bg-orange-100 text-orange-800 border-orange-200',
-    TOOL: 'bg-cyan-100 text-cyan-800 border-cyan-200',
-    TASK_TYPE: 'bg-indigo-100 text-indigo-800 border-indigo-200',
   };
   return colors[type] || 'bg-gray-100 text-gray-800 border-gray-200';
 };
