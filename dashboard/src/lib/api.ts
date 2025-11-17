@@ -7,7 +7,6 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 export interface Episode {
   content: string;
   user_id: string;
-  agent_id?: string;
   session_id?: string;
   source?: string;
   metadata?: Record<string, any>;
@@ -22,7 +21,6 @@ export interface EpisodeInfo {
   created_at: string;
   valid_at: string;
   user_id?: string;
-  agent_id?: string;
   session_id?: string;
   metadata?: string;
 }

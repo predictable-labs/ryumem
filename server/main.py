@@ -97,7 +97,6 @@ class AddEpisodeRequest(BaseModel):
     """Request model for adding an episode"""
     content: str = Field(..., description="Episode content (text, message, or JSON)")
     user_id: str = Field(..., description="User ID for isolation")
-    agent_id: Optional[str] = Field(None, description="Optional agent ID")
     session_id: Optional[str] = Field(None, description="Optional session ID")
     source: str = Field("text", description="Episode source type: text, message, or json")
     metadata: Optional[Dict] = Field(None, description="Optional metadata")
@@ -129,7 +128,6 @@ class EpisodeInfo(BaseModel):
     created_at: str
     valid_at: str
     user_id: Optional[str] = None
-    agent_id: Optional[str] = None
     session_id: Optional[str] = None
     metadata: Optional[str] = None
 
@@ -363,7 +361,6 @@ async def add_episode(
         episode_id = ryumem.add_episode(
             content=request.content,
             user_id=request.user_id,
-            agent_id=request.agent_id,
             session_id=request.session_id,
             source=request.source,
             metadata=request.metadata,
@@ -427,6 +424,16 @@ async def get_episodes(
         )
 
         # Convert to response format
+        # Helper to convert nan/None to proper None
+        def clean_value(val):
+            if val is None:
+                return None
+            if isinstance(val, float):
+                import math
+                if math.isnan(val):
+                    return None
+            return val
+
         episodes = []
         for ep in result["episodes"]:
             episodes.append(EpisodeInfo(
@@ -437,10 +444,9 @@ async def get_episodes(
                 source_description=ep["source_description"],
                 created_at=ep["created_at"].isoformat() if isinstance(ep["created_at"], datetime) else str(ep["created_at"]),
                 valid_at=ep["valid_at"].isoformat() if isinstance(ep["valid_at"], datetime) else str(ep["valid_at"]),
-                user_id=ep.get("user_id"),
-                agent_id=ep.get("agent_id"),
-                session_id=ep.get("session_id"),
-                metadata=ep.get("metadata"),
+                user_id=clean_value(ep.get("user_id")),
+                session_id=clean_value(ep.get("session_id")),
+                metadata=clean_value(ep.get("metadata")),
             ))
 
         return GetEpisodesResponse(

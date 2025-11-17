@@ -875,7 +875,6 @@ class RyugraphDB:
             e.created_at AS created_at,
             e.valid_at AS valid_at,
             e.user_id AS user_id,
-            e.agent_id AS agent_id,
             e.session_id AS session_id,
             e.metadata AS metadata
         ORDER BY e.created_at {order_clause}
