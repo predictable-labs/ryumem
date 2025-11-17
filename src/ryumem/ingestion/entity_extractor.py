@@ -69,8 +69,7 @@ class EntityExtractor:
     def extract_and_resolve(
         self,
         content: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         context: Optional[str] = None,
     ) -> Tuple[List[EntityNode], Dict[str, str]]:
         """
@@ -85,7 +84,7 @@ class EntityExtractor:
 
         Args:
             content: Text content to extract entities from
-            group_id: Group ID for multi-tenancy
+            user_id: Group ID for multi-tenancy
             user_id: Optional user ID
             context: Optional context from previous episodes
 
@@ -95,7 +94,7 @@ class EntityExtractor:
         # Step 1: Extract entities using LLM
         extracted = self._extract_entities_with_llm(
             content=content,
-            user_id=user_id or group_id,
+            user_id=user_id,
             context=context
         )
 
@@ -125,7 +124,6 @@ class EntityExtractor:
             logger.debug(f"Searching for similar entities to '{entity_name}' (threshold: {self.similarity_threshold})")
             similar = self.db.search_similar_entities(
                 embedding=embedding,
-                group_id=group_id,
                 threshold=self.similarity_threshold,
                 limit=5,  # Get top 5 to see what's available
                 user_id=user_id,
@@ -154,7 +152,6 @@ class EntityExtractor:
                     summary=existing.get("summary", ""),
                     name_embedding=embedding,
                     mentions=existing.get("mentions", 0) + 1,
-                    group_id=group_id,
                     user_id=user_id,
                 )
 
@@ -176,7 +173,6 @@ class EntityExtractor:
                     name_embedding=embedding,
                     mentions=1,
                     created_at=datetime.utcnow(),
-                    group_id=group_id,
                     user_id=user_id,
                 )
 
@@ -337,8 +333,7 @@ Create an updated summary:"""
                 entity_type=entity_data["entity_type"],
                 summary=new_summary,
                 mentions=entity_data["mentions"],
-                group_id=entity_data["group_id"],
-                user_id=_sanitize_user_id(entity_data.get("user_id")),
+                user_id=entity_data["user_id"],
             )
             self.db.save_entity(entity)
             logger.debug(f"Updated summary for entity {entity_data['name']}")
@@ -346,15 +341,14 @@ Create an updated summary:"""
     def get_entity_by_name(
         self,
         name: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
     ) -> Optional[EntityNode]:
         """
         Find an entity by name using embedding similarity.
 
         Args:
             name: Entity name to search for
-            group_id: Group ID
+            user_id: Group ID
             user_id: Optional user ID
 
         Returns:
@@ -366,7 +360,6 @@ Create an updated summary:"""
         # Search for similar entities
         similar = self.db.search_similar_entities(
             embedding=embedding,
-            group_id=group_id,
             threshold=self.similarity_threshold,
             limit=1,
             user_id=user_id,
@@ -380,7 +373,6 @@ Create an updated summary:"""
                 entity_type=result["entity_type"],
                 summary=result.get("summary", ""),
                 mentions=result["mentions"],
-                group_id=result["group_id"],
                 user_id=result.get("user_id"),
             )
 

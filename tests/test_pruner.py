@@ -40,7 +40,7 @@ class TestMemoryPruner:
 
         # Check the query was called with correct parameters
         call_args = mock_db.execute.call_args
-        assert call_args[0][1]["group_id"] == "test_group"
+        assert call_args[0][1]["user_id"] == "test_group"
         assert call_args[0][1]["cutoff_date"] == cutoff
 
     def test_prune_expired_edges_none_found(self, pruner, mock_db):
@@ -67,7 +67,7 @@ class TestMemoryPruner:
 
         # Verify query parameters
         call_args = mock_db.execute.call_args
-        assert call_args[0][1]["group_id"] == "test_group"
+        assert call_args[0][1]["user_id"] == "test_group"
         assert call_args[0][1]["min_mentions"] == 2
 
     def test_prune_low_mention_entities_custom_params(self, pruner, mock_db):

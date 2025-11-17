@@ -29,7 +29,7 @@ class TestBM25Index:
                 mentions=5,
                 created_at=datetime.now(timezone.utc),
                 embedding=[0.1] * 3072,
-                group_id="test_group",
+                user_id="test_group",
             ),
             EntityNode(
                 uuid=str(uuid4()),
@@ -39,7 +39,7 @@ class TestBM25Index:
                 mentions=3,
                 created_at=datetime.now(timezone.utc),
                 embedding=[0.2] * 3072,
-                group_id="test_group",
+                user_id="test_group",
             ),
             EntityNode(
                 uuid=str(uuid4()),
@@ -49,7 +49,7 @@ class TestBM25Index:
                 mentions=10,
                 created_at=datetime.now(timezone.utc),
                 embedding=[0.3] * 3072,
-                group_id="test_group",
+                user_id="test_group",
             ),
         ]
 

@@ -6,7 +6,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export interface Episode {
   content: string;
-  group_id: string;
+  user_id: string;
   user_id?: string;
   agent_id?: string;
   session_id?: string;
@@ -16,7 +16,7 @@ export interface Episode {
 
 export interface SearchQuery {
   query: string;
-  group_id: string;
+  user_id: string;
   user_id?: string;
   limit?: number;
   strategy?: 'semantic' | 'bm25' | 'traversal' | 'hybrid';
@@ -67,7 +67,7 @@ export interface GraphNode {
   type: string;
   summary: string;
   mentions: number;
-  group_id: string;
+  user_id: string;
   user_id?: string;
 }
 
@@ -202,7 +202,7 @@ class RyumemAPI {
     userId?: string
   ) {
     const params = new URLSearchParams({
-      group_id: groupId,
+      user_id: groupId,
       ...(userId && { user_id: userId }),
     });
     
@@ -210,7 +210,7 @@ class RyumemAPI {
   }
 
   async getStats(groupId?: string): Promise<Stats> {
-    const params = groupId ? `?group_id=${groupId}` : '';
+    const params = groupId ? `?user_id=${groupId}` : '';
     return this.request(`/stats${params}`);
   }
 
@@ -222,7 +222,7 @@ class RyumemAPI {
     return this.request('/communities/update', {
       method: 'POST',
       body: JSON.stringify({
-        group_id: groupId,
+        user_id: groupId,
         resolution,
         min_community_size: minCommunitySize,
       }),
@@ -239,7 +239,7 @@ class RyumemAPI {
     return this.request('/prune', {
       method: 'POST',
       body: JSON.stringify({
-        group_id: groupId,
+        user_id: groupId,
         expired_cutoff_days: expiredCutoffDays,
         min_mentions: minMentions,
         min_age_days: minAgeDays,
@@ -254,7 +254,7 @@ class RyumemAPI {
     limit: number = 1000
   ): Promise<GraphDataResponse> {
     const params = new URLSearchParams({
-      group_id: groupId,
+      user_id: groupId,
       ...(userId && { user_id: userId }),
       limit: limit.toString(),
     });
@@ -269,7 +269,7 @@ class RyumemAPI {
     limit: number = 50
   ): Promise<EntitiesListResponse> {
     const params = new URLSearchParams({
-      group_id: groupId,
+      user_id: groupId,
       ...(userId && { user_id: userId }),
       ...(entityType && { entity_type: entityType }),
       offset: offset.toString(),
@@ -279,7 +279,7 @@ class RyumemAPI {
   }
 
   async getEntityTypes(groupId: string): Promise<EntityTypesResponse> {
-    const params = new URLSearchParams({ group_id: groupId });
+    const params = new URLSearchParams({ user_id: groupId });
     return this.request(`/entities/types?${params}`);
   }
 
@@ -291,7 +291,7 @@ class RyumemAPI {
     limit: number = 50
   ): Promise<RelationshipsListResponse> {
     const params = new URLSearchParams({
-      group_id: groupId,
+      user_id: groupId,
       ...(userId && { user_id: userId }),
       ...(relationType && { relation_type: relationType }),
       offset: offset.toString(),
@@ -355,7 +355,7 @@ class RyumemAPI {
   ): Promise<ToolForTask[]> {
     const params = new URLSearchParams({
       task_type: taskType,
-      group_id: groupId,
+      user_id: groupId,
       ...(userId && { user_id: userId }),
       limit: limit.toString(),
     });
@@ -369,7 +369,7 @@ class RyumemAPI {
     minExecutions: number = 1
   ): Promise<ToolMetrics> {
     const params = new URLSearchParams({
-      group_id: groupId,
+      user_id: groupId,
       ...(userId && { user_id: userId }),
       min_executions: minExecutions.toString(),
     });
@@ -382,7 +382,7 @@ class RyumemAPI {
     limit: number = 10
   ): Promise<ToolPreference[]> {
     const params = new URLSearchParams({
-      group_id: groupId,
+      user_id: groupId,
       limit: limit.toString(),
     });
     return this.request(`/users/${encodeURIComponent(userId)}/tool-preferences?${params}`);

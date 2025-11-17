@@ -5,7 +5,6 @@ This module provides zero-boilerplate memory integration with Google's Agent Dev
 No need to write custom search/save functions - just call add_memory_to_agent() and you're done!
 
 Architecture:
-- ryumem_customer_id: Identifies your company/app using Ryumem (required)
 - user_id: Identifies end users of your app - each user gets isolated memory (optional per-session)
 - session_id: Tracks individual conversation threads (handled by Google ADK)
 
@@ -23,8 +22,6 @@ Example:
     # One line to enable memory for your company's agent!
     add_memory_to_agent(
         agent,
-        ryumem_customer_id="my_company",  # Your company using Ryumem
-        db_path="./memory.db"
     )
 
     # The agent will use user_id from each session's runner.run(user_id=...) call
@@ -47,13 +44,11 @@ class RyumemGoogleADK:
     registered as tools with Google ADK agents, eliminating boilerplate code.
 
     Multi-tenancy Architecture:
-    - ryumem_customer_id: Identifies the company/app using Ryumem (required)
     - user_id: Identifies individual end users - each gets isolated memory (optional, can be per-session)
     - session_id: Tracks conversation threads (handled by Google ADK sessions)
 
     Args:
         ryumem: Initialized Ryumem instance
-        ryumem_customer_id: Customer/app identifier (your company using Ryumem)
         user_id: Default user identifier (optional - can be provided per tool call)
         auto_save: If True, automatically save all queries (default: False)
     """
@@ -61,16 +56,14 @@ class RyumemGoogleADK:
     def __init__(
         self,
         ryumem: Ryumem,
-        ryumem_customer_id: str,
         user_id: Optional[str] = None,
         auto_save: bool = False
     ):
         self.ryumem = ryumem
-        self.ryumem_customer_id = ryumem_customer_id
         self.user_id = user_id  # Default user_id, can be None
         self.auto_save = auto_save
 
-        logger.info(f"Initialized RyumemGoogleADK for customer: {ryumem_customer_id}, default_user: {user_id or 'dynamic'}")
+        logger.info(f"Initialized RyumemGoogleADK default_user_id: {user_id or 'dynamic'}")
 
     def search_memory(self, query: str, user_id: Optional[str] = None, limit: int = 5) -> Dict[str, Any]:
         """
@@ -94,7 +87,6 @@ class RyumemGoogleADK:
         try:
             results = self.ryumem.search(
                 query=query,
-                group_id=self.ryumem_customer_id,
                 user_id=effective_user_id,
                 strategy="hybrid",
                 limit=limit
@@ -157,7 +149,6 @@ class RyumemGoogleADK:
 
             episode_id = self.ryumem.add_episode(
                 content=content,
-                group_id=self.ryumem_customer_id,
                 user_id=effective_user_id,
                 source=source,
                 metadata={"integration": "google_adk"}
@@ -194,7 +185,6 @@ class RyumemGoogleADK:
         try:
             context = self.ryumem.get_entity_context(
                 entity_name=entity_name,
-                group_id=self.ryumem_customer_id,
                 user_id=effective_user_id
             )
 
@@ -232,9 +222,8 @@ class RyumemGoogleADK:
 
 def add_memory_to_agent(
     agent,
-    ryumem_customer_id: str,
     user_id: Optional[str] = None,
-    db_path: str = "./memory.db",
+    db_path: str = "./data/memory.db",
     ryumem_instance: Optional[Ryumem] = None,
     track_tools: bool = False,
     track_queries: bool = True,
@@ -250,13 +239,11 @@ def add_memory_to_agent(
     It automatically creates and registers memory tools with your agent.
 
     Multi-tenancy Architecture:
-    - ryumem_customer_id: Identifies your company/app (required) - all your users' data is grouped here
     - user_id: Identifies individual end users (optional) - can be set as default or passed per tool call
     - session_id: Conversation threads (handled by Google ADK sessions)
 
     Args:
         agent: Google ADK Agent instance to add memory to
-        ryumem_customer_id: Customer/app identifier (your company using Ryumem)
         user_id: Optional default user identifier. If None, user_id must be passed to each tool call
         db_path: Path to SQLite database file (default: "./memory.db")
         ryumem_instance: Optional pre-configured Ryumem instance
@@ -290,8 +277,6 @@ def add_memory_to_agent(
         # Enable memory for your company's agent
         add_memory_to_agent(
             agent,
-            ryumem_customer_id="my_company"  # Your company
-            # user_id is None - will be provided per tool call
         )
 
         # Each session uses a different user_id
@@ -304,7 +289,6 @@ def add_memory_to_agent(
         # Enable memory + automatic tool tracking
         add_memory_to_agent(
             agent,
-            ryumem_customer_id="my_company",
             user_id="alice",
             track_tools=True,  # Track all tool usage!
             llm_provider="openai",
@@ -343,7 +327,6 @@ def add_memory_to_agent(
     # Create memory integration
     memory = RyumemGoogleADK(
         ryumem=ryumem,
-        ryumem_customer_id=ryumem_customer_id,
         user_id=user_id
     )
 
@@ -372,7 +355,6 @@ def add_memory_to_agent(
 
         tracker = ToolTracker(
             ryumem=ryumem,
-            ryumem_customer_id=ryumem_customer_id,
             default_user_id=user_id,  # Pass default user_id to tracker
             **tool_tracking_kwargs
         )
@@ -421,7 +403,6 @@ def _augment_query_with_history(
         # Search for similar query episodes
         search_results = memory.ryumem.search(
             query=query_text,
-            group_id=memory.ryumem_customer_id,
             user_id=user_id,
             strategy="semantic",
             limit=top_k if top_k > 0 else 100  # Cap at 100 for -1
@@ -628,7 +609,6 @@ def wrap_runner_with_tracking(
                 # Create episode for user query (store ORIGINAL query, not augmented)
                 query_episode_id = memory.ryumem.add_episode(
                     content=original_query_text,  # Store original for similarity matching
-                    group_id=memory.ryumem_customer_id,
                     user_id=user_id,
                     source="message",
                     metadata={

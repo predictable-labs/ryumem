@@ -174,8 +174,7 @@ class Ryumem:
     def add_episode(
         self,
         content: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         agent_id: Optional[str] = None,
         session_id: Optional[str] = None,
         source: str = "text",
@@ -194,7 +193,7 @@ class Ryumem:
 
         Args:
             content: Episode content (text, message, or JSON)
-            group_id: Group ID for multi-tenancy (required)
+            user_id: Group ID for multi-tenancy (required)
             user_id: Optional user ID
             agent_id: Optional agent ID
             session_id: Optional session ID
@@ -207,7 +206,7 @@ class Ryumem:
         Example:
             episode_id = ryumem.add_episode(
                 content="Alice works at Google in Mountain View",
-                group_id="user_123",
+                user_id="user_123",
                 user_id="user_123",
                 source="text",
             )
@@ -217,7 +216,6 @@ class Ryumem:
 
         episode_id = self.ingestion.ingest(
             content=content,
-            group_id=group_id,
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
@@ -234,7 +232,7 @@ class Ryumem:
     def add_episodes_batch(
         self,
         episodes: List[Dict],
-        group_id: str,
+        user_id: str,
     ) -> List[str]:
         """
         Add multiple episodes in batch.
@@ -247,7 +245,7 @@ class Ryumem:
                 - session_id: Optional session ID
                 - source: Optional source type
                 - metadata: Optional metadata
-            group_id: Group ID for all episodes
+            user_id: Group ID for all episodes
 
         Returns:
             List of episode UUIDs
@@ -257,9 +255,9 @@ class Ryumem:
                 {"content": "Alice works at Google"},
                 {"content": "Bob lives in San Francisco"},
             ]
-            episode_ids = ryumem.add_episodes_batch(episodes, group_id="user_123")
+            episode_ids = ryumem.add_episodes_batch(episodes, user_id="user_123")
         """
-        episode_ids = self.ingestion.ingest_batch(episodes, group_id)
+        episode_ids = self.ingestion.ingest_batch(episodes, user_id)
 
         # Persist BM25 index to disk after batch ingestion
         bm25_path = str(Path(self.config.db_path).parent / f"{Path(self.config.db_path).stem}_bm25.pkl")
@@ -270,8 +268,7 @@ class Ryumem:
     def search(
         self,
         query: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         limit: int = 10,
         strategy: str = "semantic",
         similarity_threshold: Optional[float] = None,
@@ -285,7 +282,7 @@ class Ryumem:
 
         Args:
             query: Search query text
-            group_id: Group ID to search within (required)
+            user_id: Group ID to search within (required)
             user_id: Optional user ID filter
             limit: Maximum number of results (default: 10)
             strategy: Search strategy - "semantic", "traversal", or "hybrid" (default: "hybrid")
@@ -301,7 +298,7 @@ class Ryumem:
         Example:
             results = ryumem.search(
                 query="Tell me about Alice",
-                group_id="user_123",
+                user_id="user_123",
                 strategy="hybrid",
                 limit=10,
             )
@@ -317,7 +314,6 @@ class Ryumem:
         # Create search config
         config = SearchConfig(
             query=query,
-            group_id=group_id,
             user_id=user_id,
             limit=limit,
             strategy=strategy,
@@ -338,8 +334,7 @@ class Ryumem:
     def get_entity_context(
         self,
         entity_name: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         max_depth: int = 2,
     ) -> Dict:
         """
@@ -347,7 +342,7 @@ class Ryumem:
 
         Args:
             entity_name: Name of the entity
-            group_id: Group ID
+            user_id: Group ID
             user_id: Optional user ID
             max_depth: Maximum traversal depth
 
@@ -357,13 +352,12 @@ class Ryumem:
         Example:
             context = ryumem.get_entity_context(
                 entity_name="Alice",
-                group_id="user_123",
+                user_id="user_123",
             )
         """
         # Find entity by name
         entity = self.ingestion.entity_extractor.get_entity_by_name(
             name=entity_name,
-            group_id=group_id,
             user_id=user_id,
         )
 
@@ -378,7 +372,7 @@ class Ryumem:
 
     def update_communities(
         self,
-        group_id: str,
+        user_id: str,
         resolution: float = 1.0,
         min_community_size: int = 2,
     ) -> int:
@@ -393,7 +387,7 @@ class Ryumem:
         This should be called periodically as the knowledge graph grows.
 
         Args:
-            group_id: Group ID to detect communities for
+            user_id: Group ID to detect communities for
             resolution: Resolution parameter for Louvain (higher = more, smaller communities)
             min_community_size: Minimum number of entities per community
 
@@ -413,7 +407,7 @@ class Ryumem:
             )
         """
         return self.community_detector.update_communities(
-            group_id=group_id,
+            user_id=user_id,
             resolution=resolution,
             min_community_size=min_community_size,
         )
@@ -423,8 +417,7 @@ class Ryumem:
     def get_tools_for_task(
         self,
         task_type: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         limit: int = 10,
     ) -> List[Dict]:
         """
@@ -432,7 +425,7 @@ class Ryumem:
 
         Args:
             task_type: Task type to search for (e.g., "data_analysis", "web_search")
-            group_id: Group ID
+            user_id: Group ID
             user_id: Optional user ID for filtering
             limit: Maximum number of results
 
@@ -442,7 +435,7 @@ class Ryumem:
         Example:
             tools = ryumem.get_tools_for_task(
                 task_type="data_analysis",
-                group_id="my_company"
+                user_id="my_company"
             )
             # Returns: [{"tool_name": "pandas_query", "success_rate": 0.95, "usage_count": 42, ...}]
         """
@@ -450,7 +443,6 @@ class Ryumem:
         query = f"tool execution for {task_type}"
         results = self.search(
             query=query,
-            group_id=group_id,
             user_id=user_id,
             limit=limit * 5,  # Get more to aggregate
             strategy="bm25",  # Use BM25 for keyword matching
@@ -519,8 +511,7 @@ class Ryumem:
     def get_tool_success_rate(
         self,
         tool_name: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         min_executions: int = 1,
     ) -> Dict:
         """
@@ -528,7 +519,7 @@ class Ryumem:
 
         Args:
             tool_name: Name of the tool
-            group_id: Group ID
+            user_id: Group ID
             user_id: Optional user ID for filtering
             min_executions: Minimum number of executions required
 
@@ -538,7 +529,7 @@ class Ryumem:
         Example:
             metrics = ryumem.get_tool_success_rate(
                 tool_name="web_search",
-                group_id="my_company"
+                user_id="my_company"
             )
             # Returns: {"success_rate": 0.95, "usage_count": 100, "avg_duration_ms": 250, ...}
         """
@@ -546,7 +537,6 @@ class Ryumem:
         query = f"tool execution {tool_name}"
         results = self.search(
             query=query,
-            group_id=group_id,
             user_id=user_id,
             limit=1000,  # Get many for aggregation
             strategy="bm25",
@@ -610,7 +600,6 @@ class Ryumem:
     def get_user_tool_preferences(
         self,
         user_id: str,
-        group_id: str,
         limit: int = 10,
     ) -> List[Dict]:
         """
@@ -618,7 +607,7 @@ class Ryumem:
 
         Args:
             user_id: User ID to analyze
-            group_id: Group ID
+            user_id: Group ID
             limit: Maximum number of tools to return
 
         Returns:
@@ -627,7 +616,7 @@ class Ryumem:
         Example:
             preferences = ryumem.get_user_tool_preferences(
                 user_id="alice",
-                group_id="my_company"
+                user_id="my_company"
             )
             # Returns: [{"tool_name": "web_search", "usage_count": 50, ...}, ...]
         """
@@ -637,10 +626,10 @@ class Ryumem:
         result = self.db.conn.execute(
             """
             MATCH (e:Episode)
-            WHERE e.user_id = $user_id AND e.group_id = $group_id
+            WHERE e.user_id = $user_id AND e.user_id = $user_id
             RETURN e.metadata
             """,
-            {"user_id": user_id, "group_id": group_id}
+            {"user_id": user_id, "user_id": user_id}
         )
 
         tool_usage = {}
@@ -935,7 +924,7 @@ class Ryumem:
 
     def prune_memories(
         self,
-        group_id: str,
+        user_id: str,
         expired_cutoff_days: int = 90,
         min_mentions: int = 2,
         min_age_days: int = 30,
@@ -953,7 +942,7 @@ class Ryumem:
         Should be called periodically to maintain graph health.
 
         Args:
-            group_id: Group ID to prune
+            user_id: Group ID to prune
             expired_cutoff_days: Delete expired edges older than N days (default: 90)
             min_mentions: Minimum mentions for entities to keep (default: 2)
             min_age_days: Minimum age before pruning low-mention entities (default: 30)
@@ -977,7 +966,7 @@ class Ryumem:
             )
         """
         return self.memory_pruner.prune_all(
-            group_id=group_id,
+            user_id=user_id,
             expired_cutoff_days=expired_cutoff_days,
             min_mentions=min_mentions,
             min_age_days=min_age_days,
@@ -985,20 +974,20 @@ class Ryumem:
             similarity_threshold=similarity_threshold,
         )
 
-    def delete_group(self, group_id: str) -> None:
+    def delete_group(self, user_id: str) -> None:
         """
         Delete all data for a specific group.
 
         WARNING: This is irreversible!
 
         Args:
-            group_id: Group ID to delete
+            user_id: Group ID to delete
 
         Example:
             ryumem.delete_group("user_123")
         """
-        self.db.delete_by_group_id(group_id)
-        logger.info(f"Deleted all data for group: {group_id}")
+        self.db.delete_by_user_id(user_id)
+        logger.info(f"Deleted all data for group: {user_id}")
 
     def reset(self) -> None:
         """
@@ -1046,7 +1035,7 @@ class Ryumem:
                 entity_type=entity_data["entity_type"],
                 summary=entity_data.get("summary", ""),
                 mentions=entity_data["mentions"],
-                group_id="",  # Not needed for BM25
+                user_id="",  # Not needed for BM25
             )
             self.search_engine.bm25_index.add_entity(entity)
 
@@ -1073,7 +1062,7 @@ class Ryumem:
                 name=edge_data["relation_type"],
                 fact=edge_data["fact"],
                 mentions=edge_data["mentions"],
-                group_id="",  # Not needed for BM25
+                user_id="",  # Not needed for BM25
             )
             self.search_engine.bm25_index.add_edge(edge)
 

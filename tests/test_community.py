@@ -214,12 +214,12 @@ class TestCommunityDetector:
             community = detector._create_community(
                 community_id=0,
                 entity_uuids=entity_uuids,
-                group_id="test_group",
+                user_id="test_group",
                 graph=G,
             )
 
         assert isinstance(community, CommunityNode)
-        assert community.group_id == "test_group"
+        assert community.user_id == "test_group"
         assert community.summary == "Tech community"
         assert community.members == entity_uuids
         assert len(community.uuid) > 0
