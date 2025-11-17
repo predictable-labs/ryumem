@@ -7,10 +7,29 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 export interface Episode {
   content: string;
   user_id: string;
-  agent_id?: string;
   session_id?: string;
   source?: string;
   metadata?: Record<string, any>;
+}
+
+export interface EpisodeInfo {
+  uuid: string;
+  name: string;
+  content: string;
+  source: string;
+  source_description: string;
+  created_at: string;
+  valid_at: string;
+  user_id?: string;
+  session_id?: string;
+  metadata?: string;
+}
+
+export interface GetEpisodesResponse {
+  episodes: EpisodeInfo[];
+  total: number;
+  offset: number;
+  limit: number;
 }
 
 export interface SearchQuery {
@@ -181,6 +200,27 @@ class RyumemAPI {
       method: 'POST',
       body: JSON.stringify(episode),
     });
+  }
+
+  async getEpisodes(
+    userId?: string,
+    limit: number = 20,
+    offset: number = 0,
+    startDate?: string,
+    endDate?: string,
+    search?: string,
+    sortOrder: 'asc' | 'desc' = 'desc'
+  ): Promise<GetEpisodesResponse> {
+    const params = new URLSearchParams({
+      limit: limit.toString(),
+      offset: offset.toString(),
+      sort_order: sortOrder,
+      ...(userId && { user_id: userId }),
+      ...(startDate && { start_date: startDate }),
+      ...(endDate && { end_date: endDate }),
+      ...(search && { search }),
+    });
+    return this.request(`/episodes?${params}`);
   }
 
   async search(query: SearchQuery): Promise<SearchResult> {
