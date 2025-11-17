@@ -94,7 +94,6 @@ class RyumemGoogleADK:
         try:
             results = self.ryumem.search(
                 query=query,
-                group_id=self.ryumem_customer_id,
                 user_id=effective_user_id,
                 strategy="hybrid",
                 limit=limit
@@ -157,7 +156,6 @@ class RyumemGoogleADK:
 
             episode_id = self.ryumem.add_episode(
                 content=content,
-                group_id=self.ryumem_customer_id,
                 user_id=effective_user_id,
                 source=source,
                 metadata={"integration": "google_adk"}
@@ -194,7 +192,6 @@ class RyumemGoogleADK:
         try:
             context = self.ryumem.get_entity_context(
                 entity_name=entity_name,
-                group_id=self.ryumem_customer_id,
                 user_id=effective_user_id
             )
 
@@ -501,7 +498,6 @@ def _augment_query_with_history(
         # Search for similar query episodes
         search_results = memory.ryumem.search(
             query=query_text,
-            group_id=memory.ryumem_customer_id,
             user_id=user_id,
             strategy="semantic",
             limit=top_k if top_k > 0 else 100  # Cap at 100 for -1
@@ -708,7 +704,6 @@ def wrap_runner_with_tracking(
                 # Create episode for user query (store ORIGINAL query, not augmented)
                 query_episode_id = memory.ryumem.add_episode(
                     content=original_query_text,  # Store original for similarity matching
-                    group_id=memory.ryumem_customer_id,
                     user_id=user_id,
                     source="message",
                     metadata={

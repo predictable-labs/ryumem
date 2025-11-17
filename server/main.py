@@ -96,8 +96,7 @@ app.add_middleware(
 class AddEpisodeRequest(BaseModel):
     """Request model for adding an episode"""
     content: str = Field(..., description="Episode content (text, message, or JSON)")
-    group_id: str = Field(..., description="Group ID for multi-tenancy")
-    user_id: Optional[str] = Field(None, description="Optional user ID")
+    user_id: str = Field(..., description="User ID for isolation")
     agent_id: Optional[str] = Field(None, description="Optional agent ID")
     session_id: Optional[str] = Field(None, description="Optional session ID")
     source: str = Field("text", description="Episode source type: text, message, or json")
@@ -107,7 +106,6 @@ class AddEpisodeRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "content": "Alice works at Google as a Software Engineer in Mountain View.",
-                "group_id": "user_123",
                 "user_id": "user_123",
                 "source": "text"
             }
@@ -124,8 +122,7 @@ class AddEpisodeResponse(BaseModel):
 class SearchRequest(BaseModel):
     """Request model for searching"""
     query: str = Field(..., description="Search query text")
-    group_id: str = Field(..., description="Group ID to search within")
-    user_id: Optional[str] = Field(None, description="Optional user ID filter")
+    user_id: str = Field(..., description="User ID to search within")
     limit: int = Field(10, description="Maximum number of results", ge=1, le=100)
     strategy: str = Field("hybrid", description="Search strategy: semantic, bm25, traversal, or hybrid")
     min_rrf_score: Optional[float] = Field(None, description="Minimum RRF score for hybrid search")
@@ -135,7 +132,7 @@ class SearchRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "query": "Where does Alice work?",
-                "group_id": "user_123",
+                "user_id": "user_123",
                 "limit": 10,
                 "strategy": "hybrid"
             }
@@ -193,7 +190,6 @@ class StatsResponse(BaseModel):
 
 class UpdateCommunitiesRequest(BaseModel):
     """Request model for updating communities"""
-    group_id: str = Field(..., description="Group ID to detect communities for")
     resolution: float = Field(1.0, description="Resolution parameter for Louvain algorithm", ge=0.1, le=5.0)
     min_community_size: int = Field(2, description="Minimum number of entities per community", ge=1)
 
@@ -206,7 +202,7 @@ class UpdateCommunitiesResponse(BaseModel):
 
 class PruneMemoriesRequest(BaseModel):
     """Request model for pruning memories"""
-    group_id: str = Field(..., description="Group ID to prune")
+    user_id: str = Field(..., description="User ID to prune")
     expired_cutoff_days: int = Field(90, description="Delete expired edges older than N days", ge=1)
     min_mentions: int = Field(2, description="Minimum mentions for entities to keep", ge=1)
     min_age_days: int = Field(30, description="Minimum age before pruning low-mention entities", ge=1)
@@ -236,7 +232,6 @@ class GraphNode(BaseModel):
     type: str = Field(..., description="Entity type")
     summary: str = Field(..., description="Entity summary")
     mentions: int = Field(..., description="Number of mentions")
-    group_id: str = Field(..., description="Group ID")
     user_id: Optional[str] = Field(None, description="User ID")
 
 
@@ -328,7 +323,6 @@ async def add_episode(
     try:
         episode_id = ryumem.add_episode(
             content=request.content,
-            group_id=request.group_id,
             user_id=request.user_id,
             agent_id=request.agent_id,
             session_id=request.session_id,
@@ -363,7 +357,6 @@ async def search(
     try:
         results = ryumem.search(
             query=request.query,
-            group_id=request.group_id,
             user_id=request.user_id,
             limit=request.limit,
             strategy=request.strategy,
@@ -424,8 +417,7 @@ async def search(
 @app.get("/entity/{entity_name}", response_model=EntityContextResponse)
 async def get_entity_context(
     entity_name: str,
-    group_id: str,
-    user_id: Optional[str] = None,
+    user_id: str,
     max_depth: int = 2,
     ryumem: Ryumem = Depends(get_ryumem)
 ):
@@ -437,10 +429,12 @@ async def get_entity_context(
     - All relationships
     - Related entities
     """
+    if not ryumem:
+        raise HTTPException(status_code=503, detail="Ryumem not initialized")
+
     try:
         context = ryumem.get_entity_context(
             entity_name=entity_name,
-            group_id=group_id,
             user_id=user_id,
             max_depth=max_depth,
         )
@@ -568,7 +562,6 @@ async def update_communities(
     """
     try:
         num_communities = ryumem.update_communities(
-            group_id=request.group_id,
             resolution=request.resolution,
             min_community_size=request.min_community_size,
         )
@@ -599,7 +592,7 @@ async def prune_memories(
     """
     try:
         stats = ryumem.prune_memories(
-            group_id=request.group_id,
+            user_id=request.user_id,
             expired_cutoff_days=request.expired_cutoff_days,
             min_mentions=request.min_mentions,
             min_age_days=request.min_age_days,
@@ -619,7 +612,6 @@ async def prune_memories(
 
 @app.get("/graph/data", response_model=GraphDataResponse)
 async def get_graph_data(
-    group_id: str,
     user_id: Optional[str] = None,
     limit: int = 1000,
     ryumem: Ryumem = Depends(get_ryumem)
@@ -630,25 +622,20 @@ async def get_graph_data(
     Returns all entities (nodes) and relationships (edges) in the knowledge graph.
     """
     try:
-        # Get all entities for the group
-        entities_data = ryumem.db.get_all_entities(group_id=group_id)
-
-        # Filter by user_id if provided
+        # Get all entities (optionally filtered by user_id)
         if user_id:
-            entities_data = [e for e in entities_data if e.get('user_id') == user_id]
+            entities_data = ryumem.db.get_all_entities(user_id=user_id)
+        else:
+            entities_data = ryumem.db.get_all_entities()
 
         # Apply limit
         entities_data = entities_data[:limit]
 
-        # Get all edges for the group
-        edges_data = ryumem.db.get_all_edges(group_id=group_id)
-
-        # Filter by user_id if provided (check both source and target entities)
+        # Get all edges (optionally filtered by user_id)
         if user_id:
-            # We need to filter edges where both source and target belong to this user
-            # For now, just filter by the edge's group_id (user filtering on edges may not be directly supported)
-            # This is okay since we filtered entities already
-            pass
+            edges_data = ryumem.db.get_all_edges(user_id=user_id)
+        else:
+            edges_data = ryumem.db.get_all_edges()
 
         # Apply limit
         edges_data = edges_data[:limit]
@@ -662,7 +649,6 @@ async def get_graph_data(
                 type=entity['entity_type'],
                 summary=entity['summary'],
                 mentions=entity['mentions'],
-                group_id=entity['group_id'],
                 user_id=entity.get('user_id')
             ))
 
@@ -692,7 +678,6 @@ async def get_graph_data(
 
 @app.get("/entities/list", response_model=EntitiesListResponse)
 async def list_entities(
-    group_id: str,
     user_id: Optional[str] = None,
     entity_type: Optional[str] = None,
     offset: int = 0,
@@ -705,12 +690,11 @@ async def list_entities(
     Useful for browsing all entities in the system.
     """
     try:
-        # Get all entities for the group
-        all_entities = ryumem.db.get_all_entities(group_id=group_id)
-
-        # Filter by user_id if provided
+        # Get all entities (optionally filtered by user_id)
         if user_id:
-            all_entities = [e for e in all_entities if e.get('user_id') == user_id]
+            all_entities = ryumem.db.get_all_entities(user_id=user_id)
+        else:
+            all_entities = ryumem.db.get_all_entities()
 
         # Filter by type if specified
         if entity_type:
