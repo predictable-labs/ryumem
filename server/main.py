@@ -321,7 +321,6 @@ async def add_episode(request: AddEpisodeRequest):
         episode_id = ryumem_instance.add_episode(
             content=request.content,
             user_id=request.user_id,
-            user_id=request.user_id,
             agent_id=request.agent_id,
             session_id=request.session_id,
             source=request.source,
@@ -355,7 +354,6 @@ async def search(request: SearchRequest):
     try:
         results = ryumem_instance.search(
             query=request.query,
-            user_id=request.user_id,
             user_id=request.user_id,
             limit=request.limit,
             strategy=request.strategy,
@@ -652,7 +650,6 @@ async def get_graph_data(
                 summary=entity['summary'],
                 mentions=entity['mentions'],
                 user_id=entity['user_id'],
-                user_id=entity.get('user_id')
             ))
 
         edges = []
