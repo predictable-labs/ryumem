@@ -364,8 +364,14 @@ def add_memory_to_agent(
         # Store tracker reference in memory object for advanced usage
         memory.tracker = tracker
 
-        # Automatically enhance agent instructions to use tool history
-        _enhance_agent_instructions_for_tool_tracking(agent, ryumem)
+    # Always enhance agent instructions with memory guidance
+    # Add tool guidance only if track_tools=True
+    _enhance_agent_instruction(
+        agent,
+        ryumem,
+        include_memory_guidance=True,
+        include_tool_guidance=track_tools
+    )
 
     # Log query tracking status
     if track_queries:
@@ -693,67 +699,85 @@ def wrap_runner_with_tracking(
     return original_runner
 
 
-def _enhance_agent_instructions_for_tool_tracking(agent, ryumem, agent_type: str = "google_adk"):
+def _enhance_agent_instruction(
+    agent,
+    ryumem,
+    agent_type: str = "google_adk",
+    include_memory_guidance: bool = True,
+    include_tool_guidance: bool = False
+):
     """
-    Enhances agent.instruction with tool-tracking guidance.
-    DB is the source of truth:
-      - If DB has an active tool-tracking instruction → use that.
-      - If DB does not have one → generate new, save both old/new in DB.
+    Enhances agent.instruction with memory and optional tool guidance.
+    Checks if instruction already exists in DB before saving.
+
+    Args:
+        agent: Agent instance to enhance
+        ryumem: Ryumem instance
+        agent_type: Type of agent (default: "google_adk")
+        include_memory_guidance: Whether to include basic memory usage guidance (default: True)
+        include_tool_guidance: Whether to include tool selection guidance (default: False)
     """
-
-    import traceback
-
-    # The standard tool-tracking block
-    default_block = """TOOL SELECTION GUIDANCE (IMPORTANT):
-Before selecting which tool to use for a user's request, you MUST first call search_memory to check for past tool usage patterns.
-
-REQUIRED WORKFLOW:
-1. FIRST: Call search_memory with a query like "tool execution for [task type]" or "which tools were used for [similar query]?"
-2. THEN: Review the tool usage history and success rates from memory
-3. FINALLY: Select the most appropriate tool based on past performance
-
-Example queries for search_memory:
-- "Which tools were used for weather queries?"
-- "Tool execution for information retrieval tasks"
-- "What tools successfully handled external API calls?"
-"""
-
     old_instruction = agent.instruction or ""
 
-    # --- 2) Try loading existing instruction from DB ---
-    try:
-        db_instruction = ryumem.get_active_agent_instruction(
-            agent_type=agent_type,
-            instruction_type="tool_tracking"
-        )
-    except Exception:
-        db_instruction = None
+    # Build instruction parts
+    instruction_parts = []
+    if old_instruction:
+        instruction_parts.append(old_instruction)
 
-    # --- 3) If DB has instruction → use it and apply to agent ---
-    if db_instruction:
-        agent.instruction = db_instruction
-        return
+    # Memory guidance block (always included by default)
+    memory_block = """MEMORY USAGE:
+Use search_memory to find relevant context before answering questions.
+Use save_memory to store important information for future reference.
+"""
 
-    # --- 4) No DB instruction exists → create new one ---
-    # Only append guidance if not already present
-    if "TOOL SELECTION GUIDANCE" in old_instruction:
-        new_instruction = old_instruction
+    # Tool guidance block (only when tracking tools)
+    tool_block = """TOOL SELECTION:
+Before selecting which tool to use, search_memory for past tool usage patterns and success rates.
+Use queries like "tool execution for [task type]" to find which tools worked well for similar tasks.
+"""
+
+    # Add memory guidance if not already present
+    if include_memory_guidance and "search_memory" not in old_instruction and "MEMORY USAGE" not in old_instruction:
+        instruction_parts.append(memory_block)
+
+    # Add tool guidance if requested and not already present
+    if include_tool_guidance and "tool usage patterns" not in old_instruction and "TOOL SELECTION" not in old_instruction:
+        instruction_parts.append(tool_block)
+
+    # Combine all parts
+    new_instruction = "\n\n".join(instruction_parts)
+
+    # Determine instruction type based on what's included
+    if include_tool_guidance:
+        instruction_type = "tool_tracking"
+        description = "Memory and tool tracking guidance"
     else:
-        new_instruction = old_instruction + "\n\n" + default_block
+        instruction_type = "memory_usage"
+        description = "Memory usage guidance"
 
-    # --- 5) Save the new instruction version to DB ---
+    # --- Check if this instruction already exists in DB ---
     try:
-        ryumem.save_agent_instruction(
+        existing_uuid = ryumem.get_instruction_by_text(
             instruction_text=new_instruction,
-            original_user_request=old_instruction,
             agent_type=agent_type,
-            instruction_type="tool_tracking",
-            description="Generated tool-tracking instruction",
-            active=True
+            instruction_type=instruction_type
         )
     except Exception:
-        # if DB save fails, continue but do not crash
-        pass
+        existing_uuid = None
 
-    # --- 6) Update agent instruction with new version ---
+    # --- If instruction doesn't exist in DB, save it ---
+    if not existing_uuid:
+        try:
+            ryumem.save_agent_instruction(
+                instruction_text=new_instruction,
+                original_user_request=old_instruction,
+                agent_type=agent_type,
+                instruction_type=instruction_type,
+                description=description
+            )
+        except Exception:
+            # if DB save fails, continue but do not crash
+            pass
+
+    # --- Update agent instruction ---
     agent.instruction = new_instruction
