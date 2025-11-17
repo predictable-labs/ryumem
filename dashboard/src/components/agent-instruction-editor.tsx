@@ -14,7 +14,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 
 interface AgentInstructionEditorProps {
-  groupId: string
   userId?: string
 }
 
@@ -33,7 +32,7 @@ Example queries for search_memory:
 
 This historical context will help you make better tool selections based on proven success rates.`
 
-export function AgentInstructionEditor({ groupId, userId }: AgentInstructionEditorProps) {
+export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) {
   const [agentType, setAgentType] = useState("google_adk")
   const [instructionType, setInstructionType] = useState("tool_tracking")
   const [originalUserRequest, setOriginalUserRequest] = useState("")
@@ -50,7 +49,7 @@ export function AgentInstructionEditor({ groupId, userId }: AgentInstructionEdit
   // Load active instruction and history
   useEffect(() => {
     loadInstructions()
-  }, [groupId, agentType, instructionType])
+  }, [agentType, instructionType])
 
   const loadInstructions = async () => {
     setLoading(true)
@@ -59,7 +58,6 @@ export function AgentInstructionEditor({ groupId, userId }: AgentInstructionEdit
     try {
       // Load active instruction
       const active = await api.getActiveAgentInstruction(
-        groupId,
         agentType,
         instructionType,
         userId
@@ -80,7 +78,6 @@ export function AgentInstructionEditor({ groupId, userId }: AgentInstructionEdit
 
       // Load history
       const allInstructions = await api.listAgentInstructions(
-        groupId,
         agentType,
         instructionType,
         false,
@@ -113,7 +110,6 @@ export function AgentInstructionEditor({ groupId, userId }: AgentInstructionEdit
         agent_type: agentType,
         instruction_type: instructionType,
         description: description,
-        group_id: groupId,
         user_id: userId,
         active: true,
       })

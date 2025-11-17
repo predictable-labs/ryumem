@@ -79,6 +79,24 @@ class RyugraphDB:
             """
         )
 
+        # Agent Instruction nodes (separate from Episodes)
+        self.execute(
+            """
+            CREATE NODE TABLE IF NOT EXISTS AgentInstruction(
+                uuid STRING PRIMARY KEY,
+                agent_type STRING,
+                instruction_type STRING,
+                instruction_text STRING,
+                original_user_request STRING,
+                description STRING,
+                version INT64,
+                active BOOLEAN,
+                created_at TIMESTAMP,
+                user_id STRING
+            );
+            """
+        )
+
         # Entity nodes
         self.execute(
             f"""

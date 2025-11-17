@@ -112,7 +112,6 @@ export interface AgentInstruction {
   agent_type?: string;
   instruction_type?: string;
   description?: string;
-  group_id: string;
   user_id?: string;
   active?: boolean;
   original_user_request?: string;
@@ -317,14 +316,12 @@ class RyumemAPI {
   }
 
   async listAgentInstructions(
-    groupId: string,
     agentType?: string,
     instructionType?: string,
     activeOnly: boolean = false,
     limit: number = 50
   ): Promise<AgentInstructionResponse[]> {
     const params = new URLSearchParams({
-      group_id: groupId,
       ...(agentType && { agent_type: agentType }),
       ...(instructionType && { instruction_type: instructionType }),
       active_only: activeOnly.toString(),
@@ -334,13 +331,11 @@ class RyumemAPI {
   }
 
   async getActiveAgentInstruction(
-    groupId: string,
     agentType: string,
     instructionType: string = 'tool_tracking',
     userId?: string
   ): Promise<AgentInstructionResponse | null> {
     const params = new URLSearchParams({
-      group_id: groupId,
       agent_type: agentType,
       instruction_type: instructionType,
       ...(userId && { user_id: userId }),

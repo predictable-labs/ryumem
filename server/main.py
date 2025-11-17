@@ -857,7 +857,6 @@ class AgentInstructionRequest(BaseModel):
     agent_type: str = Field("google_adk", description="Type of agent (e.g., google_adk, custom_agent)")
     instruction_type: str = Field("tool_tracking", description="Type of instruction (e.g., tool_tracking, memory_guidance)")
     description: str = Field("", description="User-friendly description of what this instruction does")
-    group_id: str = Field(..., description="Group ID for multi-tenancy")
     user_id: Optional[str] = Field(None, description="Optional user ID for user-specific instructions")
     active: bool = Field(True, description="Whether this instruction is currently active")
     original_user_request: Optional[str] = Field(None, description="Original request from user before conversion")
@@ -870,7 +869,6 @@ class AgentInstructionRequest(BaseModel):
                 "agent_type": "google_adk",
                 "instruction_type": "tool_tracking",
                 "description": "Custom tool selection guidance for improved performance",
-                "group_id": "company_123",
                 "active": True
             }
         }
@@ -912,7 +910,6 @@ async def create_agent_instruction(request: AgentInstructionRequest):
         # Save the instruction
         instruction_id = ryumem_instance.save_agent_instruction(
             instruction_text=request.instruction_text,
-            group_id=request.group_id,
             agent_type=request.agent_type,
             instruction_type=request.instruction_type,
             description=request.description,
@@ -923,7 +920,6 @@ async def create_agent_instruction(request: AgentInstructionRequest):
 
         # Get the created instruction details
         instructions = ryumem_instance.list_agent_instructions(
-            group_id=request.group_id,
             agent_type=request.agent_type,
             instruction_type=request.instruction_type,
             limit=1
@@ -955,7 +951,6 @@ async def create_agent_instruction(request: AgentInstructionRequest):
 
 @app.get("/agent-instructions", response_model=List[AgentInstructionResponse], tags=["Agent Instructions"])
 async def list_agent_instructions(
-    group_id: str,
     agent_type: Optional[str] = None,
     instruction_type: Optional[str] = None,
     active_only: bool = False,
@@ -972,7 +967,6 @@ async def list_agent_instructions(
             raise HTTPException(status_code=500, detail="Ryumem not initialized")
 
         instructions = ryumem_instance.list_agent_instructions(
-            group_id=group_id,
             agent_type=agent_type,
             instruction_type=instruction_type,
             active_only=active_only,
@@ -1003,7 +997,6 @@ async def list_agent_instructions(
 
 @app.get("/agent-instructions/active", response_model=Optional[AgentInstructionResponse], tags=["Agent Instructions"])
 async def get_active_instruction(
-    group_id: str,
     agent_type: str,
     instruction_type: str = "tool_tracking",
     user_id: Optional[str] = None
@@ -1019,7 +1012,6 @@ async def get_active_instruction(
 
         # Get active instructions
         instructions = ryumem_instance.list_agent_instructions(
-            group_id=group_id,
             agent_type=agent_type,
             instruction_type=instruction_type,
             active_only=True,

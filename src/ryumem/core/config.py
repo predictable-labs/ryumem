@@ -230,7 +230,7 @@ class RyumemConfig(BaseModel):
                 config_dict[key] = float(env_value)
 
         # Add optional boolean settings
-        for key in ["enable_community_detection"]:
+        for key in ["enable_community_detection", "read_only"]:
             env_key = f"RYUMEM_{key.upper()}"
             env_value = os.getenv(env_key)
             if env_value:

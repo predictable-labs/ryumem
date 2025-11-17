@@ -284,7 +284,7 @@ export default function Home() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <AgentInstructionEditor groupId={groupId} userId={userId} />
+                <AgentInstructionEditor userId={userId} />
               </CardContent>
             </Card>
           </TabsContent>
