@@ -6,7 +6,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export interface Episode {
   content: string;
-  group_id: string;
+  user_id: string;
   user_id?: string;
   agent_id?: string;
   session_id?: string;
@@ -16,7 +16,7 @@ export interface Episode {
 
 export interface SearchQuery {
   query: string;
-  group_id: string;
+  user_id: string;
   user_id?: string;
   limit?: number;
   strategy?: 'semantic' | 'bm25' | 'traversal' | 'hybrid';
@@ -67,7 +67,7 @@ export interface GraphNode {
   type: string;
   summary: string;
   mentions: number;
-  group_id: string;
+  user_id: string;
   user_id?: string;
 }
 
@@ -105,6 +105,50 @@ export interface RelationshipsListResponse {
 
 export interface EntityTypesResponse {
   entity_types: string[];
+}
+
+export interface AgentInstruction {
+  instruction_text: string;
+  agent_type?: string;
+  instruction_type?: string;
+  description?: string;
+  user_id?: string;
+  original_user_request?: string;
+}
+
+export interface AgentInstructionResponse {
+  instruction_id: string;
+  instruction_text: string;
+  name: string;
+  agent_type: string;
+  instruction_type: string;
+  version: number;
+  description: string;
+  original_user_request: string;
+  converted_instruction: string;
+  created_at: string;
+}
+
+export interface ToolForTask {
+  tool_name: string;
+  usage_count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+}
+
+export interface ToolMetrics {
+  tool_name: string;
+  usage_count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  task_types: string[];
+  recent_errors: string[];
+}
+
+export interface ToolPreference {
+  tool_name: string;
+  usage_count: number;
+  last_used: string;
 }
 
 class RyumemAPI {
@@ -156,7 +200,7 @@ class RyumemAPI {
     userId?: string
   ) {
     const params = new URLSearchParams({
-      group_id: groupId,
+      user_id: groupId,
       ...(userId && { user_id: userId }),
     });
     
@@ -164,7 +208,7 @@ class RyumemAPI {
   }
 
   async getStats(groupId?: string): Promise<Stats> {
-    const params = groupId ? `?group_id=${groupId}` : '';
+    const params = groupId ? `?user_id=${groupId}` : '';
     return this.request(`/stats${params}`);
   }
 
@@ -176,7 +220,7 @@ class RyumemAPI {
     return this.request('/communities/update', {
       method: 'POST',
       body: JSON.stringify({
-        group_id: groupId,
+        user_id: groupId,
         resolution,
         min_community_size: minCommunitySize,
       }),
@@ -193,7 +237,7 @@ class RyumemAPI {
     return this.request('/prune', {
       method: 'POST',
       body: JSON.stringify({
-        group_id: groupId,
+        user_id: groupId,
         expired_cutoff_days: expiredCutoffDays,
         min_mentions: minMentions,
         min_age_days: minAgeDays,
@@ -208,7 +252,7 @@ class RyumemAPI {
     limit: number = 1000
   ): Promise<GraphDataResponse> {
     const params = new URLSearchParams({
-      group_id: groupId,
+      user_id: groupId,
       ...(userId && { user_id: userId }),
       limit: limit.toString(),
     });
@@ -223,7 +267,7 @@ class RyumemAPI {
     limit: number = 50
   ): Promise<EntitiesListResponse> {
     const params = new URLSearchParams({
-      group_id: groupId,
+      user_id: groupId,
       ...(userId && { user_id: userId }),
       ...(entityType && { entity_type: entityType }),
       offset: offset.toString(),
@@ -233,7 +277,7 @@ class RyumemAPI {
   }
 
   async getEntityTypes(groupId: string): Promise<EntityTypesResponse> {
-    const params = new URLSearchParams({ group_id: groupId });
+    const params = new URLSearchParams({ user_id: groupId });
     return this.request(`/entities/types?${params}`);
   }
 
@@ -245,7 +289,7 @@ class RyumemAPI {
     limit: number = 50
   ): Promise<RelationshipsListResponse> {
     const params = new URLSearchParams({
-      group_id: groupId,
+      user_id: groupId,
       ...(userId && { user_id: userId }),
       ...(relationType && { relation_type: relationType }),
       offset: offset.toString(),
@@ -256,6 +300,75 @@ class RyumemAPI {
 
   async health() {
     return this.request('/health');
+  }
+
+  // ============================================================================
+  // Agent Instruction Management
+  // ============================================================================
+
+  async createAgentInstruction(instruction: AgentInstruction): Promise<AgentInstructionResponse> {
+    return this.request('/agent-instructions', {
+      method: 'POST',
+      body: JSON.stringify(instruction),
+    });
+  }
+
+  async listAgentInstructions(
+    agentType?: string,
+    instructionType?: string,
+    limit: number = 50
+  ): Promise<AgentInstructionResponse[]> {
+    const params = new URLSearchParams({
+      ...(agentType && { agent_type: agentType }),
+      ...(instructionType && { instruction_type: instructionType }),
+      limit: limit.toString(),
+    });
+    return this.request(`/agent-instructions?${params}`);
+  }
+
+  // ============================================================================
+  // Tool Analytics
+  // ============================================================================
+
+  async getToolsForTask(
+    taskType: string,
+    groupId: string,
+    userId?: string,
+    limit: number = 10
+  ): Promise<ToolForTask[]> {
+    const params = new URLSearchParams({
+      task_type: taskType,
+      user_id: groupId,
+      ...(userId && { user_id: userId }),
+      limit: limit.toString(),
+    });
+    return this.request(`/tools/for-task?${params}`);
+  }
+
+  async getToolMetrics(
+    toolName: string,
+    groupId: string,
+    userId?: string,
+    minExecutions: number = 1
+  ): Promise<ToolMetrics> {
+    const params = new URLSearchParams({
+      user_id: groupId,
+      ...(userId && { user_id: userId }),
+      min_executions: minExecutions.toString(),
+    });
+    return this.request(`/tools/${encodeURIComponent(toolName)}/metrics?${params}`);
+  }
+
+  async getUserToolPreferences(
+    userId: string,
+    groupId: string,
+    limit: number = 10
+  ): Promise<ToolPreference[]> {
+    const params = new URLSearchParams({
+      user_id: groupId,
+      limit: limit.toString(),
+    });
+    return this.request(`/users/${encodeURIComponent(userId)}/tool-preferences?${params}`);
   }
 }
 

@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Ryumem server...")
     
     # Initialize Ryumem
-    db_path = os.getenv("RYUMEM_DB_PATH", "./data/ollama_memory.db")
+    db_path = os.getenv("RYUMEM_DB_PATH", "../data/memory.db")
 
     # Dashboard server runs in READ_ONLY mode for concurrent access
     # This allows usage scripts to have READ_WRITE access while the dashboard reads
@@ -94,7 +94,6 @@ app.add_middleware(
 class AddEpisodeRequest(BaseModel):
     """Request model for adding an episode"""
     content: str = Field(..., description="Episode content (text, message, or JSON)")
-    group_id: str = Field(..., description="Group ID for multi-tenancy")
     user_id: Optional[str] = Field(None, description="Optional user ID")
     agent_id: Optional[str] = Field(None, description="Optional agent ID")
     session_id: Optional[str] = Field(None, description="Optional session ID")
@@ -105,7 +104,7 @@ class AddEpisodeRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "content": "Alice works at Google as a Software Engineer in Mountain View.",
-                "group_id": "user_123",
+                "user_id": "user_123",
                 "user_id": "user_123",
                 "source": "text"
             }
@@ -122,7 +121,6 @@ class AddEpisodeResponse(BaseModel):
 class SearchRequest(BaseModel):
     """Request model for searching"""
     query: str = Field(..., description="Search query text")
-    group_id: str = Field(..., description="Group ID to search within")
     user_id: Optional[str] = Field(None, description="Optional user ID filter")
     limit: int = Field(10, description="Maximum number of results", ge=1, le=100)
     strategy: str = Field("hybrid", description="Search strategy: semantic, bm25, traversal, or hybrid")
@@ -133,7 +131,7 @@ class SearchRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "query": "Where does Alice work?",
-                "group_id": "user_123",
+                "user_id": "user_123",
                 "limit": 10,
                 "strategy": "hybrid"
             }
@@ -191,7 +189,7 @@ class StatsResponse(BaseModel):
 
 class UpdateCommunitiesRequest(BaseModel):
     """Request model for updating communities"""
-    group_id: str = Field(..., description="Group ID to detect communities for")
+    user_id: str = Field(..., description="Group ID to detect communities for")
     resolution: float = Field(1.0, description="Resolution parameter for Louvain algorithm", ge=0.1, le=5.0)
     min_community_size: int = Field(2, description="Minimum number of entities per community", ge=1)
 
@@ -204,7 +202,7 @@ class UpdateCommunitiesResponse(BaseModel):
 
 class PruneMemoriesRequest(BaseModel):
     """Request model for pruning memories"""
-    group_id: str = Field(..., description="Group ID to prune")
+    user_id: str = Field(..., description="Group ID to prune")
     expired_cutoff_days: int = Field(90, description="Delete expired edges older than N days", ge=1)
     min_mentions: int = Field(2, description="Minimum mentions for entities to keep", ge=1)
     min_age_days: int = Field(30, description="Minimum age before pruning low-mention entities", ge=1)
@@ -234,7 +232,6 @@ class GraphNode(BaseModel):
     type: str = Field(..., description="Entity type")
     summary: str = Field(..., description="Entity summary")
     mentions: int = Field(..., description="Number of mentions")
-    group_id: str = Field(..., description="Group ID")
     user_id: Optional[str] = Field(None, description="User ID")
 
 
@@ -323,7 +320,7 @@ async def add_episode(request: AddEpisodeRequest):
     try:
         episode_id = ryumem_instance.add_episode(
             content=request.content,
-            group_id=request.group_id,
+            user_id=request.user_id,
             user_id=request.user_id,
             agent_id=request.agent_id,
             session_id=request.session_id,
@@ -358,7 +355,7 @@ async def search(request: SearchRequest):
     try:
         results = ryumem_instance.search(
             query=request.query,
-            group_id=request.group_id,
+            user_id=request.user_id,
             user_id=request.user_id,
             limit=request.limit,
             strategy=request.strategy,
@@ -419,8 +416,7 @@ async def search(request: SearchRequest):
 @app.get("/entity/{entity_name}", response_model=EntityContextResponse)
 async def get_entity_context(
     entity_name: str,
-    group_id: str,
-    user_id: Optional[str] = None,
+    user_id: str,
     max_depth: int = 2
 ):
     """
@@ -437,7 +433,6 @@ async def get_entity_context(
     try:
         context = ryumem_instance.get_entity_context(
             entity_name=entity_name,
-            group_id=group_id,
             user_id=user_id,
             max_depth=max_depth,
         )
@@ -487,7 +482,7 @@ async def get_entity_context(
 
 
 @app.get("/stats", response_model=StatsResponse)
-async def get_stats(group_id: Optional[str] = None):
+async def get_stats(user_id: Optional[str] = None):
     """
     Get system statistics.
     
@@ -498,7 +493,7 @@ async def get_stats(group_id: Optional[str] = None):
     
     try:
         # Query database for stats
-        group_filter = f"WHERE e.group_id = '{group_id}'" if group_id else ""
+        group_filter = f"WHERE e.user_id = '{user_id}'" if user_id else ""
         
         # Count episodes
         episode_query = f"""
@@ -563,7 +558,7 @@ async def update_communities(request: UpdateCommunitiesRequest):
     
     try:
         num_communities = ryumem_instance.update_communities(
-            group_id=request.group_id,
+            user_id=request.user_id,
             resolution=request.resolution,
             min_community_size=request.min_community_size,
         )
@@ -592,7 +587,7 @@ async def prune_memories(request: PruneMemoriesRequest):
     
     try:
         stats = ryumem_instance.prune_memories(
-            group_id=request.group_id,
+            user_id=request.user_id,
             expired_cutoff_days=request.expired_cutoff_days,
             min_mentions=request.min_mentions,
             min_age_days=request.min_age_days,
@@ -612,8 +607,7 @@ async def prune_memories(request: PruneMemoriesRequest):
 
 @app.get("/graph/data", response_model=GraphDataResponse)
 async def get_graph_data(
-    group_id: str,
-    user_id: Optional[str] = None,
+    user_id: str,
     limit: int = 1000
 ):
     """
@@ -626,7 +620,7 @@ async def get_graph_data(
 
     try:
         # Get all entities for the group
-        entities_data = ryumem_instance.db.get_all_entities(group_id=group_id)
+        entities_data = ryumem_instance.db.get_all_entities(user_id=user_id)
 
         # Filter by user_id if provided
         if user_id:
@@ -636,12 +630,12 @@ async def get_graph_data(
         entities_data = entities_data[:limit]
 
         # Get all edges for the group
-        edges_data = ryumem_instance.db.get_all_edges(group_id=group_id)
+        edges_data = ryumem_instance.db.get_all_edges(user_id=user_id)
 
         # Filter by user_id if provided (check both source and target entities)
         if user_id:
             # We need to filter edges where both source and target belong to this user
-            # For now, just filter by the edge's group_id (user filtering on edges may not be directly supported)
+            # For now, just filter by the edge's user_id (user filtering on edges may not be directly supported)
             # This is okay since we filtered entities already
             pass
 
@@ -657,7 +651,7 @@ async def get_graph_data(
                 type=entity['entity_type'],
                 summary=entity['summary'],
                 mentions=entity['mentions'],
-                group_id=entity['group_id'],
+                user_id=entity['user_id'],
                 user_id=entity.get('user_id')
             ))
 
@@ -687,8 +681,7 @@ async def get_graph_data(
 
 @app.get("/entities/list", response_model=EntitiesListResponse)
 async def list_entities(
-    group_id: str,
-    user_id: Optional[str] = None,
+    user_id: str,
     entity_type: Optional[str] = None,
     offset: int = 0,
     limit: int = 50
@@ -703,7 +696,7 @@ async def list_entities(
 
     try:
         # Get all entities for the group
-        all_entities = ryumem_instance.db.get_all_entities(group_id=group_id)
+        all_entities = ryumem_instance.db.get_all_entities(user_id=user_id)
 
         # Filter by user_id if provided
         if user_id:
@@ -744,7 +737,7 @@ async def list_entities(
 
 
 @app.get("/entities/types", response_model=EntityTypesResponse)
-async def get_entity_types(group_id: str):
+async def get_entity_types(user_id: str):
     """
     Get all unique entity types in the database for a given group.
 
@@ -756,8 +749,8 @@ async def get_entity_types(group_id: str):
     try:
         # Query database for unique entity types
         result = ryumem_instance.db.conn.execute(
-            "MATCH (e:Entity) WHERE e.group_id = $group_id RETURN DISTINCT e.entity_type ORDER BY e.entity_type",
-            {"group_id": group_id}
+            "MATCH (e:Entity) WHERE e.user_id = $user_id RETURN DISTINCT e.entity_type ORDER BY e.entity_type",
+            {"user_id": user_id}
         )
 
         entity_types = []
@@ -774,8 +767,7 @@ async def get_entity_types(group_id: str):
 
 @app.get("/relationships/list", response_model=RelationshipsListResponse)
 async def list_relationships(
-    group_id: str,
-    user_id: Optional[str] = None,
+    user_id: str,
     relation_type: Optional[str] = None,
     offset: int = 0,
     limit: int = 50
@@ -790,10 +782,10 @@ async def list_relationships(
 
     try:
         # Get all edges from database
-        all_edges = ryumem_instance.db.get_all_edges(group_id=group_id)
+        all_edges = ryumem_instance.db.get_all_edges(user_id=user_id)
 
         # Get entities to look up names
-        all_entities = ryumem_instance.db.get_all_entities(group_id=group_id)
+        all_entities = ryumem_instance.db.get_all_entities(user_id=user_id)
 
         # Filter entities by user_id if provided
         if user_id:
@@ -845,6 +837,282 @@ async def list_relationships(
     except Exception as e:
         logger.error(f"Error listing relationships: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error listing relationships: {str(e)}")
+
+
+# ============================================================================
+# Agent Instruction Management Endpoints
+# ============================================================================
+
+class AgentInstructionRequest(BaseModel):
+    """Request model for creating/updating agent instructions"""
+    instruction_text: str = Field(..., description="The converted/final instruction text to add to agent prompt")
+    agent_type: str = Field("google_adk", description="Type of agent (e.g., google_adk, custom_agent)")
+    instruction_type: str = Field("tool_tracking", description="Type of instruction (e.g., tool_tracking, memory_guidance)")
+    description: str = Field("", description="User-friendly description of what this instruction does")
+    user_id: Optional[str] = Field(None, description="Optional user ID for user-specific instructions")
+    original_user_request: Optional[str] = Field(None, description="Original request from user before conversion")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "original_user_request": "Make the agent check past tool usage before selecting tools",
+                "instruction_text": "TOOL SELECTION GUIDANCE:\nAlways check memory before selecting tools...",
+                "agent_type": "google_adk",
+                "instruction_type": "tool_tracking",
+                "description": "Custom tool selection guidance for improved performance"
+            }
+        }
+
+
+class AgentInstructionResponse(BaseModel):
+    """Response model for agent instructions"""
+    instruction_id: str = Field(..., description="UUID of the instruction episode")
+    instruction_text: str = Field(..., description="The converted/final instruction text")
+    name: str = Field(..., description="Name/title of the instruction")
+    agent_type: str = Field(..., description="Type of agent")
+    instruction_type: str = Field(..., description="Type of instruction")
+    version: int = Field(..., description="Version number")
+    description: str = Field(..., description="Description of the instruction")
+    original_user_request: str = Field("", description="Original request from user")
+    converted_instruction: str = Field("", description="Converted/final instruction")
+    created_at: str = Field(..., description="Creation timestamp")
+
+
+@app.post("/agent-instructions", response_model=AgentInstructionResponse, tags=["Agent Instructions"])
+async def create_agent_instruction(request: AgentInstructionRequest):
+    """
+    Create a new custom agent instruction.
+
+    The instruction will be stored in the database and can be retrieved
+    by agents to customize their behavior.
+    """
+    try:
+        # Validate ryumem instance
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        # Note: Server runs in read-only mode, so this will fail
+        # In production, you'd want a separate write instance or endpoint
+        logger.warning("Server is in read-only mode - agent instruction creation may fail")
+
+        # Save the instruction
+        instruction_id = ryumem_instance.save_agent_instruction(
+            instruction_text=request.instruction_text,
+            agent_type=request.agent_type,
+            instruction_type=request.instruction_type,
+            description=request.description,
+            user_id=request.user_id,
+            original_user_request=request.original_user_request
+        )
+
+        # Get the created instruction details
+        instructions = ryumem_instance.list_agent_instructions(
+            agent_type=request.agent_type,
+            instruction_type=request.instruction_type,
+            limit=1
+        )
+
+        if not instructions:
+            raise HTTPException(status_code=500, detail="Failed to retrieve created instruction")
+
+        created = instructions[0]
+
+        return AgentInstructionResponse(
+            instruction_id=created["instruction_id"],
+            instruction_text=created["instruction_text"],
+            name=created["name"],
+            agent_type=created["agent_type"],
+            instruction_type=created["instruction_type"],
+            version=created["version"],
+            description=created["description"],
+            original_user_request=created.get("original_user_request", ""),
+            converted_instruction=created.get("converted_instruction", created["instruction_text"]),
+            created_at=created["created_at"]
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating agent instruction: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error creating agent instruction: {str(e)}")
+
+
+@app.get("/agent-instructions", response_model=List[AgentInstructionResponse], tags=["Agent Instructions"])
+async def list_agent_instructions(
+    agent_type: Optional[str] = None,
+    instruction_type: Optional[str] = None,
+    limit: int = 50
+):
+    """
+    List all agent instructions with optional filters.
+
+    Returns instructions ordered by creation date (newest first).
+    """
+    try:
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        instructions = ryumem_instance.list_agent_instructions(
+            agent_type=agent_type,
+            instruction_type=instruction_type,
+            limit=limit
+        )
+
+        return [
+            AgentInstructionResponse(
+                instruction_id=instr["instruction_id"],
+                instruction_text=instr["instruction_text"],
+                name=instr["name"],
+                agent_type=instr["agent_type"],
+                instruction_type=instr["instruction_type"],
+                version=instr["version"],
+                description=instr["description"],
+                original_user_request=instr.get("original_user_request", ""),
+                converted_instruction=instr.get("converted_instruction", instr["instruction_text"]),
+                created_at=instr["created_at"]
+            )
+            for instr in instructions
+        ]
+
+    except Exception as e:
+        logger.error(f"Error listing agent instructions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error listing agent instructions: {str(e)}")
+
+
+# ============================================================================
+# Tool Analytics Endpoints
+# ============================================================================
+
+class ToolForTaskResponse(BaseModel):
+    """Response model for tools used for a specific task"""
+    tool_name: str
+    usage_count: int
+    success_rate: float
+    avg_duration_ms: float
+
+
+class ToolMetricsResponse(BaseModel):
+    """Response model for detailed tool metrics"""
+    tool_name: str
+    usage_count: int
+    success_rate: float
+    avg_duration_ms: float
+    task_types: List[str]
+    recent_errors: List[str]
+
+
+class ToolPreferenceResponse(BaseModel):
+    """Response model for user tool preferences"""
+    tool_name: str
+    usage_count: int
+    last_used: str
+
+
+@app.get("/tools/for-task", response_model=List[ToolForTaskResponse], tags=["Tool Analytics"])
+async def get_tools_for_task(
+    task_type: str,
+    user_id: str,
+    limit: int = 10
+):
+    """
+    Get tools used for a specific task type.
+
+    Returns tools ranked by usage frequency and success rate.
+    """
+    try:
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        tools = ryumem_instance.get_tools_for_task(
+            task_type=task_type,
+            user_id=user_id,
+            limit=limit
+        )
+
+        return [
+            ToolForTaskResponse(
+                tool_name=tool["tool_name"],
+                usage_count=tool["usage_count"],
+                success_rate=tool["success_rate"],
+                avg_duration_ms=tool["avg_duration_ms"]
+            )
+            for tool in tools
+        ]
+
+    except Exception as e:
+        logger.error(f"Error getting tools for task: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting tools for task: {str(e)}")
+
+
+@app.get("/tools/{tool_name}/metrics", response_model=ToolMetricsResponse, tags=["Tool Analytics"])
+async def get_tool_metrics(
+    tool_name: str,
+    user_id: str,
+    min_executions: int = 1
+):
+    """
+    Get detailed metrics for a specific tool.
+
+    Includes success rate, usage count, average duration, task types, and recent errors.
+    """
+    try:
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        metrics = ryumem_instance.get_tool_success_rate(
+            tool_name=tool_name,
+            user_id=user_id,
+            min_executions=min_executions
+        )
+
+        if not metrics:
+            raise HTTPException(status_code=404, detail=f"No metrics found for tool: {tool_name}")
+
+        return ToolMetricsResponse(
+            tool_name=metrics["tool_name"],
+            usage_count=metrics["usage_count"],
+            success_rate=metrics["success_rate"],
+            avg_duration_ms=metrics["avg_duration_ms"],
+            task_types=metrics.get("task_types", []),
+            recent_errors=metrics.get("recent_errors", [])
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting tool metrics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting tool metrics: {str(e)}")
+
+
+@app.get("/users/{user_id}/tool-preferences", response_model=List[ToolPreferenceResponse], tags=["Tool Analytics"])
+async def get_user_tool_preferences(
+    user_id: str,
+    limit: int = 10
+):
+    """
+    Get user's most frequently used tools.
+
+    Returns tools ordered by usage frequency.
+    """
+    try:
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        preferences = ryumem_instance.get_user_tool_preferences(
+            user_id=user_id,
+            limit=limit
+        )
+
+        return [
+            ToolPreferenceResponse(
+                tool_name=pref["tool_name"],
+                usage_count=pref["usage_count"],
+                last_used=pref.get("last_used", "")
+            )
+            for pref in preferences
+        ]
+
+    except Exception as e:
+        logger.error(f"Error getting user tool preferences: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting user tool preferences: {str(e)}")
 
 
 if __name__ == "__main__":

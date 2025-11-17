@@ -68,7 +68,7 @@ class Ryumem:
         """
         # Load or create config
         if config is None:
-            if "openai_api_key" in kwargs or db_path:
+            if "openai_api_key" in kwargs or db_path or "read_only" in kwargs:
                 # Create config from kwargs
                 config_dict = kwargs.copy()
                 if db_path:
@@ -91,6 +91,7 @@ class Ryumem:
 
         # Initialize core components
         logger.info("Initializing Ryumem...")
+        logger.info(f"DEBUG: read_only={read_only}, config.read_only={config.read_only}, db_path={config.db_path}")
 
         self.db = RyugraphDB(
             db_path=config.db_path,
@@ -173,8 +174,7 @@ class Ryumem:
     def add_episode(
         self,
         content: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         agent_id: Optional[str] = None,
         session_id: Optional[str] = None,
         source: str = "text",
@@ -193,7 +193,7 @@ class Ryumem:
 
         Args:
             content: Episode content (text, message, or JSON)
-            group_id: Group ID for multi-tenancy (required)
+            user_id: Group ID for multi-tenancy (required)
             user_id: Optional user ID
             agent_id: Optional agent ID
             session_id: Optional session ID
@@ -206,7 +206,7 @@ class Ryumem:
         Example:
             episode_id = ryumem.add_episode(
                 content="Alice works at Google in Mountain View",
-                group_id="user_123",
+                user_id="user_123",
                 user_id="user_123",
                 source="text",
             )
@@ -216,7 +216,6 @@ class Ryumem:
 
         episode_id = self.ingestion.ingest(
             content=content,
-            group_id=group_id,
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
@@ -233,7 +232,7 @@ class Ryumem:
     def add_episodes_batch(
         self,
         episodes: List[Dict],
-        group_id: str,
+        user_id: str,
     ) -> List[str]:
         """
         Add multiple episodes in batch.
@@ -246,7 +245,7 @@ class Ryumem:
                 - session_id: Optional session ID
                 - source: Optional source type
                 - metadata: Optional metadata
-            group_id: Group ID for all episodes
+            user_id: Group ID for all episodes
 
         Returns:
             List of episode UUIDs
@@ -256,9 +255,9 @@ class Ryumem:
                 {"content": "Alice works at Google"},
                 {"content": "Bob lives in San Francisco"},
             ]
-            episode_ids = ryumem.add_episodes_batch(episodes, group_id="user_123")
+            episode_ids = ryumem.add_episodes_batch(episodes, user_id="user_123")
         """
-        episode_ids = self.ingestion.ingest_batch(episodes, group_id)
+        episode_ids = self.ingestion.ingest_batch(episodes, user_id)
 
         # Persist BM25 index to disk after batch ingestion
         bm25_path = str(Path(self.config.db_path).parent / f"{Path(self.config.db_path).stem}_bm25.pkl")
@@ -269,8 +268,7 @@ class Ryumem:
     def search(
         self,
         query: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         limit: int = 10,
         strategy: str = "semantic",
         similarity_threshold: Optional[float] = None,
@@ -284,7 +282,7 @@ class Ryumem:
 
         Args:
             query: Search query text
-            group_id: Group ID to search within (required)
+            user_id: Group ID to search within (required)
             user_id: Optional user ID filter
             limit: Maximum number of results (default: 10)
             strategy: Search strategy - "semantic", "traversal", or "hybrid" (default: "hybrid")
@@ -300,7 +298,7 @@ class Ryumem:
         Example:
             results = ryumem.search(
                 query="Tell me about Alice",
-                group_id="user_123",
+                user_id="user_123",
                 strategy="hybrid",
                 limit=10,
             )
@@ -316,7 +314,6 @@ class Ryumem:
         # Create search config
         config = SearchConfig(
             query=query,
-            group_id=group_id,
             user_id=user_id,
             limit=limit,
             strategy=strategy,
@@ -337,8 +334,7 @@ class Ryumem:
     def get_entity_context(
         self,
         entity_name: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         max_depth: int = 2,
     ) -> Dict:
         """
@@ -346,7 +342,7 @@ class Ryumem:
 
         Args:
             entity_name: Name of the entity
-            group_id: Group ID
+            user_id: Group ID
             user_id: Optional user ID
             max_depth: Maximum traversal depth
 
@@ -356,13 +352,12 @@ class Ryumem:
         Example:
             context = ryumem.get_entity_context(
                 entity_name="Alice",
-                group_id="user_123",
+                user_id="user_123",
             )
         """
         # Find entity by name
         entity = self.ingestion.entity_extractor.get_entity_by_name(
             name=entity_name,
-            group_id=group_id,
             user_id=user_id,
         )
 
@@ -377,7 +372,7 @@ class Ryumem:
 
     def update_communities(
         self,
-        group_id: str,
+        user_id: str,
         resolution: float = 1.0,
         min_community_size: int = 2,
     ) -> int:
@@ -392,7 +387,7 @@ class Ryumem:
         This should be called periodically as the knowledge graph grows.
 
         Args:
-            group_id: Group ID to detect communities for
+            user_id: Group ID to detect communities for
             resolution: Resolution parameter for Louvain (higher = more, smaller communities)
             min_community_size: Minimum number of entities per community
 
@@ -412,7 +407,7 @@ class Ryumem:
             )
         """
         return self.community_detector.update_communities(
-            group_id=group_id,
+            user_id=user_id,
             resolution=resolution,
             min_community_size=min_community_size,
         )
@@ -422,8 +417,7 @@ class Ryumem:
     def get_tools_for_task(
         self,
         task_type: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         limit: int = 10,
     ) -> List[Dict]:
         """
@@ -431,7 +425,7 @@ class Ryumem:
 
         Args:
             task_type: Task type to search for (e.g., "data_analysis", "web_search")
-            group_id: Group ID
+            user_id: Group ID
             user_id: Optional user ID for filtering
             limit: Maximum number of results
 
@@ -441,7 +435,7 @@ class Ryumem:
         Example:
             tools = ryumem.get_tools_for_task(
                 task_type="data_analysis",
-                group_id="my_company"
+                user_id="my_company"
             )
             # Returns: [{"tool_name": "pandas_query", "success_rate": 0.95, "usage_count": 42, ...}]
         """
@@ -449,7 +443,6 @@ class Ryumem:
         query = f"tool execution for {task_type}"
         results = self.search(
             query=query,
-            group_id=group_id,
             user_id=user_id,
             limit=limit * 5,  # Get more to aggregate
             strategy="bm25",  # Use BM25 for keyword matching
@@ -518,8 +511,7 @@ class Ryumem:
     def get_tool_success_rate(
         self,
         tool_name: str,
-        group_id: str,
-        user_id: Optional[str] = None,
+        user_id: str,
         min_executions: int = 1,
     ) -> Dict:
         """
@@ -527,7 +519,7 @@ class Ryumem:
 
         Args:
             tool_name: Name of the tool
-            group_id: Group ID
+            user_id: Group ID
             user_id: Optional user ID for filtering
             min_executions: Minimum number of executions required
 
@@ -537,7 +529,7 @@ class Ryumem:
         Example:
             metrics = ryumem.get_tool_success_rate(
                 tool_name="web_search",
-                group_id="my_company"
+                user_id="my_company"
             )
             # Returns: {"success_rate": 0.95, "usage_count": 100, "avg_duration_ms": 250, ...}
         """
@@ -545,7 +537,6 @@ class Ryumem:
         query = f"tool execution {tool_name}"
         results = self.search(
             query=query,
-            group_id=group_id,
             user_id=user_id,
             limit=1000,  # Get many for aggregation
             strategy="bm25",
@@ -609,7 +600,6 @@ class Ryumem:
     def get_user_tool_preferences(
         self,
         user_id: str,
-        group_id: str,
         limit: int = 10,
     ) -> List[Dict]:
         """
@@ -617,7 +607,7 @@ class Ryumem:
 
         Args:
             user_id: User ID to analyze
-            group_id: Group ID
+            user_id: Group ID
             limit: Maximum number of tools to return
 
         Returns:
@@ -626,7 +616,7 @@ class Ryumem:
         Example:
             preferences = ryumem.get_user_tool_preferences(
                 user_id="alice",
-                group_id="my_company"
+                user_id="my_company"
             )
             # Returns: [{"tool_name": "web_search", "usage_count": 50, ...}, ...]
         """
@@ -636,10 +626,10 @@ class Ryumem:
         result = self.db.conn.execute(
             """
             MATCH (e:Episode)
-            WHERE e.user_id = $user_id AND e.group_id = $group_id
+            WHERE e.user_id = $user_id AND e.user_id = $user_id
             RETURN e.metadata
             """,
-            {"user_id": user_id, "group_id": group_id}
+            {"user_id": user_id, "user_id": user_id}
         )
 
         tool_usage = {}
@@ -685,9 +675,216 @@ class Ryumem:
 
         return result_list[:limit]
 
+    def get_instruction_by_text(
+        self,
+        instruction_text: str,
+        agent_type: str,
+        instruction_type: str,
+    ) -> Optional[str]:
+        """
+        Check if an instruction with the given text already exists.
+
+        Args:
+            instruction_text: The instruction text to search for
+            agent_type: Type of agent (e.g., "google_adk")
+            instruction_type: Type of instruction (e.g., "tool_tracking")
+
+        Returns:
+            UUID of the existing instruction if found, None otherwise
+        """
+        logger.info(f"[DB] get_instruction_by_text called: agent_type={agent_type}, instruction_type={instruction_type}")
+
+        query = """
+        MATCH (i:AgentInstruction)
+        WHERE i.instruction_text = $instruction_text
+          AND i.agent_type = $agent_type
+          AND i.instruction_type = $instruction_type
+        RETURN i.uuid AS uuid
+        ORDER BY i.created_at DESC
+        LIMIT 1
+        """
+
+        result = self.db.execute(query, {
+            "instruction_text": instruction_text,
+            "agent_type": agent_type,
+            "instruction_type": instruction_type
+        })
+
+        if result and len(result) > 0:
+            logger.info(f"[DB] Found existing instruction: {result[0]['uuid']}")
+            return result[0]["uuid"]
+
+        logger.info(f"[DB] No existing instruction found")
+        return None
+
+    def save_agent_instruction(
+        self,
+        instruction_text: str,
+        agent_type: str = "google_adk",
+        instruction_type: str = "tool_tracking",
+        description: str = "",
+        user_id: Optional[str] = None,
+        original_user_request: Optional[str] = None,
+    ) -> str:
+        """
+        Save custom agent instruction to the database.
+
+        This tracks both what the user originally requested and what instruction
+        text will actually be added to the agent's prompt.
+
+        Args:
+            instruction_text: The actual instruction text to add to agent prompt (converted/final)
+            agent_type: Type of agent (e.g., "google_adk", "custom_agent")
+            instruction_type: Type of instruction (e.g., "tool_tracking", "memory_guidance")
+            description: User-friendly description of what this instruction does
+            user_id: Optional user ID for user-specific instructions
+            original_user_request: Optional original request from user before conversion
+
+        Returns:
+            UUID of the created instruction
+
+        Example:
+            instruction_id = ryumem.save_agent_instruction(
+                instruction_text="TOOL SELECTION:\nAlways check memory...",
+                original_user_request="Make the agent check past tool usage",
+                agent_type="google_adk",
+                description="Custom tool selection guidance"
+            )
+        """
+        import uuid
+        from datetime import datetime
+
+        logger.info(f"[DB] save_agent_instruction called: agent_type={agent_type}, instruction_type={instruction_type}")
+
+        # Get version number (count of existing instructions for this type + 1)
+        logger.info(f"[DB] Counting existing instructions for versioning...")
+        count_query = """
+        MATCH (i:AgentInstruction)
+        WHERE i.agent_type = $agent_type
+          AND i.instruction_type = $instruction_type
+        RETURN count(i) AS count
+        """
+        result = self.db.execute(count_query, {
+            "agent_type": agent_type,
+            "instruction_type": instruction_type
+        })
+        version = result[0]["count"] + 1 if result else 1
+        logger.info(f"[DB] Current count: {result[0]['count'] if result else 0}, new version will be: {version}")
+
+        # Create new instruction
+        instruction_id = str(uuid.uuid4())
+        logger.info(f"[DB] Creating new instruction with ID: {instruction_id}")
+        insert_query = """
+        CREATE (i:AgentInstruction {
+            uuid: $uuid,
+            agent_type: $agent_type,
+            instruction_type: $instruction_type,
+            instruction_text: $instruction_text,
+            original_user_request: $original_user_request,
+            description: $description,
+            version: $version,
+            created_at: $created_at,
+            user_id: $user_id
+        })
+        RETURN i.uuid AS uuid
+        """
+
+        insert_result = self.db.execute(insert_query, {
+            "uuid": instruction_id,
+            "agent_type": agent_type,
+            "instruction_type": instruction_type,
+            "instruction_text": instruction_text,
+            "original_user_request": original_user_request or "",
+            "description": description,
+            "version": version,
+            "created_at": datetime.utcnow(),
+            "user_id": user_id
+        })
+        logger.info(f"[DB] Insert query executed, result: {insert_result}")
+        logger.info(f"[DB] ✓ Instruction saved successfully with ID: {instruction_id}")
+
+        return instruction_id
+
+    def list_agent_instructions(
+        self,
+        agent_type: Optional[str] = None,
+        instruction_type: Optional[str] = None,
+        limit: int = 50
+    ) -> List[Dict]:
+        """
+        List all agent instructions with metadata and version history.
+
+        Args:
+            agent_type: Optional filter by agent type
+            instruction_type: Optional filter by instruction type
+            limit: Maximum number of instructions to return
+
+        Returns:
+            List of instruction dictionaries with metadata
+
+        Example:
+            instructions = ryumem.list_agent_instructions(
+                agent_type="google_adk"
+            )
+            for instr in instructions:
+                print(f"Version {instr['version']}: {instr['description']}")
+        """
+        logger.info(f"[DB] list_agent_instructions called: agent_type={agent_type}, instruction_type={instruction_type}, limit={limit}")
+
+        # Build query
+        query = "MATCH (i:AgentInstruction) WHERE true"
+        params = {}
+
+        if agent_type:
+            query += " AND i.agent_type = $agent_type"
+            params["agent_type"] = agent_type
+
+        if instruction_type:
+            query += " AND i.instruction_type = $instruction_type"
+            params["instruction_type"] = instruction_type
+
+        query += """
+        RETURN i.uuid AS instruction_id,
+               i.instruction_text AS instruction_text,
+               i.agent_type AS agent_type,
+               i.instruction_type AS instruction_type,
+               i.original_user_request AS original_user_request,
+               i.description AS description,
+               i.version AS version,
+               i.created_at AS created_at
+        ORDER BY i.created_at DESC
+        LIMIT $limit
+        """
+
+        params["limit"] = limit
+
+        logger.info(f"[DB] Executing query with params: {params}")
+        result = self.db.execute(query, params)
+        logger.info(f"[DB] Query returned {len(result)} result(s)")
+
+        # Format results
+        formatted_results = []
+        for row in result:
+            logger.info(f"[DB]   - Found instruction: id={row['instruction_id']}, version={row['version']}")
+            formatted_results.append({
+                "instruction_id": row["instruction_id"],
+                "instruction_text": row["instruction_text"],
+                "name": f"Agent Instruction - {row['agent_type']} - {row['instruction_type']} v{row['version']}",
+                "agent_type": row["agent_type"],
+                "instruction_type": row["instruction_type"],
+                "version": row["version"],
+                "description": row["description"],
+                "original_user_request": row["original_user_request"],
+                "converted_instruction": row["instruction_text"],
+                "created_at": str(row["created_at"]),
+            })
+
+        logger.info(f"[DB] Returning {len(formatted_results)} formatted instruction(s)")
+        return formatted_results
+
     def prune_memories(
         self,
-        group_id: str,
+        user_id: str,
         expired_cutoff_days: int = 90,
         min_mentions: int = 2,
         min_age_days: int = 30,
@@ -705,7 +902,7 @@ class Ryumem:
         Should be called periodically to maintain graph health.
 
         Args:
-            group_id: Group ID to prune
+            user_id: Group ID to prune
             expired_cutoff_days: Delete expired edges older than N days (default: 90)
             min_mentions: Minimum mentions for entities to keep (default: 2)
             min_age_days: Minimum age before pruning low-mention entities (default: 30)
@@ -729,7 +926,7 @@ class Ryumem:
             )
         """
         return self.memory_pruner.prune_all(
-            group_id=group_id,
+            user_id=user_id,
             expired_cutoff_days=expired_cutoff_days,
             min_mentions=min_mentions,
             min_age_days=min_age_days,
@@ -737,20 +934,20 @@ class Ryumem:
             similarity_threshold=similarity_threshold,
         )
 
-    def delete_group(self, group_id: str) -> None:
+    def delete_group(self, user_id: str) -> None:
         """
         Delete all data for a specific group.
 
         WARNING: This is irreversible!
 
         Args:
-            group_id: Group ID to delete
+            user_id: Group ID to delete
 
         Example:
             ryumem.delete_group("user_123")
         """
-        self.db.delete_by_group_id(group_id)
-        logger.info(f"Deleted all data for group: {group_id}")
+        self.db.delete_by_user_id(user_id)
+        logger.info(f"Deleted all data for group: {user_id}")
 
     def reset(self) -> None:
         """
@@ -798,7 +995,7 @@ class Ryumem:
                 entity_type=entity_data["entity_type"],
                 summary=entity_data.get("summary", ""),
                 mentions=entity_data["mentions"],
-                group_id="",  # Not needed for BM25
+                user_id="",  # Not needed for BM25
             )
             self.search_engine.bm25_index.add_entity(entity)
 
@@ -825,7 +1022,7 @@ class Ryumem:
                 name=edge_data["relation_type"],
                 fact=edge_data["fact"],
                 mentions=edge_data["mentions"],
-                group_id="",  # Not needed for BM25
+                user_id="",  # Not needed for BM25
             )
             self.search_engine.bm25_index.add_edge(edge)
 

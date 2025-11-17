@@ -31,7 +31,7 @@ export GOOGLE_API_KEY="your-google-api-key"
 
 ```python
 from google import genai
-from ryumem.integrations import enable_memory
+from ryumem.integrations import add_memory_to_agent
 
 # Create your agent
 agent = genai.Agent(
@@ -41,12 +41,12 @@ agent = genai.Agent(
 )
 
 # Enable memory - that's it!
-enable_memory(agent, user_id="user_123")
+add_memory_to_agent(agent, user_id="user_123")
 ```
 
 ## What Gets Auto-Generated?
 
-When you call `enable_memory()`, Ryumem automatically creates and registers **3 tools** with your agent:
+When you call `add_memory_to_agent()`, Ryumem automatically creates and registers **3 tools** with your agent:
 
 ### 1. `search_memory(query: str, limit: int = 5)`
 Searches the knowledge graph for relevant memories.
@@ -100,15 +100,15 @@ Multiple agents can share the same memory by using the same `user_id`:
 
 ```python
 from google import genai
-from ryumem.integrations import enable_memory
+from ryumem.integrations import add_memory_to_agent
 
 # Agent 1: Personal Assistant
 personal_agent = genai.Agent(name="assistant", model="gemini-2.0-flash-exp")
-enable_memory(personal_agent, user_id="user_123", db_path="./shared_memory.db")
+add_memory_to_agent(personal_agent, user_id="user_123", db_path="./shared_memory.db")
 
 # Agent 2: Travel Planner (shares memory!)
 travel_agent = genai.Agent(name="travel_planner", model="gemini-2.0-flash-exp")
-enable_memory(travel_agent, user_id="user_123", db_path="./shared_memory.db")
+add_memory_to_agent(travel_agent, user_id="user_123", db_path="./shared_memory.db")
 
 # Both agents access the same knowledge graph
 ```
@@ -118,7 +118,7 @@ enable_memory(travel_agent, user_id="user_123", db_path="./shared_memory.db")
 For privacy and cost savings, use Ollama for LLM operations:
 
 ```python
-enable_memory(
+add_memory_to_agent(
     agent,
     user_id="user_123",
     db_path="./memory.db",
@@ -130,10 +130,10 @@ enable_memory(
 
 ### Direct Memory Access
 
-The `enable_memory()` function returns a `RyumemGoogleADK` instance for advanced usage:
+The `add_memory_to_agent()` function returns a `RyumemGoogleADK` instance for advanced usage:
 
 ```python
-memory = enable_memory(agent, user_id="user_123")
+memory = add_memory_to_agent(agent, user_id="user_123")
 
 # Direct search
 results = memory.search_memory("What's Alice's job?", limit=5)
@@ -153,7 +153,7 @@ If you need fine-grained control over Ryumem configuration:
 
 ```python
 from ryumem import Ryumem
-from ryumem.integrations import enable_memory
+from ryumem.integrations import add_memory_to_agent
 
 # Create custom Ryumem instance
 ryumem = Ryumem(
@@ -165,7 +165,7 @@ ryumem = Ryumem(
 )
 
 # Use it with your agent
-enable_memory(agent, user_id="user_123", ryumem_instance=ryumem)
+add_memory_to_agent(agent, user_id="user_123", ryumem_instance=ryumem)
 ```
 
 ## Complete Example
@@ -232,12 +232,12 @@ agent = Agent(
 ### Ryumem Approach (Zero Boilerplate)
 
 ```python
-from ryumem.integrations import enable_memory
+from ryumem.integrations import add_memory_to_agent
 
 agent = Agent(name="assistant", model="gemini-2.0-flash")
 
 # One line - done!
-enable_memory(agent, user_id="user_123")
+add_memory_to_agent(agent, user_id="user_123")
 ```
 
 **Result:** Ryumem eliminates ~20 lines of boilerplate and reduces setup time from minutes to seconds.
@@ -267,7 +267,7 @@ Make sure you're using the same `db_path` across runs:
 
 ```python
 # Always use the same path
-enable_memory(agent, user_id="user_123", db_path="./persistent_memory.db")
+add_memory_to_agent(agent, user_id="user_123", db_path="./persistent_memory.db")
 ```
 
 ## Next Steps

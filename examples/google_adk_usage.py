@@ -4,22 +4,19 @@ Google ADK Integration Example for Ryumem.
 This example demonstrates the ZERO-BOILERPLATE approach to adding memory
 to Google ADK agents. No need to write custom functions!
 
-ARCHITECTURE - Multi-Tenancy Explained:
-┌─────────────────────────────────────────────────────────────┐
-│ ryumem_customer_id: "demo_company"                          │
-│ (Your company using Ryumem)                                 │
-│                                                             │
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐           │
-│  │ user_id:   │  │ user_id:   │  │ user_id:   │           │
-│  │ "alice"    │  │ "bob"      │  │ "charlie"  │           │
-│  │            │  │            │  │            │           │
-│  │ - Name     │  │ - Name     │  │ - Name     │           │
-│  │ - Job      │  │ - Job      │  │ - Hobbies  │           │
-│  │ - Hobbies  │  │ - Prefs    │  │            │           │
-│  └────────────┘  └────────────┘  └────────────┘           │
-│  Isolated        Isolated        Isolated                  │
-│  Memory Graph    Memory Graph    Memory Graph              │
-└─────────────────────────────────────────────────────────────┘
+ARCHITECTURE - Memory Isolation Explained:
+Each user gets their own isolated knowledge graph:
+
+┌────────────┐  ┌────────────┐  ┌────────────┐
+│ user_id:   │  │ user_id:   │  │ user_id:   │
+│ "alice"    │  │ "bob"      │  │ "charlie"  │
+│            │  │            │  │            │
+│ - Name     │  │ - Name     │  │ - Name     │
+│ - Job      │  │ - Job      │  │ - Hobbies  │
+│ - Hobbies  │  │ - Prefs    │  │            │
+└────────────┘  └────────────┘  └────────────┘
+ Isolated        Isolated        Isolated
+ Memory Graph    Memory Graph    Memory Graph
 
 Each end user gets their own knowledge graph. Memories never leak between users.
 
@@ -43,8 +40,8 @@ To view:
 
 Benefits over mem0:
 - Zero boilerplate: No need to write search_memory() and save_memory() functions
-- One-line integration: Just call enable_memory(agent, ryumem_customer_id="...")
-- Multi-user support: Each user gets isolated memory automatically
+- One-line integration: Just call add_memory_to_agent(agent, user_id="...")
+- Automatic memory isolation: Each user gets their own isolated memory
 - Knowledge graph: Structured memory with entity relationships
 - Local LLM support: Works with Ollama for privacy
 - Interactive dashboard: Visualize and explore the knowledge graph
@@ -94,7 +91,7 @@ if not os.getenv("GOOGLE_API_KEY"):
     vprint("   Get your key at: https://aistudio.google.com/apikey")
     exit(1)
 
-from ryumem.integrations import enable_memory, RyumemGoogleADK
+from ryumem.integrations import add_memory_to_agent, RyumemGoogleADK
 
 
 async def chat_with_agent(runner, session_id: str, user_input: str, user_id: str):
@@ -136,13 +133,12 @@ Always personalize responses based on what you remember about the specific user.
     )
     vprint(f"   ✓ Created agent: {agent.name}")
 
-    vprint("\n2. Enabling memory (ONE LINE!)...")
+    vprint("\n2. Adding memory to agent (ONE LINE!)...")
     # This is all you need - no custom functions!
     # Using the server's database path so you can view the graph in the dashboard!
-    memory = enable_memory(
+    memory = add_memory_to_agent(
         agent,
-        ryumem_customer_id="demo_company",  # Your company using Ryumem
-        # user_id is None - will be passed per tool call
+        user_id="alice",  # User identifier for memory isolation
         db_path="./server/data/google_adk_demo.db",  # Shared with dashboard server
         # Optional: Use Ollama for LLM (uncomment below)
         llm_provider="ollama",
@@ -242,14 +238,14 @@ Use save_memory(content, user_id=<current_user_id>) to remember travel plans.
 Personalize recommendations based on what you know about the user."""
     )
 
-    # Enable memory with SAME ryumem_customer_id - memory is shared across agents!
+    # Enable memory with SAME user_id - so Alice's memories are shared across agents!
     # IMPORTANT: Reuse the same Ryumem instance to avoid database connection conflicts
     travel_memory = RyumemGoogleADK(
         ryumem=memory.ryumem,  # Reuse existing Ryumem instance
-        ryumem_customer_id="demo_company"  # Same customer
+        user_id="alice"  # Same user - Alice's memories
     )
     travel_agent.tools.extend(travel_memory.tools)
-    vprint("   ✓ Travel agent created with access to same memory backend")
+    vprint("   ✓ Travel agent created with access to Alice's memory")
 
     travel_runner = Runner(
         agent=travel_agent,
@@ -308,15 +304,14 @@ Personalize recommendations based on what you know about the user."""
     vprint("\n" + "=" * 60)
     vprint("Google ADK Integration Complete!")
     vprint("\n💡 Key Takeaways:")
-    vprint("  • No custom functions needed - just call enable_memory()")
+    vprint("  • No custom functions needed - just call add_memory_to_agent()")
     vprint("  • Multi-user support: Each user gets isolated memory")
     vprint("  • Multi-agent support: Agents can share memory for same user")
     vprint("  • Knowledge graph provides structured, relational memory")
     vprint("  • Works with any LLM (Gemini, GPT, Ollama, etc.)")
     vprint("\n🏗️ Architecture:")
-    vprint("  ryumem_customer_id → Your company (demo_company)")
-    vprint("  user_id → End users (alice, bob, charlie...)")
-    vprint("  session_id → Individual conversations")
+    vprint("  user_id → Individual users (alice, bob, charlie...)")
+    vprint("  session_id → Individual conversation threads")
     vprint("\n📊 View in Dashboard:")
     vprint("  1. Update server/.env with: RYUMEM_DB_PATH=./data/google_adk_demo.db")
     vprint("  2. Start API: cd server && uvicorn main:app --reload")
@@ -327,9 +322,9 @@ Personalize recommendations based on what you know about the user."""
     vprint("  • Explore the knowledge graph interactively")
     vprint("\n📚 Compare with mem0:")
     vprint("  mem0: ~20 lines of boilerplate to write search/save functions")
-    vprint("  Ryumem: 1 line - enable_memory(agent, ryumem_customer_id='...')")
+    vprint("  Ryumem: 1 line - add_memory_to_agent(agent, user_id='...')")
     vprint("  mem0: No multi-user isolation out of the box")
-    vprint("  Ryumem: Built-in multi-tenancy with user_id parameter")
+    vprint("  Ryumem: Built-in memory isolation per user")
     vprint("  mem0: No built-in visualization dashboard")
     vprint("  Ryumem: Interactive dashboard to explore the knowledge graph")
     vprint("=" * 60)

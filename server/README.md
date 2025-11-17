@@ -67,7 +67,7 @@ curl -X POST "http://localhost:8000/episodes" \
   -H "Content-Type: application/json" \
   -d '{
     "content": "Alice works at Google as a Software Engineer in Mountain View.",
-    "group_id": "user_123",
+    "user_id": "user_123",
     "user_id": "user_123",
     "source": "text"
   }'
@@ -89,7 +89,7 @@ curl -X POST "http://localhost:8000/search" \
   -H "Content-Type: application/json" \
   -d '{
     "query": "Where does Alice work?",
-    "group_id": "user_123",
+    "user_id": "user_123",
     "limit": 10,
     "strategy": "hybrid"
   }'
@@ -128,13 +128,13 @@ Response:
 #### 3. Get Entity Context
 
 ```bash
-curl "http://localhost:8000/entity/Alice?group_id=user_123"
+curl "http://localhost:8000/entity/Alice?user_id=user_123"
 ```
 
 #### 4. Get System Statistics
 
 ```bash
-curl "http://localhost:8000/stats?group_id=user_123"
+curl "http://localhost:8000/stats?user_id=user_123"
 ```
 
 Response:
@@ -154,7 +154,7 @@ Response:
 curl -X POST "http://localhost:8000/communities/update" \
   -H "Content-Type: application/json" \
   -d '{
-    "group_id": "user_123",
+    "user_id": "user_123",
     "resolution": 1.0,
     "min_community_size": 2
   }'
@@ -166,7 +166,7 @@ curl -X POST "http://localhost:8000/communities/update" \
 curl -X POST "http://localhost:8000/prune" \
   -H "Content-Type: application/json" \
   -d '{
-    "group_id": "user_123",
+    "user_id": "user_123",
     "expired_cutoff_days": 90,
     "min_mentions": 2,
     "compact_redundant": true
@@ -183,7 +183,7 @@ BASE_URL = "http://localhost:8000"
 # Add an episode
 response = requests.post(f"{BASE_URL}/episodes", json={
     "content": "Bob graduated from Stanford University in 2020.",
-    "group_id": "user_123",
+    "user_id": "user_123",
     "source": "text"
 })
 print(response.json())
@@ -191,7 +191,7 @@ print(response.json())
 # Search
 response = requests.post(f"{BASE_URL}/search", json={
     "query": "Tell me about Bob's education",
-    "group_id": "user_123",
+    "user_id": "user_123",
     "strategy": "hybrid",
     "limit": 5
 })

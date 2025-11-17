@@ -1,13 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Brain, Database, Network, BookOpen, GitBranch, List } from "lucide-react";
+import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings } from "lucide-react";
 import { EpisodeForm } from "@/components/episode-form";
 import { ChatInterface } from "@/components/chat-interface";
 import { StatsPanel } from "@/components/stats-panel";
 import { GraphVisualization } from "@/components/graph-visualization";
 import { EntityBrowser } from "@/components/entity-browser";
 import { EntityDetailPanel } from "@/components/entity-detail-panel";
+import { ToolAnalyticsPanel } from "@/components/tool-analytics-panel";
+import { AgentInstructionEditor } from "@/components/agent-instruction-editor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, Entity, GraphDataResponse, EntitiesListResponse, Edge } from "@/lib/api";
@@ -114,7 +116,7 @@ export default function Home() {
 
         {/* Main Content */}
         <Tabs defaultValue="chat" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 lg:grid-cols-4 lg:w-[800px]">
+          <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6 lg:w-full">
             <TabsTrigger value="chat" className="flex items-center gap-2">
               <BookOpen className="h-4 w-4" />
               Chat & Query
@@ -138,6 +140,14 @@ export default function Home() {
             <TabsTrigger value="episodes" className="flex items-center gap-2">
               <Database className="h-4 w-4" />
               Add Episodes
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="flex items-center gap-2">
+              <Wrench className="h-4 w-4" />
+              Tool Analytics
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Agent Settings
             </TabsTrigger>
           </TabsList>
 
@@ -254,6 +264,27 @@ export default function Home() {
                   userId={userId}
                   onEpisodeAdded={handleEpisodeAdded}
                 />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="analytics" className="space-y-4">
+            <ToolAnalyticsPanel groupId={groupId} userId={userId} />
+          </TabsContent>
+
+          <TabsContent value="settings" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Settings className="h-5 w-5" />
+                  Agent Instruction Management
+                </CardTitle>
+                <CardDescription>
+                  Configure custom instructions for your agents
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <AgentInstructionEditor userId={userId} />
               </CardContent>
             </Card>
           </TabsContent>

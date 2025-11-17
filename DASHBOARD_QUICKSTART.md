@@ -353,17 +353,17 @@ rm server/data/ryumem_server.db
 # 1. Add multiple episodes
 curl -X POST http://localhost:8000/episodes \
   -H "Content-Type: application/json" \
-  -d '{"content": "...", "group_id": "user_123"}'
+  -d '{"content": "...", "user_id": "user_123"}'
 
 # 2. Detect communities
 curl -X POST http://localhost:8000/communities/update \
   -H "Content-Type: application/json" \
-  -d '{"group_id": "user_123"}'
+  -d '{"user_id": "user_123"}'
 
 # 3. Search
 curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "...", "group_id": "user_123"}'
+  -d '{"query": "...", "user_id": "user_123"}'
 ```
 
 ### Workflow 2: Maintenance
@@ -372,10 +372,10 @@ curl -X POST http://localhost:8000/search \
 # Prune old memories
 curl -X POST http://localhost:8000/prune \
   -H "Content-Type: application/json" \
-  -d '{"group_id": "user_123", "expired_cutoff_days": 90}'
+  -d '{"user_id": "user_123", "expired_cutoff_days": 90}'
 
 # Get stats
-curl http://localhost:8000/stats?group_id=user_123
+curl http://localhost:8000/stats?user_id=user_123
 ```
 
 ---

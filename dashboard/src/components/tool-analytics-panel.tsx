@@ -45,24 +45,85 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
   const [userPreferences, setUserPreferences] = useState<ToolUsage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Note: In a real implementation, these would call the API
-  // For now, showing the structure
-
+  // Load tools for the selected task type
   useEffect(() => {
-    // Load initial data
-    // This would call api.getToolsForTask(taskType, groupId, userId)
+    const loadToolsForTask = async () => {
+      setIsLoading(true);
+      try {
+        const tools = await api.getToolsForTask(taskType, groupId, userId);
+        const formatted: ToolUsage[] = tools.map((tool) => ({
+          name: tool.tool_name,
+          count: tool.usage_count,
+          successRate: tool.success_rate,
+          avgDuration: tool.avg_duration_ms,
+        }));
+        setToolsForTask(formatted);
+      } catch (error) {
+        console.error("Failed to load tools for task:", error);
+        setToolsForTask([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadToolsForTask();
   }, [groupId, userId, taskType]);
 
   const handleLoadToolMetrics = async (toolName: string) => {
     setSelectedTool(toolName);
-    // This would call api.getToolSuccessRate(toolName, groupId, userId)
+    setIsLoading(true);
+
+    try {
+      const metrics = await api.getToolMetrics(toolName, groupId, userId);
+
+      // Update the selected tool's detailed metrics
+      const toolUsage: ToolUsage = {
+        name: metrics.tool_name,
+        count: metrics.usage_count,
+        successRate: metrics.success_rate,
+        avgDuration: metrics.avg_duration_ms,
+        taskTypes: metrics.task_types,
+        errors: metrics.recent_errors,
+      };
+
+      // Update the tools list with detailed info
+      setToolsForTask((prev) =>
+        prev.map((tool) => (tool.name === toolName ? toolUsage : tool))
+      );
+    } catch (error) {
+      console.error("Failed to load tool metrics:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleLoadUserPreferences = async () => {
-    if (userId) {
-      // This would call api.getUserToolPreferences(userId, groupId)
+    if (!userId) return;
+
+    setIsLoading(true);
+    try {
+      const prefs = await api.getUserToolPreferences(userId, groupId);
+      const formatted: ToolUsage[] = prefs.map((pref) => ({
+        name: pref.tool_name,
+        count: pref.usage_count,
+        successRate: 0, // Not available in preferences endpoint
+        avgDuration: 0, // Not available in preferences endpoint
+      }));
+      setUserPreferences(formatted);
+    } catch (error) {
+      console.error("Failed to load user preferences:", error);
+      setUserPreferences([]);
+    } finally {
+      setIsLoading(false);
     }
   };
+
+  // Load user preferences on mount if userId is provided
+  useEffect(() => {
+    if (userId) {
+      handleLoadUserPreferences();
+    }
+  }, [userId, groupId]);
 
   const taskTypes = [
     'information_retrieval',

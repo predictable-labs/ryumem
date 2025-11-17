@@ -2,17 +2,16 @@
 Google ADK Integration for Ryumem.
 
 This module provides zero-boilerplate memory integration with Google's Agent Developer Kit.
-No need to write custom search/save functions - just call enable_memory() and you're done!
+No need to write custom search/save functions - just call add_memory_to_agent() and you're done!
 
 Architecture:
-- ryumem_customer_id: Identifies your company/app using Ryumem (required)
 - user_id: Identifies end users of your app - each user gets isolated memory (optional per-session)
 - session_id: Tracks individual conversation threads (handled by Google ADK)
 
 Example:
     ```python
     from google import genai
-    from ryumem.integrations import enable_memory
+    from ryumem.integrations import add_memory_to_agent
 
     agent = genai.Agent(
         name="assistant",
@@ -21,10 +20,8 @@ Example:
     )
 
     # One line to enable memory for your company's agent!
-    enable_memory(
+    add_memory_to_agent(
         agent,
-        ryumem_customer_id="my_company",  # Your company using Ryumem
-        db_path="./memory.db"
     )
 
     # The agent will use user_id from each session's runner.run(user_id=...) call
@@ -47,13 +44,11 @@ class RyumemGoogleADK:
     registered as tools with Google ADK agents, eliminating boilerplate code.
 
     Multi-tenancy Architecture:
-    - ryumem_customer_id: Identifies the company/app using Ryumem (required)
     - user_id: Identifies individual end users - each gets isolated memory (optional, can be per-session)
     - session_id: Tracks conversation threads (handled by Google ADK sessions)
 
     Args:
         ryumem: Initialized Ryumem instance
-        ryumem_customer_id: Customer/app identifier (your company using Ryumem)
         user_id: Default user identifier (optional - can be provided per tool call)
         auto_save: If True, automatically save all queries (default: False)
     """
@@ -61,16 +56,14 @@ class RyumemGoogleADK:
     def __init__(
         self,
         ryumem: Ryumem,
-        ryumem_customer_id: str,
         user_id: Optional[str] = None,
         auto_save: bool = False
     ):
         self.ryumem = ryumem
-        self.ryumem_customer_id = ryumem_customer_id
         self.user_id = user_id  # Default user_id, can be None
         self.auto_save = auto_save
 
-        logger.info(f"Initialized RyumemGoogleADK for customer: {ryumem_customer_id}, default_user: {user_id or 'dynamic'}")
+        logger.info(f"Initialized RyumemGoogleADK default_user_id: {user_id or 'dynamic'}")
 
     def search_memory(self, query: str, user_id: Optional[str] = None, limit: int = 5) -> Dict[str, Any]:
         """
@@ -94,7 +87,6 @@ class RyumemGoogleADK:
         try:
             results = self.ryumem.search(
                 query=query,
-                group_id=self.ryumem_customer_id,
                 user_id=effective_user_id,
                 strategy="hybrid",
                 limit=limit
@@ -157,7 +149,6 @@ class RyumemGoogleADK:
 
             episode_id = self.ryumem.add_episode(
                 content=content,
-                group_id=self.ryumem_customer_id,
                 user_id=effective_user_id,
                 source=source,
                 metadata={"integration": "google_adk"}
@@ -194,7 +185,6 @@ class RyumemGoogleADK:
         try:
             context = self.ryumem.get_entity_context(
                 entity_name=entity_name,
-                group_id=self.ryumem_customer_id,
                 user_id=effective_user_id
             )
 
@@ -230,11 +220,10 @@ class RyumemGoogleADK:
         ]
 
 
-def enable_memory(
+def add_memory_to_agent(
     agent,
-    ryumem_customer_id: str,
     user_id: Optional[str] = None,
-    db_path: str = "./memory.db",
+    db_path: str = "./data/memory.db",
     ryumem_instance: Optional[Ryumem] = None,
     track_tools: bool = False,
     track_queries: bool = True,
@@ -250,21 +239,19 @@ def enable_memory(
     It automatically creates and registers memory tools with your agent.
 
     Multi-tenancy Architecture:
-    - ryumem_customer_id: Identifies your company/app (required) - all your users' data is grouped here
     - user_id: Identifies individual end users (optional) - can be set as default or passed per tool call
     - session_id: Conversation threads (handled by Google ADK sessions)
 
     Args:
         agent: Google ADK Agent instance to add memory to
-        ryumem_customer_id: Customer/app identifier (your company using Ryumem)
         user_id: Optional default user identifier. If None, user_id must be passed to each tool call
         db_path: Path to SQLite database file (default: "./memory.db")
         ryumem_instance: Optional pre-configured Ryumem instance
         track_tools: If True, automatically track all tool usage for analytics (default: False)
         track_queries: If True, automatically track user queries as episodes (default: True)
-                      Note: Requires calling create_query_tracking_runner() on your Runner instance
+                      Note: Requires calling wrap_runner_with_tracking() on your Runner instance
         augment_queries: If True, augment incoming queries with historical context (default: True)
-                        Only applies when track_queries=True. Configuration is passed to create_query_tracking_runner()
+                        Only applies when track_queries=True. Configuration is passed to wrap_runner_with_tracking()
         similarity_threshold: Minimum similarity score for query matching (0.0-1.0, default: 0.3)
                             Lower = more matches, higher = stricter matches
         top_k_similar: Number of similar queries to consider for augmentation (default: 5, -1 for all)
@@ -273,12 +260,12 @@ def enable_memory(
 
     Returns:
         RyumemGoogleADK instance for advanced usage (optional)
-        Note: To enable query augmentation, pass augmentation config to create_query_tracking_runner()
+        Note: To enable query augmentation, pass augmentation config to wrap_runner_with_tracking()
 
     Example - Multi-user scenario (recommended):
         ```python
         from google import genai
-        from ryumem.integrations import enable_memory
+        from ryumem.integrations import add_memory_to_agent
 
         agent = genai.Agent(
             name="assistant",
@@ -288,10 +275,8 @@ def enable_memory(
         )
 
         # Enable memory for your company's agent
-        enable_memory(
+        add_memory_to_agent(
             agent,
-            ryumem_customer_id="my_company"  # Your company
-            # user_id is None - will be provided per tool call
         )
 
         # Each session uses a different user_id
@@ -302,9 +287,8 @@ def enable_memory(
     Example - Single user scenario with tool tracking:
         ```python
         # Enable memory + automatic tool tracking
-        enable_memory(
+        add_memory_to_agent(
             agent,
-            ryumem_customer_id="my_company",
             user_id="alice",
             track_tools=True,  # Track all tool usage!
             llm_provider="openai",
@@ -343,11 +327,10 @@ def enable_memory(
     # Create memory integration
     memory = RyumemGoogleADK(
         ryumem=ryumem,
-        ryumem_customer_id=ryumem_customer_id,
         user_id=user_id
     )
 
-    # Store augmentation config for use by create_query_tracking_runner()
+    # Store augmentation config for use by wrap_runner_with_tracking()
     memory.augmentation_config = {
         'augment_queries': augment_queries,
         'similarity_threshold': similarity_threshold,
@@ -372,7 +355,6 @@ def enable_memory(
 
         tracker = ToolTracker(
             ryumem=ryumem,
-            ryumem_customer_id=ryumem_customer_id,
             default_user_id=user_id,  # Pass default user_id to tracker
             **tool_tracking_kwargs
         )
@@ -382,12 +364,18 @@ def enable_memory(
         # Store tracker reference in memory object for advanced usage
         memory.tracker = tracker
 
-        # Automatically enhance agent instructions to use tool history
-        _enhance_agent_instructions_for_tool_tracking(agent)
+    # Always enhance agent instructions with memory guidance
+    # Add tool guidance only if track_tools=True
+    _enhance_agent_instruction(
+        agent,
+        ryumem,
+        include_memory_guidance=True,
+        include_tool_guidance=track_tools
+    )
 
     # Log query tracking status
     if track_queries:
-        logger.info("Query tracking enabled - wrap your Runner with create_query_tracking_runner()")
+        logger.info("Query tracking enabled - wrap your Runner with wrap_runner_with_tracking()")
 
     return memory
 
@@ -421,7 +409,6 @@ def _augment_query_with_history(
         # Search for similar query episodes
         search_results = memory.ryumem.search(
             query=query_text,
-            group_id=memory.ryumem_customer_id,
             user_id=user_id,
             strategy="semantic",
             limit=top_k if top_k > 0 else 100  # Cap at 100 for -1
@@ -533,7 +520,7 @@ def _augment_query_with_history(
         return query_text
 
 
-def create_query_tracking_runner(
+def wrap_runner_with_tracking(
     original_runner,
     memory: RyumemGoogleADK,
     track_queries: bool = True,
@@ -566,7 +553,7 @@ def create_query_tracking_runner(
         runner = Runner(agent=agent, app_name="my_app", session_service=session_service)
 
         # Enable query tracking and augmentation
-        runner = create_query_tracking_runner(
+        runner = wrap_runner_with_tracking(
             runner,
             memory,
             augment_queries=True,      # Enable augmentation
@@ -628,7 +615,6 @@ def create_query_tracking_runner(
                 # Create episode for user query (store ORIGINAL query, not augmented)
                 query_episode_id = memory.ryumem.add_episode(
                     content=original_query_text,  # Store original for similarity matching
-                    group_id=memory.ryumem_customer_id,
                     user_id=user_id,
                     source="message",
                     metadata={
@@ -713,46 +699,85 @@ def create_query_tracking_runner(
     return original_runner
 
 
-def _enhance_agent_instructions_for_tool_tracking(agent):
+def _enhance_agent_instruction(
+    agent,
+    ryumem,
+    agent_type: str = "google_adk",
+    include_memory_guidance: bool = True,
+    include_tool_guidance: bool = False
+):
     """
-    Automatically append instructions to agent for using tool tracking history.
-    
-    This enables the agent to search memory for past tool usage patterns
-    when deciding which tools to use, making tool tracking actionable.
-    
+    Enhances agent.instruction with memory and optional tool guidance.
+    Checks if instruction already exists in DB before saving.
+
     Args:
-        agent: Google ADK Agent instance
+        agent: Agent instance to enhance
+        ryumem: Ryumem instance
+        agent_type: Type of agent (default: "google_adk")
+        include_memory_guidance: Whether to include basic memory usage guidance (default: True)
+        include_tool_guidance: Whether to include tool selection guidance (default: False)
     """
-    tool_tracking_instruction = """
+    old_instruction = agent.instruction or ""
 
-TOOL SELECTION GUIDANCE (IMPORTANT):
-Before selecting which tool to use for a user's request, you MUST first call search_memory to check for past tool usage patterns.
+    # Build instruction parts
+    instruction_parts = []
+    if old_instruction:
+        instruction_parts.append(old_instruction)
 
-REQUIRED WORKFLOW:
-1. FIRST: Call search_memory with a query like "tool execution for [task type]" or "which tools were used for [similar query]?"
-2. THEN: Review the tool usage history and success rates from memory
-3. FINALLY: Select the most appropriate tool based on past performance
+    # Memory guidance block (always included by default)
+    memory_block = """MEMORY USAGE:
+Use search_memory to find relevant context before answering questions.
+Use save_memory to store important information for future reference.
+"""
 
-Example queries for search_memory:
-- "Which tools were used for weather queries?"
-- "Tool execution for information retrieval tasks"
-- "What tools successfully handled external API calls?"
+    # Tool guidance block (only when tracking tools)
+    tool_block = """TOOL SELECTION:
+Before selecting which tool to use, search_memory for past tool usage patterns and success rates.
+Use queries like "tool execution for [task type]" to find which tools worked well for similar tasks.
+"""
 
-This historical context will help you make better tool selections based on proven success rates."""
+    # Add memory guidance if not already present
+    if include_memory_guidance and "search_memory" not in old_instruction and "MEMORY USAGE" not in old_instruction:
+        instruction_parts.append(memory_block)
 
+    # Add tool guidance if requested and not already present
+    if include_tool_guidance and "tool usage patterns" not in old_instruction and "TOOL SELECTION" not in old_instruction:
+        instruction_parts.append(tool_block)
+
+    # Combine all parts
+    new_instruction = "\n\n".join(instruction_parts)
+
+    # Determine instruction type based on what's included
+    if include_tool_guidance:
+        instruction_type = "tool_tracking"
+        description = "Memory and tool tracking guidance"
+    else:
+        instruction_type = "memory_usage"
+        description = "Memory usage guidance"
+
+    # --- Check if this instruction already exists in DB ---
     try:
-        # Check if agent has instruction attribute
-        if hasattr(agent, 'instruction'):
-            current_instruction = agent.instruction or ""
-            
-            # Only append if not already present
-            if "TOOL SELECTION GUIDANCE" not in current_instruction:
-                agent.instruction = current_instruction + tool_tracking_instruction
-                logger.info("Enhanced agent instructions with tool tracking guidance")
-            else:
-                logger.debug("Agent already has tool tracking guidance")
-        else:
-            logger.warning("Agent doesn't have 'instruction' attribute - cannot enhance instructions")
-    except Exception as e:
-        logger.error(f"Failed to enhance agent instructions: {e}")
-        # Non-critical - don't fail if we can't modify instructions
+        existing_uuid = ryumem.get_instruction_by_text(
+            instruction_text=new_instruction,
+            agent_type=agent_type,
+            instruction_type=instruction_type
+        )
+    except Exception:
+        existing_uuid = None
+
+    # --- If instruction doesn't exist in DB, save it ---
+    if not existing_uuid:
+        try:
+            ryumem.save_agent_instruction(
+                instruction_text=new_instruction,
+                original_user_request=old_instruction,
+                agent_type=agent_type,
+                instruction_type=instruction_type,
+                description=description
+            )
+        except Exception:
+            # if DB save fails, continue but do not crash
+            pass
+
+    # --- Update agent instruction ---
+    agent.instruction = new_instruction

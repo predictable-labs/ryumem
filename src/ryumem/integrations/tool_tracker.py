@@ -7,10 +7,10 @@ storing usage patterns, success rates, and task associations in the knowledge gr
 Example:
     ```python
     from google import genai
-    from ryumem.integrations import enable_memory, enable_tool_tracking
+    from ryumem.integrations import add_memory_to_agent, enable_tool_tracking
 
     agent = genai.Agent(name="assistant", model="gemini-2.0-flash")
-    memory = enable_memory(agent, ryumem_customer_id="my_company")
+    memory = add_memory_to_agent(agent)
 
     # One line to enable automatic tool tracking!
     enable_tool_tracking(agent, ryumem=memory.ryumem)
@@ -154,7 +154,6 @@ class ToolTracker:
 
     Args:
         ryumem: Ryumem instance for storing tool usage data
-        ryumem_customer_id: Customer/company identifier
         default_user_id: Default user ID to use when tool context doesn't provide one
         classification_model: LLM model to use for task classification
         summarize_large_outputs: Automatically summarize outputs >max_output_length
@@ -169,8 +168,7 @@ class ToolTracker:
     def __init__(
         self,
         ryumem: Ryumem,
-        ryumem_customer_id: str,
-        default_user_id: Optional[str] = None,
+        default_user_id: str,
         classification_model: str = "gpt-4o-mini",
         summarize_large_outputs: bool = True,
         max_output_length: int = 1000,
@@ -181,7 +179,6 @@ class ToolTracker:
         fail_open: bool = True,
     ):
         self.ryumem = ryumem
-        self.ryumem_customer_id = ryumem_customer_id
         self.default_user_id = default_user_id
         self.classification_model = classification_model
         self.summarize_large_outputs = summarize_large_outputs
@@ -193,8 +190,12 @@ class ToolTracker:
         self.fail_open = fail_open
         self._execution_count = 0
 
+        # Background task management
+        self.async_classification = True  # Enable async classification by default
+        self._background_tasks = set()    # Track background tasks
+
         logger.info(
-            f"Initialized ToolTracker for customer: {ryumem_customer_id}, "
+            f"Initialized ToolTracker for customer, "
             f"sampling: {sampling_rate*100}%"
         )
 
@@ -375,7 +376,7 @@ Respond with ONLY a JSON object in this format:
             MERGE (parent)-[r:TRIGGERED {
                 uuid: $relationship_uuid,
                 created_at: $timestamp,
-                group_id: $group_id
+                user_id: $user_id
             }]->(child)
             RETURN r
             """
@@ -385,7 +386,7 @@ Respond with ONLY a JSON object in this format:
                 "child_uuid": child_episode_uuid,
                 "relationship_uuid": str(uuid4()),
                 "timestamp": datetime.utcnow(),  # Pass datetime object, not ISO string
-                "group_id": self.ryumem_customer_id,
+                "user_id": self.default_user_id,
             })
 
             logger.debug(
@@ -431,7 +432,7 @@ Respond with ONLY a JSON object in this format:
             # Search for existing tool entity
             similar_tools = self.ryumem.db.search_similar_entities(
                 embedding=tool_embedding,
-                group_id=self.ryumem_customer_id,
+                user_id=self.default_user_id,
                 threshold=0.9,  # High threshold for exact tool match
                 limit=1,
             )
@@ -459,7 +460,7 @@ Respond with ONLY a JSON object in this format:
                 summary=tool_description or f"Tool: {tool_name}",
                 name_embedding=tool_embedding,
                 mentions=tool_mentions,
-                group_id=self.ryumem_customer_id,
+                user_id=self.default_user_id,
             )
             self.ryumem.db.save_entity(tool_entity_node)
 
@@ -468,7 +469,7 @@ Respond with ONLY a JSON object in this format:
 
             similar_tasks = self.ryumem.db.search_similar_entities(
                 embedding=task_embedding,
-                group_id=self.ryumem_customer_id,
+                user_id=self.default_user_id,
                 threshold=0.9,
                 limit=1,
             )
@@ -496,7 +497,7 @@ Respond with ONLY a JSON object in this format:
                 summary=task_description or f"Task type: {task_type}",
                 name_embedding=task_embedding,
                 mentions=task_mentions,
-                group_id=self.ryumem_customer_id,
+                user_id=self.default_user_id,
             )
             self.ryumem.db.save_entity(task_entity_node)
 
@@ -519,7 +520,7 @@ Respond with ONLY a JSON object in this format:
                 fact_embedding=self.ryumem.embedding_client.embed(f"{tool_name} used for {task_type}"),
                 episodes=[],
                 mentions=1,
-                group_id=self.ryumem_customer_id,
+                user_id=self.default_user_id,
                 attributes=relationship_metadata,
             )
 
@@ -616,8 +617,7 @@ Respond with ONLY a JSON object in this format:
                 _thread_pool,
                 lambda: self.ryumem.add_episode(
                     content=content,
-                    group_id=self.ryumem_customer_id,
-                    user_id=user_id,
+                    user_id=self.default_user_id,
                     source="json",
                     metadata=metadata,
                 )
@@ -1008,7 +1008,7 @@ Respond with ONLY a JSON object in this format:
 def enable_tool_tracking(
     agent,
     ryumem: Ryumem,
-    ryumem_customer_id: Optional[str] = None,
+    default_user_id: str,
     include_tools: Optional[List[str]] = None,
     exclude_tools: Optional[List[str]] = None,
     **tracker_kwargs
@@ -1016,7 +1016,7 @@ def enable_tool_tracking(
     """
     Enable automatic tool tracking for a Google ADK agent.
 
-    DEPRECATED: Use enable_memory(..., track_tools=True) instead for simpler API.
+    DEPRECATED: Use add_memory_to_agent(..., track_tools=True) instead for simpler API.
 
     This function wraps all non-Ryumem tools in the agent to automatically
     track their executions in the knowledge graph.
@@ -1024,7 +1024,7 @@ def enable_tool_tracking(
     Args:
         agent: Google ADK Agent instance
         ryumem: Ryumem instance for storage
-        ryumem_customer_id: Optional customer ID (uses ryumem's default if not provided)
+        default_user_id: Default user ID to use when tool context doesn't provide one
         include_tools: Optional whitelist of tool names to track
         exclude_tools: Optional additional tools to exclude (beyond Ryumem tools)
         **tracker_kwargs: Additional arguments for ToolTracker
@@ -1035,10 +1035,10 @@ def enable_tool_tracking(
     Example (DEPRECATED):
         ```python
         from google import genai
-        from ryumem.integrations import enable_memory, enable_tool_tracking
+        from ryumem.integrations import add_memory_to_agent, enable_tool_tracking
 
         agent = genai.Agent(name="assistant", model="gemini-2.0-flash")
-        memory = enable_memory(agent, ryumem_customer_id="my_company")
+        memory = add_memory_to_agent(agent, default_user_id="alice")
 
         # Old way (still works but deprecated)
         tracker = enable_tool_tracking(
@@ -1050,26 +1050,26 @@ def enable_tool_tracking(
 
     Recommended (NEW):
         ```python
-        from ryumem.integrations import enable_memory
+        from ryumem.integrations import add_memory_to_agent
 
         # New simpler way - one function call!
-        memory = enable_memory(
+        memory = add_memory_to_agent(
             agent,
-            ryumem_customer_id="my_company",
+            default_user_id="alice",
             track_tools=True,
             sampling_rate=0.1
         )
         ```
     """
     # Determine customer ID
-    if ryumem_customer_id is None:
+    if default_user_id is None:
         # Try to get from ryumem config or use default
-        ryumem_customer_id = "default_customer"
+        user_id = "default_user"
 
     # Create tracker
     tracker = ToolTracker(
         ryumem=ryumem,
-        ryumem_customer_id=ryumem_customer_id,
+        default_user_id=user_id,
         **tracker_kwargs
     )
 

@@ -7,8 +7,9 @@ Find\ Zep\ paper*
 data/
 *.db
 *.db-shm
-*.db-wal
+*.db.wal
 bm25_index.pkl
+*.pkl
 
 # Python
 __pycache__/
