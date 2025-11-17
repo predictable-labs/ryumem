@@ -2,7 +2,7 @@
 
 from ryumem.core.graph_db import RyugraphDB
 
-db = RyugraphDB(db_path="./data/example_memory.db", embedding_dimensions=3072)
+db = RyugraphDB(db_path="./data/memory.db", embedding_dimensions=3072)
 
 # Check entities
 query = """
