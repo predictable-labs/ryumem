@@ -20,7 +20,7 @@ interface EntityBrowserProps {
   onEntityClick?: (entity: Entity) => void;
   onLoadMore?: (offset: number) => void;
   onFilterChange?: (entityType?: string) => void;
-  groupId: string;  // Add groupId to props
+  userId?: string;
 }
 
 const getEntityColor = (type: string) => {
@@ -40,7 +40,7 @@ export function EntityBrowser({
   onEntityClick,
   onLoadMore,
   onFilterChange,
-  groupId,
+  userId,
 }: EntityBrowserProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState('all');
@@ -49,11 +49,11 @@ export function EntityBrowser({
     { value: 'all', label: 'All Types' }
   ]);
 
-  // Fetch entity types when component mounts or groupId changes
+  // Fetch entity types when component mounts or userId changes
   useEffect(() => {
     async function fetchEntityTypes() {
       try {
-        const response = await api.getEntityTypes(groupId);
+        const response = await api.getEntityTypes(userId);
         const types = [
           { value: 'all', label: 'All Types' },
           ...response.entity_types.map(type => ({
@@ -69,10 +69,8 @@ export function EntityBrowser({
       }
     }
 
-    if (groupId) {
-      fetchEntityTypes();
-    }
-  }, [groupId]);
+    fetchEntityTypes();
+  }, [userId]);
 
   useEffect(() => {
     let filtered = data.entities;

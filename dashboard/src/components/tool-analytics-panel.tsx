@@ -30,11 +30,10 @@ interface ToolPreference {
 }
 
 interface ToolAnalyticsPanelProps {
-  groupId: string;
   userId?: string;
 }
 
-export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps) {
+export function ToolAnalyticsPanel({ userId }: ToolAnalyticsPanelProps) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [selectedTool, setSelectedTool] = useState<string>('');
   const [toolMetrics, setToolMetrics] = useState<ToolMetrics | null>(null);
@@ -64,7 +63,7 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
     setIsLoading(true);
 
     try {
-      const metrics = await api.getToolMetrics(toolName, groupId, userId);
+      const metrics = await api.getToolMetrics(toolName, userId);
       setToolMetrics(metrics);
     } catch (error) {
       console.error("Failed to load tool metrics:", error);
@@ -79,7 +78,7 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
 
     setIsLoading(true);
     try {
-      const prefs = await api.getUserToolPreferences(userId, groupId);
+      const prefs = await api.getUserToolPreferences(userId);
       setUserPreferences(prefs);
     } catch (error) {
       console.error("Failed to load user preferences:", error);
@@ -94,7 +93,7 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
     if (userId) {
       handleLoadUserPreferences();
     }
-  }, [userId, groupId]);
+  }, [userId]);
 
   return (
     <div className="space-y-6">

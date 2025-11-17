@@ -303,6 +303,25 @@ async def health():
     )
 
 
+@app.get("/users")
+async def get_users():
+    """
+    Get all distinct user IDs in the database.
+
+    Returns:
+        List of user_id strings
+    """
+    if not ryumem_instance:
+        raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+    try:
+        users = ryumem_instance.db.get_all_users()
+        return {"users": users}
+    except Exception as e:
+        logger.error(f"Error getting users: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/episodes", response_model=AddEpisodeResponse)
 async def add_episode(
     request: AddEpisodeRequest,
@@ -485,49 +504,42 @@ async def get_entity_context(
 
 @app.get("/stats", response_model=StatsResponse)
 async def get_stats(
-    group_id: Optional[str] = None,
     ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
-    Get system statistics.
+    Get global system statistics.
 
     Returns counts of episodes, entities, relationships, and communities.
     """
-    try:
-        # Query database for stats
-        group_filter = f"WHERE e.group_id = '{group_id}'" if group_id else ""
 
+    try:
         # Count episodes
-        episode_query = f"""
+        episode_query = """
         MATCH (ep:Episode)
-        {group_filter.replace('e.', 'ep.')}
         RETURN COUNT(ep) AS count
         """
         episode_result = ryumem.db.execute(episode_query, {})
         total_episodes = episode_result[0]["count"] if episode_result else 0
 
         # Count entities
-        entity_query = f"""
+        entity_query = """
         MATCH (e:Entity)
-        {group_filter}
         RETURN COUNT(e) AS count
         """
         entity_result = ryumem.db.execute(entity_query, {})
         total_entities = entity_result[0]["count"] if entity_result else 0
 
         # Count relationships
-        rel_query = f"""
+        rel_query = """
         MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
-        {group_filter.replace('e.', 's.')}
         RETURN COUNT(r) AS count
         """
         rel_result = ryumem.db.execute(rel_query, {})
         total_relationships = rel_result[0]["count"] if rel_result else 0
 
         # Count communities
-        comm_query = f"""
+        comm_query = """
         MATCH (c:Community)
-        {group_filter.replace('e.', 'c.')}
         RETURN COUNT(c) AS count
         """
         comm_result = ryumem.db.execute(comm_query, {})
@@ -732,20 +744,28 @@ async def list_entities(
 
 @app.get("/entities/types", response_model=EntityTypesResponse)
 async def get_entity_types(
-    group_id: str,
+    user_id: Optional[str] = None,
     ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
-    Get all unique entity types in the database for a given group.
+    Get all unique entity types in the database.
 
     This is useful for populating dropdowns and filters in the UI.
     """
     try:
         # Query database for unique entity types
-        result = ryumem.db.conn.execute(
-            "MATCH (e:Entity) WHERE e.group_id = $group_id RETURN DISTINCT e.entity_type ORDER BY e.entity_type",
-            {"group_id": group_id}
-        )
+        if user_id:
+            query = "MATCH (e:Entity) WHERE e.user_id = $user_id RETURN DISTINCT e.entity_type ORDER BY e.entity_type"
+            result = ryumem.db.conn.execute(query, {"user_id": user_id})
+        else:
+            query = "MATCH (e:Entity) RETURN DISTINCT e.entity_type ORDER BY e.entity_type"
+            result = ryumem.db.conn.execute(query, {})
+        if user_id:
+            query = "MATCH (e:Entity) WHERE e.user_id = $user_id RETURN DISTINCT e.entity_type ORDER BY e.entity_type"
+            result = ryumem.db.conn.execute(query, {"user_id": user_id})
+        else:
+            query = "MATCH (e:Entity) RETURN DISTINCT e.entity_type ORDER BY e.entity_type"
+            result = ryumem.db.conn.execute(query, {})
 
         entity_types = []
         while result.has_next():
@@ -761,7 +781,6 @@ async def get_entity_types(
 
 @app.get("/relationships/list", response_model=RelationshipsListResponse)
 async def list_relationships(
-    group_id: str,
     user_id: Optional[str] = None,
     relation_type: Optional[str] = None,
     offset: int = 0,
@@ -775,14 +794,12 @@ async def list_relationships(
     """
     try:
         # Get all edges from database
-        all_edges = ryumem.db.get_all_edges(group_id=group_id)
-
-        # Get entities to look up names
-        all_entities = ryumem.db.get_all_entities(group_id=group_id)
-
-        # Filter entities by user_id if provided
         if user_id:
-            all_entities = [e for e in all_entities if e.get('user_id') == user_id]
+            all_edges = ryumem.db.get_all_edges(user_id=user_id)
+            all_entities = ryumem.db.get_all_entities(user_id=user_id)
+        else:
+            all_edges = ryumem.db.get_all_edges()
+            all_entities = ryumem.db.get_all_entities()
 
         # Create entity UUID to name mapping
         entity_map = {e['uuid']: e['name'] for e in all_entities}
@@ -1006,7 +1023,6 @@ async def get_all_tools(ryumem: Ryumem = Depends(get_ryumem)):
 @app.get("/tools/{tool_name}/metrics", response_model=ToolMetricsResponse, tags=["Tool Analytics"])
 async def get_tool_metrics(
     tool_name: str,
-    group_id: str,
     user_id: Optional[str] = None,
     min_executions: int = 1,
     ryumem: Ryumem = Depends(get_ryumem)
@@ -1019,7 +1035,6 @@ async def get_tool_metrics(
     try:
         metrics = ryumem.get_tool_success_rate(
             tool_name=tool_name,
-            group_id=group_id,
             user_id=user_id,
             min_executions=min_executions
         )
@@ -1045,7 +1060,6 @@ async def get_tool_metrics(
 @app.get("/users/{user_id}/tool-preferences", response_model=List[ToolPreferenceResponse], tags=["Tool Analytics"])
 async def get_user_tool_preferences(
     user_id: str,
-    group_id: str,
     limit: int = 10,
     ryumem: Ryumem = Depends(get_ryumem)
 ):
@@ -1057,7 +1071,6 @@ async def get_user_tool_preferences(
     try:
         preferences = ryumem.get_user_tool_preferences(
             user_id=user_id,
-            group_id=group_id,
             limit=limit
         )
 

@@ -887,56 +887,99 @@ class RyugraphDB:
         logger.debug(f"Created HAS_MEMBER edge: {community_uuid} -> {entity_uuid}")
         return result
 
-    def get_all_entities(self, user_id: str) -> List[Dict[str, Any]]:
+    def get_all_entities(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Get all entities for a user.
+        Get all entities, optionally filtered by user.
 
         Args:
-            user_id: User ID (required)
+            user_id: User ID for filtering (optional - returns all users if None)
 
         Returns:
             List of entity dictionaries
         """
-        query = """
-        MATCH (e:Entity)
-        WHERE e.user_id = $user_id
-        RETURN
-            e.uuid AS uuid,
-            e.name AS name,
-            e.entity_type AS entity_type,
-            e.summary AS summary,
-            e.mentions AS mentions,
-            e.user_id AS user_id
-        """
+        if user_id:
+            query = """
+            MATCH (e:Entity)
+            WHERE e.user_id = $user_id
+            RETURN
+                e.uuid AS uuid,
+                e.name AS name,
+                e.entity_type AS entity_type,
+                e.summary AS summary,
+                e.mentions AS mentions,
+                e.user_id AS user_id
+            """
+            return self.execute(query, {"user_id": user_id})
+        else:
+            query = """
+            MATCH (e:Entity)
+            RETURN
+                e.uuid AS uuid,
+                e.name AS name,
+                e.entity_type AS entity_type,
+                e.summary AS summary,
+                e.mentions AS mentions,
+                e.user_id AS user_id
+            """
+            return self.execute(query, {})
 
-        return self.execute(query, {"user_id": user_id})
-
-    def get_all_edges(self, user_id: str) -> List[Dict[str, Any]]:
+    def get_all_edges(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Get all relationship edges for a user.
+        Get all relationship edges, optionally filtered by user.
 
         Args:
-            user_id: User ID (required)
+            user_id: User ID for filtering (optional - returns all users if None)
 
         Returns:
             List of edge dictionaries
         """
+        if user_id:
+            query = """
+            MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity)
+            WHERE source.user_id = $user_id
+              AND target.user_id = $user_id
+            RETURN
+                r.uuid AS uuid,
+                source.uuid AS source_uuid,
+                target.uuid AS target_uuid,
+                r.name AS relation_type,
+                r.fact AS fact,
+                r.valid_at AS valid_at,
+                r.invalid_at AS invalid_at,
+                r.expired_at AS expired_at
+            """
+            return self.execute(query, {"user_id": user_id})
+        else:
+            query = """
+            MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity)
+            RETURN
+                r.uuid AS uuid,
+                source.uuid AS source_uuid,
+                target.uuid AS target_uuid,
+                r.name AS relation_type,
+                r.fact AS fact,
+                r.valid_at AS valid_at,
+                r.invalid_at AS invalid_at,
+                r.expired_at AS expired_at
+            """
+            return self.execute(query, {})
+
+    def get_all_users(self) -> List[str]:
+        """
+        Get all distinct user IDs in the database.
+
+        Returns:
+            List of user_id strings
+        """
         query = """
-        MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity)
-        WHERE source.user_id = $user_id
-          AND target.user_id = $user_id
-        RETURN
-            r.uuid AS uuid,
-            source.uuid AS source_uuid,
-            target.uuid AS target_uuid,
-            r.name AS relation_type,
-            r.fact AS fact,
-            r.valid_at AS valid_at,
-            r.invalid_at AS invalid_at,
-            r.expired_at AS expired_at
+        MATCH (e:Entity)
+        WHERE e.user_id IS NOT NULL
+        RETURN DISTINCT e.user_id AS user_id
+        ORDER BY user_id
         """
 
-        return self.execute(query, {"user_id": user_id})
+        results = self.execute(query, {})
+        return [r["user_id"] for r in results if r.get("user_id")]
 
     def get_community_by_uuid(self, community_uuid: str) -> Optional[Dict[str, Any]]:
         """

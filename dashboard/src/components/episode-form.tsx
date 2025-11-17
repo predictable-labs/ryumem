@@ -10,12 +10,11 @@ import { api } from "@/lib/api";
 import { Loader2, Plus, CheckCircle2 } from "lucide-react";
 
 interface EpisodeFormProps {
-  groupId: string;
   userId?: string;
   onEpisodeAdded?: () => void;
 }
 
-export function EpisodeForm({ groupId, userId, onEpisodeAdded }: EpisodeFormProps) {
+export function EpisodeForm({ userId, onEpisodeAdded }: EpisodeFormProps) {
   const [content, setContent] = useState("");
   const [source, setSource] = useState("text");
   const [isLoading, setIsLoading] = useState(false);
@@ -38,8 +37,7 @@ export function EpisodeForm({ groupId, userId, onEpisodeAdded }: EpisodeFormProp
     try {
       const response = await api.addEpisode({
         content: content.trim(),
-        group_id: groupId,
-        user_id: userId,
+        user_id: userId || "",
         source,
       });
 
