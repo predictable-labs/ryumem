@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { api, type EpisodeInfo } from "@/lib/api";
-import { Search, Calendar, ArrowUpDown, Loader2, Plus, Clock } from "lucide-react";
+import { Search, Calendar, ArrowUpDown, Loader2, Plus, Clock, Wrench, CheckCircle2, XCircle } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
 interface EpisodesListProps {
@@ -127,6 +127,20 @@ export function EpisodesList({ userId, onAddEpisodeClick }: EpisodesListProps) {
       default:
         return "bg-green-500/10 text-green-500 border-green-500/20";
     }
+  };
+
+  const parseMetadata = (metadataStr?: string) => {
+    if (!metadataStr) return null;
+    try {
+      return JSON.parse(metadataStr);
+    } catch {
+      return null;
+    }
+  };
+
+  const getToolsUsed = (episode: EpisodeInfo) => {
+    const metadata = parseMetadata(episode.metadata);
+    return metadata?.tools_used || [];
   };
 
   return (
@@ -254,6 +268,57 @@ export function EpisodesList({ userId, onAddEpisodeClick }: EpisodesListProps) {
                     {episode.source_description}
                   </p>
                 )}
+
+                {/* Tool Usage Section */}
+                {(() => {
+                  const toolsUsed = getToolsUsed(episode);
+                  if (toolsUsed.length === 0) return null;
+
+                  return (
+                    <div className="mt-4 pt-4 border-t">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Wrench className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium text-muted-foreground">
+                          Tools Used ({toolsUsed.length})
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {toolsUsed.map((tool: any, idx: number) => (
+                          <div
+                            key={idx}
+                            className="flex items-start gap-2 p-2 rounded-md bg-muted/50 text-xs"
+                          >
+                            <div className="mt-0.5">
+                              {tool.success ? (
+                                <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                              ) : (
+                                <XCircle className="h-3.5 w-3.5 text-red-500" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-medium">{tool.tool_name}</span>
+                                <Badge variant="outline" className="text-[10px] px-1 py-0">
+                                  {tool.duration_ms}ms
+                                </Badge>
+                              </div>
+                              {tool.context && (
+                                <p className="text-muted-foreground line-clamp-2">
+                                  {tool.context}
+                                </p>
+                              )}
+                              {!tool.success && tool.error && (
+                                <p className="text-red-500 mt-1 line-clamp-1">
+                                  Error: {tool.error}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           ))
