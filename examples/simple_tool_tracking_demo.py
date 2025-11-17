@@ -21,6 +21,15 @@ Setup:
 import os
 import asyncio
 from dotenv import load_dotenv
+import logging
+VERBOSE = True  # Set to False to reduce log output
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s - %(message)s'
+)
+
 
 # Load environment variables
 load_dotenv()

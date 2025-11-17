@@ -347,53 +347,61 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
         return self._sanitize_value(output_str[:self.max_output_length])
 
-    def _link_episodes(
+    def _update_episode_with_tool_execution(
         self,
-        parent_episode_uuid: str,
-        child_episode_uuid: str,
+        episode_id: str,
+        tool_execution: Dict[str, Any],
     ) -> None:
         """
-        Create a TRIGGERED relationship between query and tool execution episodes.
-
-        This links a tool execution episode back to the user query that triggered it,
-        allowing for hierarchical episode tracking.
+        Update an episode's metadata to append a tool execution record.
 
         Args:
-            parent_episode_uuid: UUID of the parent query episode
-            child_episode_uuid: UUID of the child tool execution episode
+            episode_id: UUID of the parent query episode
+            tool_execution: Dictionary containing tool execution details
         """
         try:
-            from uuid import uuid4
+            import json
 
-            # Create a TRIGGERED relationship in the graph
-            # Episode(query) -[TRIGGERED]-> Episode(tool_execution)
-            # Note: Store timestamp as string since datetime() function may not be available
-            query = """
-            MATCH (parent:Episode {uuid: $parent_uuid})
-            MATCH (child:Episode {uuid: $child_uuid})
-            MERGE (parent)-[r:TRIGGERED {
-                uuid: $relationship_uuid,
-                created_at: $timestamp,
-                group_id: $group_id
-            }]->(child)
-            RETURN r
+            # Fetch current metadata
+            query_fetch = """
+            MATCH (e:Episode {uuid: $episode_id})
+            RETURN e.metadata AS metadata
+            """
+            result = self.ryumem.db.execute(query_fetch, {"episode_id": episode_id})
+
+            if not result:
+                logger.error(f"Episode {episode_id} not found")
+                return
+
+            # Parse existing metadata
+            current_metadata_str = result[0].get('metadata', '{}')
+            current_metadata = json.loads(current_metadata_str) if isinstance(current_metadata_str, str) else current_metadata_str
+
+            # Initialize tools_used array if it doesn't exist
+            if 'tools_used' not in current_metadata:
+                current_metadata['tools_used'] = []
+
+            # Append new tool execution
+            current_metadata['tools_used'].append(tool_execution)
+
+            # Update episode with new metadata
+            query_update = """
+            MATCH (e:Episode {uuid: $episode_id})
+            SET e.metadata = $metadata
+            RETURN e.uuid
             """
 
-            self.ryumem.db.execute(query, {
-                "parent_uuid": parent_episode_uuid,
-                "child_uuid": child_episode_uuid,
-                "relationship_uuid": str(uuid4()),
-                "timestamp": datetime.utcnow(),  # Pass datetime object, not ISO string
-                "group_id": self.ryumem_customer_id,
+            self.ryumem.db.execute(query_update, {
+                "episode_id": episode_id,
+                "metadata": json.dumps(current_metadata)
             })
 
             logger.debug(
-                f"Created TRIGGERED relationship: {parent_episode_uuid} -> {child_episode_uuid}"
+                f"Updated episode {episode_id} with tool execution: {tool_execution['tool_name']}"
             )
 
         except Exception as e:
-            logger.error(f"Failed to link episodes: {e}")
-            # Non-critical - don't fail if linking fails
+            logger.error(f"Failed to update episode with tool execution: {e}")
             if not self.fail_open:
                 raise
 
@@ -410,7 +418,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
         session_id: Optional[str],
         context: Optional[str],
     ) -> None:
-        """Store tool execution as an episode in the knowledge graph."""
+        """Store tool execution by updating the parent query episode's metadata."""
         try:
             # Sanitize and summarize data
             sanitized_params = self._sanitize_params(input_params)
@@ -434,16 +442,14 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                     f"⚠️  Tool execution '{tool_name}' has no parent query episode. "
                     f"Session: {session_id}, User: {user_id}. "
                     "This means the query context was not set or was cleared too early. "
-                    "Tool executions will not be linked to their triggering query."
+                    "Tool executions will not be tracked."
                 )
-            else:
-                logger.info(f"✓ Tool execution '{tool_name}' linked to query episode: {parent_episode_id}")
+                return
 
-            # Build episode content
-            content = f"Tool execution: {tool_name}"
+            logger.info(f"✓ Recording tool execution '{tool_name}' in query episode: {parent_episode_id}")
 
-            # Build metadata (simplified - no task classification)
-            metadata = {
+            # Build tool execution record
+            tool_execution = {
                 "tool_name": tool_name,
                 "input_params": sanitized_params,
                 "output_summary": output_summary,
@@ -451,36 +457,22 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                 "error": error,
                 "duration_ms": duration_ms,
                 "timestamp": datetime.utcnow().isoformat(),
-                "user_id": user_id,
-                "session_id": session_id,
-                "parent_episode_id": parent_episode_id,  # Link to query episode
             }
 
-            # Store as episode (use 'json' source since we have structured metadata)
+            # Update parent episode's metadata (append to tools_used array)
             loop = asyncio.get_event_loop()
-            tool_episode_id = await loop.run_in_executor(
+            await loop.run_in_executor(
                 _thread_pool,
-                lambda: self.ryumem.add_episode(
-                    content=content,
-                    group_id=self.ryumem_customer_id,
-                    user_id=user_id,
-                    source="json",
-                    metadata=metadata,
+                lambda: self._update_episode_with_tool_execution(
+                    episode_id=parent_episode_id,
+                    tool_execution=tool_execution
                 )
             )
 
-            # Link tool episode to parent query episode if available
-            if parent_episode_id and tool_episode_id:
-                await loop.run_in_executor(
-                    _thread_pool,
-                    lambda: self._link_episodes(parent_episode_id, tool_episode_id)
-                )
-                logger.debug(f"Linked tool episode {tool_episode_id} to query {parent_episode_id}")
-
             logger.info(
                 f"Tracked tool execution: {tool_name} "
-                f"- {'success' if success else 'failure'} in {duration_ms}ms"
-                + (f" [linked to query: {parent_episode_id}]" if parent_episode_id else "")
+                f"- {'success' if success else 'failure'} in {duration_ms}ms "
+                f"[in query: {parent_episode_id}]"
             )
 
         except Exception as e:

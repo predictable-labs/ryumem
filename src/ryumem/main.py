@@ -459,15 +459,25 @@ class Ryumem:
             )
             # Returns: {"success_rate": 0.95, "usage_count": 100, "avg_duration_ms": 250, ...}
         """
-        # Search for this tool's executions
-        query = f"tool execution {tool_name}"
-        results = self.search(
-            query=query,
-            group_id=group_id,
-            user_id=user_id,
-            limit=1000,  # Get many for aggregation
-            strategy="bm25",
-        )
+        import json
+
+        # Query query episodes (source='message') and extract tools_used from metadata
+        query = """
+        MATCH (e:Episode)
+        WHERE e.source = 'message'
+          AND e.group_id = $group_id
+          AND e.metadata IS NOT NULL
+        """
+
+        params = {"group_id": group_id}
+
+        if user_id:
+            query += " AND e.user_id = $user_id"
+            params["user_id"] = user_id
+
+        query += " RETURN e.metadata AS metadata"
+
+        result = self.db.conn.execute(query, params)
 
         stats = {
             'tool_name': tool_name,
@@ -475,41 +485,37 @@ class Ryumem:
             'success_count': 0,
             'failure_count': 0,
             'total_duration_ms': 0,
-            'task_types': {},
             'recent_errors': [],
         }
 
-        # Aggregate statistics
-        for edge in results.edges:
-            episode_node = next(
-                (n for n in results.episodes if n.uuid == edge.source_node_uuid),
-                None
-            )
+        # Aggregate statistics from tools_used arrays in query episodes
+        while result.has_next():
+            metadata_str = result.get_next()[0]
+            if not metadata_str:
+                continue
 
-            # Check if this is a tool execution episode
-            if episode_node and hasattr(episode_node, 'entity_type') and episode_node.entity_type == "Episode":
-                if not hasattr(episode_node, 'metadata'):
-                    continue
+            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
 
-                metadata = episode_node.metadata or {}
-                if metadata.get('tool_name') == tool_name:
+            # Extract tools_used array from query episode metadata
+            tools_used = metadata.get('tools_used', [])
+
+            # Iterate through tool executions in this query
+            for tool_execution in tools_used:
+                # Check if this is the tool we're looking for
+                if tool_execution.get('tool_name') == tool_name:
                     stats['usage_count'] += 1
 
-                    if metadata.get('success'):
+                    if tool_execution.get('success'):
                         stats['success_count'] += 1
                     else:
                         stats['failure_count'] += 1
                         if len(stats['recent_errors']) < 5:
                             stats['recent_errors'].append({
-                                'error': metadata.get('error', ''),
-                                'timestamp': metadata.get('timestamp', ''),
+                                'error': tool_execution.get('error', ''),
+                                'timestamp': tool_execution.get('timestamp', ''),
                             })
 
-                    stats['total_duration_ms'] += metadata.get('duration_ms', 0)
-
-                    # Track task types
-                    task_type = metadata.get('task_type', 'unknown')
-                    stats['task_types'][task_type] = stats['task_types'].get(task_type, 0) + 1
+                    stats['total_duration_ms'] += tool_execution.get('duration_ms', 0)
 
         # Calculate derived metrics
         if stats['usage_count'] >= min_executions:
@@ -550,11 +556,14 @@ class Ryumem:
         """
         import json
 
-        # Query episodes directly from database (doesn't require BM25 index)
+        # Query query episodes (source='message') and extract tools_used from metadata
         result = self.db.conn.execute(
             """
             MATCH (e:Episode)
-            WHERE e.user_id = $user_id AND e.group_id = $group_id
+            WHERE e.source = 'message'
+              AND e.user_id = $user_id
+              AND e.group_id = $group_id
+              AND e.metadata IS NOT NULL
             RETURN e.metadata
             """,
             {"user_id": user_id, "group_id": group_id}
@@ -568,24 +577,25 @@ class Ryumem:
                 continue
 
             metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-            tool_name = metadata.get('tool_name')
 
-            if tool_name:
-                if tool_name not in tool_usage:
-                    tool_usage[tool_name] = {
-                        'tool_name': tool_name,
-                        'usage_count': 0,
-                        'success_count': 0,
-                        'task_types': set(),
-                    }
+            # Extract tools_used array from query episode metadata
+            tools_used = metadata.get('tools_used', [])
 
-                tool_usage[tool_name]['usage_count'] += 1
-                if metadata.get('success'):
-                    tool_usage[tool_name]['success_count'] += 1
+            # Iterate through tool executions in this query
+            for tool_execution in tools_used:
+                tool_name = tool_execution.get('tool_name')
 
-                task_type = metadata.get('task_type')
-                if task_type:
-                    tool_usage[tool_name]['task_types'].add(task_type)
+                if tool_name:
+                    if tool_name not in tool_usage:
+                        tool_usage[tool_name] = {
+                            'tool_name': tool_name,
+                            'usage_count': 0,
+                            'success_count': 0,
+                        }
+
+                    tool_usage[tool_name]['usage_count'] += 1
+                    if tool_execution.get('success'):
+                        tool_usage[tool_name]['success_count'] += 1
 
         # Calculate success rates and format
         result_list = []
@@ -594,7 +604,6 @@ class Ryumem:
                 usage['success_count'] / usage['usage_count']
                 if usage['usage_count'] > 0 else 0.0
             )
-            usage['task_types'] = list(usage['task_types'])  # Convert set to list
             del usage['success_count']
             result_list.append(usage)
 
