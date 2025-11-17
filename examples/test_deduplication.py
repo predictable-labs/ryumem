@@ -35,8 +35,9 @@ def main():
     ryumem = Ryumem(
         db_path="./data/memory.db",  # Different DB to avoid conflicts
         openai_api_key=os.getenv("OPENAI_API_KEY"),
-        llm_model="gpt-4",
-        embedding_model="text-embedding-3-large",
+        llm_provider="ollama",
+        llm_model="qwen2.5:7b",
+        ollama_base_url="http://100.108.18.43:11434/",
     )
     print(f"   ✓ Initialized")
 

@@ -147,9 +147,9 @@ Always personalize responses based on what you remember about the specific user.
         track_tools=True,
         track_queries=True,
         # Optional: Use Ollama for LLM (uncomment below to override Gemini)
-        # llm_provider="ollama",
-        # llm_model="qwen2.5:7b",
-        # ollama_base_url="http://100.108.18.43:11434",
+        llm_provider="ollama",
+        llm_model="qwen2.5:7b",
+        ollama_base_url="http://100.108.18.43:11434",
     )
     vprint("   ✓ Memory enabled! Agent now has 3 auto-generated tools:")
     vprint("     - search_memory(query, user_id, limit)")
