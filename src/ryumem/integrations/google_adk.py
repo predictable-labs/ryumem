@@ -715,26 +715,16 @@ def wrap_runner_with_tracking(
 
 def _enhance_agent_instructions_for_tool_tracking(agent, ryumem, agent_type: str = "google_adk"):
     """
-    Automatically append instructions to agent for using tool tracking history.
-
-    This enables the agent to search memory for past tool usage patterns
-    when deciding which tools to use, making tool tracking actionable.
-
-    Always saves/loads instructions from database:
-    1. First run: Saves default instruction to database
-    2. Subsequent runs: Loads from database (may be customized by user)
-
-    Args:
-        agent: Google ADK Agent instance
-        ryumem: Ryumem instance for database access
-        agent_type: Type of agent (default: "google_adk")
+    Enhances agent.instruction with tool-tracking guidance.
+    DB is the source of truth:
+      - If DB has an active tool-tracking instruction → use that.
+      - If DB does not have one → generate new, save both old/new in DB.
     """
+
     import traceback
 
-    logger.info(f"[INSTRUCTION INIT] Starting instruction enhancement for agent_type={agent_type}")
-
-    # Default instruction text
-    default_instruction = """TOOL SELECTION GUIDANCE (IMPORTANT):
+    # The standard tool-tracking block
+    default_block = """TOOL SELECTION GUIDANCE (IMPORTANT):
 Before selecting which tool to use for a user's request, you MUST first call search_memory to check for past tool usage patterns.
 
 REQUIRED WORKFLOW:
@@ -746,81 +736,44 @@ Example queries for search_memory:
 - "Which tools were used for weather queries?"
 - "Tool execution for information retrieval tasks"
 - "What tools successfully handled external API calls?"
+"""
 
-This historical context will help you make better tool selections based on proven success rates."""
+    old_instruction = agent.instruction or ""
 
-    # Try to get instruction from database
-    logger.info(f"[INSTRUCTION INIT] Checking database for existing instruction (agent_type={agent_type}, instruction_type=tool_tracking)")
-    db_instruction = None
+    # --- 2) Try loading existing instruction from DB ---
     try:
         db_instruction = ryumem.get_active_agent_instruction(
             agent_type=agent_type,
             instruction_type="tool_tracking"
         )
-        logger.info(f"[INSTRUCTION INIT] Database query completed. Result: {('Found' if db_instruction else 'Not found')}")
-        if db_instruction:
-            logger.info(f"[INSTRUCTION INIT] Loaded instruction length: {len(db_instruction)} characters")
-    except Exception as e:
-        logger.error(f"[INSTRUCTION INIT] FAILED to retrieve instruction from database: {e}")
-        logger.error(f"[INSTRUCTION INIT] Full traceback:\n{traceback.format_exc()}")
+    except Exception:
+        db_instruction = None
 
+    # --- 3) If DB has instruction → use it and apply to agent ---
     if db_instruction:
-        # Use instruction from database (may be customized)
-        tool_tracking_instruction = "\n\n" + db_instruction
-        logger.info(f"[INSTRUCTION INIT] Using instruction from database (customized by user or previously saved)")
+        agent.instruction = db_instruction
+        return
+
+    # --- 4) No DB instruction exists → create new one ---
+    # Only append guidance if not already present
+    if "TOOL SELECTION GUIDANCE" in old_instruction:
+        new_instruction = old_instruction
     else:
-        # First run - save default instruction to database
-        logger.info(f"[INSTRUCTION INIT] No instruction found in database - this is first run, saving default instruction")
-        tool_tracking_instruction = "\n\n" + default_instruction
-        try:
-            logger.info(f"[INSTRUCTION INIT] Calling save_agent_instruction with default instruction...")
-            instruction_id = ryumem.save_agent_instruction(
-                instruction_text=default_instruction,
-                original_user_request="Enable tool tracking with search_memory integration",
-                agent_type=agent_type,
-                instruction_type="tool_tracking",
-                description="Default tool selection guidance - searches memory for past tool usage patterns",
-                active=True
-            )
-            logger.info(f"[INSTRUCTION INIT] ✓ SUCCESS! Saved default instruction to database (id={instruction_id})")
+        new_instruction = old_instruction + "\n\n" + default_block
 
-            # Verify it was saved
-            logger.info(f"[INSTRUCTION INIT] Verifying save by listing all instructions...")
-            try:
-                all_instructions = ryumem.list_agent_instructions(
-                    agent_type=agent_type,
-                    instruction_type="tool_tracking"
-                )
-                logger.info(f"[INSTRUCTION INIT] Verification: Found {len(all_instructions)} instruction(s) in database")
-                for instr in all_instructions:
-                    logger.info(f"[INSTRUCTION INIT]   - ID: {instr['instruction_id']}, Version: {instr['version']}, Active: {instr['active']}")
-            except Exception as verify_e:
-                logger.error(f"[INSTRUCTION INIT] Verification failed: {verify_e}")
-
-        except Exception as e:
-            logger.error(f"[INSTRUCTION INIT] ✗ FAILED to save default instruction to database!")
-            logger.error(f"[INSTRUCTION INIT] Error: {e}")
-            logger.error(f"[INSTRUCTION INIT] Full traceback:\n{traceback.format_exc()}")
-            # Continue anyway with the instruction
-
-    logger.info(f"[INSTRUCTION INIT] Attempting to enhance agent with instruction...")
+    # --- 5) Save the new instruction version to DB ---
     try:
-        # Check if agent has instruction attribute
-        if hasattr(agent, 'instruction'):
-            current_instruction = agent.instruction or ""
-            logger.info(f"[INSTRUCTION INIT] Agent has 'instruction' attribute (current length: {len(current_instruction)} chars)")
+        ryumem.save_agent_instruction(
+            instruction_text=new_instruction,
+            original_user_request=old_instruction,
+            agent_type=agent_type,
+            instruction_type="tool_tracking",
+            description="Generated tool-tracking instruction",
+            active=True
+        )
+    except Exception:
+        # if DB save fails, continue but do not crash
+        pass
 
-            # Only append if not already present
-            if "TOOL SELECTION GUIDANCE" not in current_instruction:
-                agent.instruction = current_instruction + tool_tracking_instruction
-                logger.info(f"[INSTRUCTION INIT] ✓ Enhanced agent instructions with tool tracking guidance (new length: {len(agent.instruction)} chars)")
-            else:
-                logger.info(f"[INSTRUCTION INIT] Agent already has tool tracking guidance - skipping")
-        else:
-            logger.warning(f"[INSTRUCTION INIT] Agent doesn't have 'instruction' attribute - cannot enhance instructions")
-    except Exception as e:
-        logger.error(f"[INSTRUCTION INIT] Failed to enhance agent instructions: {e}")
-        logger.error(f"[INSTRUCTION INIT] Full traceback:\n{traceback.format_exc()}")
-        # Non-critical - don't fail if we can't modify instructions
-
-    logger.info(f"[INSTRUCTION INIT] Instruction enhancement process completed")
+    # --- 6) Update agent instruction with new version ---
+    agent.instruction = new_instruction
