@@ -2,7 +2,7 @@
 Google ADK Integration for Ryumem.
 
 This module provides zero-boilerplate memory integration with Google's Agent Developer Kit.
-No need to write custom search/save functions - just call enable_memory() and you're done!
+No need to write custom search/save functions - just call add_memory_to_agent() and you're done!
 
 Architecture:
 - ryumem_customer_id: Identifies your company/app using Ryumem (required)
@@ -12,7 +12,7 @@ Architecture:
 Example:
     ```python
     from google import genai
-    from ryumem.integrations import enable_memory
+    from ryumem.integrations import add_memory_to_agent
 
     agent = genai.Agent(
         name="assistant",
@@ -21,7 +21,7 @@ Example:
     )
 
     # One line to enable memory for your company's agent!
-    enable_memory(
+    add_memory_to_agent(
         agent,
         ryumem_customer_id="my_company",  # Your company using Ryumem
         db_path="./memory.db"
@@ -230,7 +230,7 @@ class RyumemGoogleADK:
         ]
 
 
-def enable_memory(
+def add_memory_to_agent(
     agent,
     ryumem_customer_id: str,
     user_id: Optional[str] = None,
@@ -262,9 +262,9 @@ def enable_memory(
         ryumem_instance: Optional pre-configured Ryumem instance
         track_tools: If True, automatically track all tool usage for analytics (default: False)
         track_queries: If True, automatically track user queries as episodes (default: True)
-                      Note: Requires calling create_query_tracking_runner() on your Runner instance
+                      Note: Requires calling wrap_runner_with_tracking() on your Runner instance
         augment_queries: If True, augment incoming queries with historical context (default: True)
-                        Only applies when track_queries=True. Configuration is passed to create_query_tracking_runner()
+                        Only applies when track_queries=True. Configuration is passed to wrap_runner_with_tracking()
         similarity_threshold: Minimum similarity score for query matching (0.0-1.0, default: 0.3)
                             Lower = more matches, higher = stricter matches
         top_k_similar: Number of similar queries to consider for augmentation (default: 5, -1 for all)
@@ -273,12 +273,12 @@ def enable_memory(
 
     Returns:
         RyumemGoogleADK instance for advanced usage (optional)
-        Note: To enable query augmentation, pass augmentation config to create_query_tracking_runner()
+        Note: To enable query augmentation, pass augmentation config to wrap_runner_with_tracking()
 
     Example - Multi-user scenario (recommended):
         ```python
         from google import genai
-        from ryumem.integrations import enable_memory
+        from ryumem.integrations import add_memory_to_agent
 
         agent = genai.Agent(
             name="assistant",
@@ -288,7 +288,7 @@ def enable_memory(
         )
 
         # Enable memory for your company's agent
-        enable_memory(
+        add_memory_to_agent(
             agent,
             ryumem_customer_id="my_company"  # Your company
             # user_id is None - will be provided per tool call
@@ -302,7 +302,7 @@ def enable_memory(
     Example - Single user scenario with tool tracking:
         ```python
         # Enable memory + automatic tool tracking
-        enable_memory(
+        add_memory_to_agent(
             agent,
             ryumem_customer_id="my_company",
             user_id="alice",
@@ -347,7 +347,7 @@ def enable_memory(
         user_id=user_id
     )
 
-    # Store augmentation config for use by create_query_tracking_runner()
+    # Store augmentation config for use by wrap_runner_with_tracking()
     memory.augmentation_config = {
         'augment_queries': augment_queries,
         'similarity_threshold': similarity_threshold,
@@ -387,7 +387,7 @@ def enable_memory(
 
     # Log query tracking status
     if track_queries:
-        logger.info("Query tracking enabled - wrap your Runner with create_query_tracking_runner()")
+        logger.info("Query tracking enabled - wrap your Runner with wrap_runner_with_tracking()")
 
     return memory
 
@@ -533,7 +533,7 @@ def _augment_query_with_history(
         return query_text
 
 
-def create_query_tracking_runner(
+def wrap_runner_with_tracking(
     original_runner,
     memory: RyumemGoogleADK,
     track_queries: bool = True,
@@ -566,7 +566,7 @@ def create_query_tracking_runner(
         runner = Runner(agent=agent, app_name="my_app", session_service=session_service)
 
         # Enable query tracking and augmentation
-        runner = create_query_tracking_runner(
+        runner = wrap_runner_with_tracking(
             runner,
             memory,
             augment_queries=True,      # Enable augmentation

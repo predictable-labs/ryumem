@@ -7,10 +7,10 @@ storing usage patterns, success rates, and task associations in the knowledge gr
 Example:
     ```python
     from google import genai
-    from ryumem.integrations import enable_memory, enable_tool_tracking
+    from ryumem.integrations import add_memory_to_agent, enable_tool_tracking
 
     agent = genai.Agent(name="assistant", model="gemini-2.0-flash")
-    memory = enable_memory(agent, ryumem_customer_id="my_company")
+    memory = add_memory_to_agent(agent, ryumem_customer_id="my_company")
 
     # One line to enable automatic tool tracking!
     enable_tool_tracking(agent, ryumem=memory.ryumem)
@@ -1020,7 +1020,7 @@ def enable_tool_tracking(
     """
     Enable automatic tool tracking for a Google ADK agent.
 
-    DEPRECATED: Use enable_memory(..., track_tools=True) instead for simpler API.
+    DEPRECATED: Use add_memory_to_agent(..., track_tools=True) instead for simpler API.
 
     This function wraps all non-Ryumem tools in the agent to automatically
     track their executions in the knowledge graph.
@@ -1039,10 +1039,10 @@ def enable_tool_tracking(
     Example (DEPRECATED):
         ```python
         from google import genai
-        from ryumem.integrations import enable_memory, enable_tool_tracking
+        from ryumem.integrations import add_memory_to_agent, enable_tool_tracking
 
         agent = genai.Agent(name="assistant", model="gemini-2.0-flash")
-        memory = enable_memory(agent, ryumem_customer_id="my_company")
+        memory = add_memory_to_agent(agent, ryumem_customer_id="my_company")
 
         # Old way (still works but deprecated)
         tracker = enable_tool_tracking(
@@ -1054,10 +1054,10 @@ def enable_tool_tracking(
 
     Recommended (NEW):
         ```python
-        from ryumem.integrations import enable_memory
+        from ryumem.integrations import add_memory_to_agent
 
         # New simpler way - one function call!
-        memory = enable_memory(
+        memory = add_memory_to_agent(
             agent,
             ryumem_customer_id="my_company",
             track_tools=True,

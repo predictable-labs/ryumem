@@ -36,7 +36,7 @@ except ImportError:
     print("ERROR: Google ADK not installed. Run: pip install google-adk")
     exit(1)
 
-from ryumem.integrations import enable_memory, create_query_tracking_runner
+from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
 
 # App configuration
 APP_NAME = "weather_sentiment_agent"
@@ -111,14 +111,13 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     print("✓ Agent created with tools")
     print()
 
-    # ⭐ Enable memory + tool tracking + query augmentation in ONE line!
+    # ⭐ Add memory + tool tracking + query augmentation in ONE line!
     # This automatically wraps ALL tools for tracking - nothing else needed!
-    # print("⭐ Enabling memory + automatic tool tracking + query augmentation...")
-    memory = enable_memory(
+    # print("⭐ Adding memory + automatic tool tracking + query augmentation...")
+    memory = add_memory_to_agent(
         weather_sentiment_agent,
-        ryumem_customer_id="demo_company",
         user_id=USER_ID,
-        db_path="./server/data/google_adk_demo.db",
+        ryumem_customer_id="demo_company",
         track_tools=True,  # 🎯 Track all tool usage
         track_queries=True,  # 🎯 Track user queries as episodes
         augment_queries=True,  # ✨ Augment queries with historical context
@@ -146,7 +145,7 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     )
 
     # ⭐ Wrap runner to automatically track user queries as episodes and augment with history!
-    runner = create_query_tracking_runner(
+    runner = wrap_runner_with_tracking(
         runner,
         memory,
         augment_queries=True,      # Enable augmentation

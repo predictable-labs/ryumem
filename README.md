@@ -399,7 +399,7 @@ Ryumem provides **one-line memory integration** for Google's Agent Developer Kit
 
 ```python
 from google import genai
-from ryumem.integrations import enable_memory
+from ryumem.integrations import add_memory_to_agent
 
 # Create your agent
 agent = genai.Agent(
@@ -409,7 +409,7 @@ agent = genai.Agent(
 )
 
 # Enable memory - that's it! 🎉
-enable_memory(agent, user_id="user_123")
+add_memory_to_agent(agent, user_id="user_123")
 
 # Agent now has 3 auto-generated memory tools:
 # - search_memory() - Find relevant information

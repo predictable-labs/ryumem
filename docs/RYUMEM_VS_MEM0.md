@@ -54,12 +54,12 @@ agent = Agent(
 ### Ryumem: Zero Boilerplate (✅ 1 line)
 
 ```python
-from ryumem.integrations import enable_memory
+from ryumem.integrations import add_memory_to_agent
 
 agent = Agent(name="assistant", model="gemini-2.0-flash")
 
 # One line - done!
-enable_memory(agent, user_id="user_123")
+add_memory_to_agent(agent, user_id="user_123")
 ```
 
 **Benefits:**
@@ -340,7 +340,7 @@ stats = ryumem.prune_memories("user_123", expired_cutoff_days=90)
 **Same API across all languages:**
 ```python
 # Python
-enable_memory(agent, user_id="...")
+add_memory_to_agent(agent, user_id="...")
 ```
 
 ```javascript
@@ -394,10 +394,10 @@ def save_memory(content: str, user_id: str):
 agent = Agent(tools=[search_memory, save_memory])
 
 # After (Ryumem)
-from ryumem.integrations import enable_memory
+from ryumem.integrations import add_memory_to_agent
 
 agent = Agent(...)
-enable_memory(agent, user_id="user_123")  # That's it!
+add_memory_to_agent(agent, user_id="user_123")  # That's it!
 ```
 
 **Migration effort:** ~2 minutes per agent
