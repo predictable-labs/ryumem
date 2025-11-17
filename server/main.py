@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Ryumem server...")
     
     # Initialize Ryumem
-    db_path = os.getenv("RYUMEM_DB_PATH", "./data/ollama_memory.db")
+    db_path = os.getenv("RYUMEM_DB_PATH", "../data/memory.db")
 
     # Dashboard server runs in READ_ONLY mode for concurrent access
     # This allows usage scripts to have READ_WRITE access while the dashboard reads
