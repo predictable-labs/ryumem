@@ -2,47 +2,23 @@
 
 import { useState, useEffect } from "react"
 import { api, type AgentInstructionResponse } from "@/lib/api"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Save, RotateCcw, History, CheckCircle2 } from "lucide-react"
+import { Loader2, Database } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 interface AgentInstructionEditorProps {
   userId?: string
 }
 
-const DEFAULT_INSTRUCTION = `TOOL SELECTION GUIDANCE (IMPORTANT):
-Before selecting which tool to use for a user's request, you MUST first call search_memory to check for past tool usage patterns.
-
-REQUIRED WORKFLOW:
-1. FIRST: Call search_memory with a query like "tool execution for [task type]" or "which tools were used for [similar query]?"
-2. THEN: Review the tool usage history and success rates from memory
-3. FINALLY: Select the most appropriate tool based on past performance
-
-Example queries for search_memory:
-- "Which tools were used for weather queries?"
-- "Tool execution for information retrieval tasks"
-- "What tools successfully handled external API calls?"
-
-This historical context will help you make better tool selections based on proven success rates.`
-
 export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) {
-  const [agentType, setAgentType] = useState("google_adk")
-  const [instructionType, setInstructionType] = useState("tool_tracking")
-  const [originalUserRequest, setOriginalUserRequest] = useState("")
-  const [instructionText, setInstructionText] = useState("")
-  const [description, setDescription] = useState("")
+  const [agentType, setAgentType] = useState<string>("all")
+  const [instructionType, setInstructionType] = useState<string>("all")
   const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
   const [instructions, setInstructions] = useState<AgentInstructionResponse[]>([])
-  const [showHistory, setShowHistory] = useState(false)
 
   // Load all cached instructions
   useEffect(() => {
@@ -54,27 +30,14 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
     setError(null)
 
     try {
-      // Load all instructions for this agent_type + instruction_type
+      // Load instructions with optional filters
       const allInstructions = await api.listAgentInstructions(
-        agentType,
-        instructionType,
-        20
+        agentType === "all" ? undefined : agentType,
+        instructionType === "all" ? undefined : instructionType,
+        100
       )
 
       setInstructions(allInstructions)
-
-      // Load the most recent one into the form
-      if (allInstructions.length > 0) {
-        const latest = allInstructions[0]
-        setOriginalUserRequest(latest.original_user_request)
-        setInstructionText(latest.converted_instruction)
-        setDescription(latest.description)
-      } else {
-        // No instructions yet
-        setOriginalUserRequest("")
-        setInstructionText("")
-        setDescription("")
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load instructions")
       console.error("Error loading instructions:", err)
@@ -83,62 +46,24 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
     }
   }
 
-  const handleSave = async () => {
-    if (!instructionText.trim()) {
-      setError("Instruction text cannot be empty")
-      return
+  // Group instructions by agent_type
+  const groupedInstructions = instructions.reduce((acc, instr) => {
+    const key = `${instr.agent_type}-${instr.instruction_type}`
+    if (!acc[key]) {
+      acc[key] = []
     }
-
-    setSaving(true)
-    setError(null)
-    setSuccess(null)
-
-    try {
-      await api.createAgentInstruction({
-        original_user_request: originalUserRequest,
-        instruction_text: instructionText,
-        agent_type: agentType,
-        instruction_type: instructionType,
-        description: description,
-        user_id: userId,
-      })
-
-      setSuccess("Instruction saved successfully!")
-
-      // Reload to show new version
-      await loadInstructions()
-
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccess(null), 3000)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save instruction")
-      console.error("Error saving instruction:", err)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleResetToDefault = () => {
-    setOriginalUserRequest("")
-    setInstructionText(DEFAULT_INSTRUCTION)
-    setDescription("Default tool tracking instruction")
-  }
-
-  const handleLoadVersion = (instruction: AgentInstructionResponse) => {
-    setOriginalUserRequest(instruction.original_user_request)
-    setInstructionText(instruction.converted_instruction)
-    setDescription(instruction.description)
-    setShowHistory(false)
-  }
+    acc[key].push(instr)
+    return acc
+  }, {} as Record<string, AgentInstructionResponse[]>)
 
   return (
     <div className="space-y-6">
-      {/* Configuration Section */}
+      {/* Filter Section */}
       <Card>
         <CardHeader>
-          <CardTitle>Agent Instruction Configuration</CardTitle>
+          <CardTitle>Cached Agent Instructions</CardTitle>
           <CardDescription>
-            Customize the instructions that are added to your agent's prompt
+            View all instructions cached in the database for different agent types
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -150,6 +75,7 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">All Agent Types</SelectItem>
                   <SelectItem value="google_adk">Google ADK</SelectItem>
                   <SelectItem value="custom_agent">Custom Agent</SelectItem>
                 </SelectContent>
@@ -163,180 +89,95 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">All Instruction Types</SelectItem>
+                  <SelectItem value="memory_usage">Memory Usage</SelectItem>
                   <SelectItem value="tool_tracking">Tool Tracking</SelectItem>
-                  <SelectItem value="memory_guidance">Memory Guidance</SelectItem>
-                  <SelectItem value="general">General Guidance</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
-          {instructions.length > 0 && (
-            <Alert>
-              <CheckCircle2 className="h-4 w-4" />
-              <AlertDescription>
-                {instructions.length} cached instruction{instructions.length > 1 ? 's' : ''} for this agent type
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {instructions.length === 0 && !loading && (
-            <Alert>
-              <AlertDescription>
-                No cached instructions yet - save one to cache it
-              </AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Editor Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Instruction Text</CardTitle>
-          <CardDescription>
-            This text will be appended to the agent's system prompt
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="description">Description (Optional)</Label>
-            <Input
-              id="description"
-              placeholder="Brief description of what this instruction does"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="original-request">Original User Request</Label>
-            <Textarea
-              id="original-request"
-              placeholder="What you originally asked for (e.g., 'Make the agent check past tool usage')..."
-              value={originalUserRequest}
-              onChange={(e) => setOriginalUserRequest(e.target.value)}
-              rows={3}
-              className="text-sm"
-            />
-            <p className="text-xs text-muted-foreground">
-              This tracks what you requested before it was converted into the instruction below
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="instruction-text">Converted Instruction (What Gets Added to Agent)</Label>
-            <Textarea
-              id="instruction-text"
-              placeholder="The actual instruction text that will be added to the agent's prompt..."
-              value={instructionText}
-              onChange={(e) => setInstructionText(e.target.value)}
-              rows={15}
-              className="font-mono text-sm"
-            />
-            <p className="text-xs text-muted-foreground">
-              This is the formatted instruction that will actually be appended to the agent
-            </p>
-          </div>
-
           {error && (
             <Alert variant="destructive">
-              <XCircle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
-          {success && (
-            <Alert>
-              <CheckCircle2 className="h-4 w-4" />
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          )}
-
-          <div className="flex gap-2">
-            <Button onClick={handleSave} disabled={saving || loading}>
-              {saving ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Instruction
-                </>
-              )}
-            </Button>
-
-            <Button variant="outline" onClick={handleResetToDefault} disabled={loading}>
-              <RotateCcw className="mr-2 h-4 w-4" />
-              Reset to Default
-            </Button>
-
-            <Button
-              variant="outline"
-              onClick={() => setShowHistory(!showHistory)}
-              disabled={loading}
-            >
-              <History className="mr-2 h-4 w-4" />
-              {showHistory ? "Hide" : "Show"} Version History
-            </Button>
-          </div>
+          <Alert>
+            <Database className="h-4 w-4" />
+            <AlertDescription>
+              {loading ? "Loading..." : `${instructions.length} cached instruction${instructions.length !== 1 ? 's' : ''} found`}
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
 
-      {/* Cached Instructions Section */}
-      {showHistory && (
+      {/* Instructions List */}
+      {loading ? (
         <Card>
-          <CardHeader>
-            <CardTitle>Cached Instructions</CardTitle>
-            <CardDescription>
-              All cached instructions for this agent type
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {instructions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No cached instructions available</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Version</TableHead>
-                    <TableHead>Original Request</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {instructions.map((instr) => (
-                    <TableRow key={instr.instruction_id}>
-                      <TableCell className="font-medium">v{instr.version}</TableCell>
-                      <TableCell className="max-w-md truncate">
-                        {instr.original_user_request || <span className="text-muted-foreground italic">No original request</span>}
-                      </TableCell>
-                      <TableCell className="max-w-md truncate">
-                        {instr.description || instr.name}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {new Date(instr.created_at).toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleLoadVersion(instr)}
-                        >
-                          Load
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
+          <CardContent className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </CardContent>
         </Card>
+      ) : instructions.length === 0 ? (
+        <Card>
+          <CardContent className="py-12">
+            <p className="text-center text-muted-foreground">
+              No cached instructions found. Instructions are automatically created when you enable memory on agents.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-6">
+          {Object.entries(groupedInstructions).map(([key, instrs]) => {
+            const [agent, instrType] = key.split('-')
+            return (
+              <Card key={key}>
+                <CardHeader>
+                  <CardTitle className="text-lg">
+                    {agent} - {instrType}
+                  </CardTitle>
+                  <CardDescription>
+                    {instrs.length} version{instrs.length !== 1 ? 's' : ''} cached
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-20">Version</TableHead>
+                        <TableHead className="w-48">Description</TableHead>
+                        <TableHead>Instruction Text</TableHead>
+                        <TableHead className="w-40">Created</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {instrs.map((instr) => (
+                        <TableRow key={instr.instruction_id}>
+                          <TableCell className="font-medium">v{instr.version}</TableCell>
+                          <TableCell className="text-sm">
+                            {instr.description || <span className="text-muted-foreground italic">No description</span>}
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-w-2xl">
+                              <pre className="text-xs whitespace-pre-wrap break-words font-mono bg-muted p-2 rounded">
+                                {instr.instruction_text.substring(0, 200)}
+                                {instr.instruction_text.length > 200 && '...'}
+                              </pre>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {new Date(instr.created_at).toLocaleString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       )}
     </div>
   )
