@@ -304,18 +304,15 @@ async def health():
 
 
 @app.get("/users")
-async def get_users():
+async def get_users(ryumem: Ryumem = Depends(get_ryumem)):
     """
     Get all distinct user IDs in the database.
 
     Returns:
         List of user_id strings
     """
-    if not ryumem_instance:
-        raise HTTPException(status_code=500, detail="Ryumem not initialized")
-
     try:
-        users = ryumem_instance.db.get_all_users()
+        users = ryumem.db.get_all_users()
         return {"users": users}
     except Exception as e:
         logger.error(f"Error getting users: {e}")
