@@ -12,9 +12,10 @@ import { useToast } from "@/components/ui/use-toast";
 interface EpisodesListProps {
   userId?: string;
   onAddEpisodeClick: () => void;
+  onToolClick?: (toolName: string) => void;
 }
 
-export function EpisodesList({ userId, onAddEpisodeClick }: EpisodesListProps) {
+export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: EpisodesListProps) {
   const [episodes, setEpisodes] = useState<EpisodeInfo[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -297,7 +298,12 @@ export function EpisodesList({ userId, onAddEpisodeClick }: EpisodesListProps) {
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
-                                <span className="font-medium">{tool.tool_name}</span>
+                                <button
+                                  onClick={() => onToolClick?.(tool.tool_name)}
+                                  className="font-medium hover:underline hover:text-primary cursor-pointer transition-colors"
+                                >
+                                  {tool.tool_name}
+                                </button>
                                 <Badge variant="outline" className="text-[10px] px-1 py-0">
                                   {tool.duration_ms}ms
                                 </Badge>

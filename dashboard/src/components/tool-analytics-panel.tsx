@@ -31,9 +31,10 @@ interface ToolPreference {
 
 interface ToolAnalyticsPanelProps {
   userId?: string;
+  preselectedTool?: string | null;
 }
 
-export function ToolAnalyticsPanel({ userId }: ToolAnalyticsPanelProps) {
+export function ToolAnalyticsPanel({ userId, preselectedTool }: ToolAnalyticsPanelProps) {
   const [tools, setTools] = useState<Tool[]>([]);
   const [selectedTool, setSelectedTool] = useState<string>('');
   const [toolMetrics, setToolMetrics] = useState<ToolMetrics | null>(null);
@@ -94,6 +95,13 @@ export function ToolAnalyticsPanel({ userId }: ToolAnalyticsPanelProps) {
       handleLoadUserPreferences();
     }
   }, [userId]);
+
+  // Auto-load tool metrics when preselected tool changes
+  useEffect(() => {
+    if (preselectedTool && preselectedTool !== selectedTool) {
+      handleLoadToolMetrics(preselectedTool);
+    }
+  }, [preselectedTool]);
 
   return (
     <div className="space-y-6">

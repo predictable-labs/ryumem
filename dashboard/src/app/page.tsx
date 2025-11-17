@@ -39,6 +39,10 @@ export default function Home() {
   const [isEpisodeModalOpen, setIsEpisodeModalOpen] = useState(false);
   const [episodeListRefresh, setEpisodeListRefresh] = useState(0);
 
+  // Tool analytics state - shared between tabs
+  const [activeTab, setActiveTab] = useState("chat");
+  const [selectedToolForAnalytics, setSelectedToolForAnalytics] = useState<string | null>(null);
+
   // Load users on mount
   useEffect(() => {
     const loadUsers = async () => {
@@ -64,6 +68,13 @@ export default function Home() {
     setRefreshStats(prev => prev + 1);
     // Trigger episode list refresh
     setEpisodeListRefresh(prev => prev + 1);
+  };
+
+  const handleToolClick = (toolName: string) => {
+    // Set the tool to be selected in analytics
+    setSelectedToolForAnalytics(toolName);
+    // Switch to analytics tab
+    setActiveTab("analytics");
   };
 
   // Load graph data
@@ -182,7 +193,7 @@ export default function Home() {
         </div>
 
         {/* Main Content */}
-        <Tabs defaultValue="chat" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6 lg:w-full">
             <TabsTrigger value="chat" className="flex items-center gap-2">
               <BookOpen className="h-4 w-4" />
@@ -317,6 +328,7 @@ export default function Home() {
             <EpisodesList
               userId={userId}
               onAddEpisodeClick={() => setIsEpisodeModalOpen(true)}
+              onToolClick={handleToolClick}
             />
             <EpisodeFormModal
               userId={userId}
@@ -327,7 +339,7 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="analytics" className="space-y-4">
-            <ToolAnalyticsPanel userId={userId} />
+            <ToolAnalyticsPanel userId={userId} preselectedTool={selectedToolForAnalytics} />
           </TabsContent>
 
           <TabsContent value="settings" className="space-y-4">
