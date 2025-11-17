@@ -17,6 +17,7 @@ from ryumem.retrieval.search import SearchEngine
 from ryumem.utils.embeddings import EmbeddingClient
 from ryumem.utils.llm import LLMClient
 from ryumem.utils.llm_ollama import OllamaClient
+from ryumem.utils.llm_gemini import GeminiClient
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,16 @@ class Ryumem:
                 max_retries=config.max_retries,
                 timeout=config.timeout_seconds,
             )
+        elif config.llm_provider == "gemini":
+            if not config.gemini_api_key:
+                raise ValueError("gemini_api_key is required when llm_provider='gemini'")
+            logger.info(f"Using Gemini for LLM inference: {config.llm_model}")
+            self.llm_client = GeminiClient(
+                api_key=config.gemini_api_key,
+                model=config.llm_model,
+                max_retries=config.max_retries,
+                timeout=config.timeout_seconds,
+            )
         else:  # openai
             if not config.openai_api_key:
                 raise ValueError("openai_api_key is required when llm_provider='openai'")
@@ -119,17 +130,29 @@ class Ryumem:
                 timeout=config.timeout_seconds,
             )
 
-        # Initialize embedding client (OpenAI only for now)
-        if not config.openai_api_key:
-            raise ValueError("openai_api_key is required for embeddings (Ollama embeddings not yet supported)")
-
-        self.embedding_client = EmbeddingClient(
-            api_key=config.openai_api_key,
-            model=config.embedding_model,
-            dimensions=config.embedding_dimensions,
-            batch_size=config.batch_size,
-            timeout=config.timeout_seconds,
-        )
+        # Initialize embedding client based on provider
+        if config.embedding_provider == "gemini":
+            if not config.gemini_api_key:
+                raise ValueError("gemini_api_key is required when embedding_provider='gemini'")
+            logger.info(f"Using Gemini for embeddings: {config.embedding_model}")
+            # Use GeminiClient for embeddings
+            self.embedding_client = GeminiClient(
+                api_key=config.gemini_api_key,
+                model=config.embedding_model,
+                max_retries=config.max_retries,
+                timeout=config.timeout_seconds,
+            )
+        else:  # openai
+            if not config.openai_api_key:
+                raise ValueError("openai_api_key is required when embedding_provider='openai'")
+            logger.info(f"Using OpenAI for embeddings: {config.embedding_model}")
+            self.embedding_client = EmbeddingClient(
+                api_key=config.openai_api_key,
+                model=config.embedding_model,
+                dimensions=config.embedding_dimensions,
+                batch_size=config.batch_size,
+                timeout=config.timeout_seconds,
+            )
 
         # Initialize search engine first (creates BM25 index)
         self.search_engine = SearchEngine(

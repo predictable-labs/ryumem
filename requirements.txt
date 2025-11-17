@@ -31,4 +31,7 @@ rank-bm25>=0.2.2
 # HTTP requests (for Ollama client)
 requests>=2.31.0
 
+# Google Generative AI (for Gemini client)
+google-genai>=0.2.0
+
 pandas

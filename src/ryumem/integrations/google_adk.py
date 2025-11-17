@@ -275,6 +275,24 @@ def add_memory_to_agent(
         RyumemGoogleADK instance for advanced usage (optional)
         Note: To enable query augmentation, pass augmentation config to wrap_runner_with_tracking()
 
+    Example - Minimal (only GOOGLE_API_KEY needed):
+        ```python
+        from google import genai
+        from ryumem.integrations import add_memory_to_agent
+
+        # Set environment variable
+        # export GOOGLE_API_KEY="your-key"
+
+        agent = genai.Agent(
+            name="assistant",
+            model="gemini-2.0-flash-exp",
+            instruction="You are a helpful assistant with memory."
+        )
+
+        # Auto-detects GOOGLE_API_KEY and uses Gemini for both LLM and embeddings
+        add_memory_to_agent(agent, ryumem_customer_id="my_company")
+        ```
+
     Example - Multi-user scenario (recommended):
         ```python
         from google import genai
@@ -299,25 +317,25 @@ def add_memory_to_agent(
         # runner.run(user_id="bob", ...) - Bob's memories
         ```
 
-    Example - Single user scenario with tool tracking:
+    Example - With Ollama override:
         ```python
-        # Enable memory + automatic tool tracking
+        # Ollama overrides Google for LLM, but Gemini still used for embeddings
         add_memory_to_agent(
             agent,
             ryumem_customer_id="my_company",
-            user_id="alice",
-            track_tools=True,  # Track all tool usage!
-            llm_provider="openai",
-            llm_model="gpt-4o-mini"
+            llm_provider="ollama",
+            llm_model="qwen2.5:7b"
         )
         ```
     """
+    import os
+
     # Separate Ryumem kwargs from tool tracking kwargs
     ryumem_kwargs = {}
     tool_tracking_kwargs = {}
 
     # Known Ryumem parameters
-    ryumem_params = {'llm_provider', 'llm_model', 'openai_api_key', 'ollama_base_url', 'embedding_provider', 'embedding_model'}
+    ryumem_params = {'llm_provider', 'llm_model', 'openai_api_key', 'gemini_api_key', 'ollama_base_url', 'embedding_provider', 'embedding_model'}
 
     # Known tool tracking parameters
     tracking_params = {'summarize_large_outputs', 'max_output_length',
@@ -331,6 +349,48 @@ def add_memory_to_agent(
         else:
             # Default to Ryumem kwargs for unknown parameters
             ryumem_kwargs[key] = value
+
+    # AUTO-DETECTION LOGIC for Google ADK integration
+    # Only applies if Ryumem instance is not provided
+    if ryumem_instance is None:
+        # Check if Ollama is explicitly configured (highest priority)
+        ollama_configured = 'llm_provider' in ryumem_kwargs and ryumem_kwargs['llm_provider'] == 'ollama'
+
+        if not ollama_configured:
+            # Check for GOOGLE_API_KEY in environment
+            google_api_key = os.getenv("GOOGLE_API_KEY")
+
+            if not google_api_key:
+                raise ValueError(
+                    "Google ADK integration requires GOOGLE_API_KEY environment variable. "
+                    "Set it with: export GOOGLE_API_KEY='your-key' "
+                    "OR use llm_provider='ollama' to override."
+                )
+
+            # Auto-configure for Gemini if not explicitly set
+            if 'llm_provider' not in ryumem_kwargs:
+                ryumem_kwargs['llm_provider'] = 'gemini'
+                ryumem_kwargs['llm_model'] = 'gemini-2.0-flash-exp'
+                logger.info("🔍 Auto-detected GOOGLE_API_KEY, using Gemini for LLM")
+
+            if 'gemini_api_key' not in ryumem_kwargs:
+                ryumem_kwargs['gemini_api_key'] = google_api_key
+
+            # Set embedding provider based on key availability
+            if 'embedding_provider' not in ryumem_kwargs:
+                openai_api_key = ryumem_kwargs.get('openai_api_key') or os.getenv("OPENAI_API_KEY")
+
+                if openai_api_key:
+                    # Prefer OpenAI for embeddings if available
+                    ryumem_kwargs['embedding_provider'] = 'openai'
+                    ryumem_kwargs['embedding_model'] = 'text-embedding-3-large'
+                    ryumem_kwargs['openai_api_key'] = openai_api_key
+                    logger.info("📊 Using OpenAI for embeddings (better quality)")
+                else:
+                    # Fallback to Gemini for embeddings
+                    ryumem_kwargs['embedding_provider'] = 'gemini'
+                    ryumem_kwargs['embedding_model'] = 'text-embedding-004'
+                    logger.info("📊 Using Gemini for embeddings")
 
     # Create or use existing Ryumem instance
     if ryumem_instance is None:

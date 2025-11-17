@@ -24,6 +24,7 @@ Prerequisites:
 1. Install Google ADK: pip install google-adk
 2. Set up Google API key: export GOOGLE_API_KEY="your-key"
 3. Install Ryumem: pip install ryumem
+4. (Optional) Set OpenAI API key for better embeddings: export OPENAI_API_KEY="your-key"
 
 VISUALIZE IN DASHBOARD:
 This example saves to ./server/data/google_adk_demo.db so you can see the
@@ -136,14 +137,19 @@ Always personalize responses based on what you remember about the specific user.
     vprint("\n2. Adding memory to agent (ONE LINE!)...")
     # This is all you need - no custom functions!
     # Using the server's database path so you can view the graph in the dashboard!
+    # Auto-detects GOOGLE_API_KEY and uses Gemini for both LLM and embeddings!
+    # If OPENAI_API_KEY is set, uses OpenAI for embeddings (better quality)
     memory = add_memory_to_agent(
         agent,
+        ryumem_customer_id="demo_company",  # Your company identifier
         user_id="alice",  # User identifier for memory isolation
         db_path="./data/memory.db",  # Shared with dashboard server
-        # Optional: Use Ollama for LLM (uncomment below)
-        llm_provider="ollama",
-        llm_model="qwen2.5:7b",
-        ollama_base_url="http://100.108.18.43:11434",
+        track_tools=True,
+        track_queries=True,
+        # Optional: Use Ollama for LLM (uncomment below to override Gemini)
+        # llm_provider="ollama",
+        # llm_model="qwen2.5:7b",
+        # ollama_base_url="http://100.108.18.43:11434",
     )
     vprint("   ✓ Memory enabled! Agent now has 3 auto-generated tools:")
     vprint("     - search_memory(query, user_id, limit)")
@@ -241,6 +247,7 @@ Personalize recommendations based on what you know about the user."""
     # Enable memory with SAME user_id - so Alice's memories are shared across agents!
     # IMPORTANT: Reuse the same Ryumem instance to avoid database connection conflicts
     travel_memory = RyumemGoogleADK(
+        ryumem_customer_id="demo_company",
         ryumem=memory.ryumem,  # Reuse existing Ryumem instance
         user_id="alice"  # Same user - Alice's memories
     )
@@ -309,7 +316,13 @@ Personalize recommendations based on what you know about the user."""
     vprint("  • Multi-agent support: Agents can share memory for same user")
     vprint("  • Knowledge graph provides structured, relational memory")
     vprint("  • Works with any LLM (Gemini, GPT, Ollama, etc.)")
+    vprint("  • Auto-detects GOOGLE_API_KEY - no redundant configuration!")
+    vprint("\n🔑 API Key Configuration:")
+    vprint("  Required: GOOGLE_API_KEY (for both agent and memory)")
+    vprint("  Optional: OPENAI_API_KEY (for better embeddings)")
+    vprint("  Override: llm_provider='ollama' (to use local models)")
     vprint("\n🏗️ Architecture:")
+    vprint("  ryumem_customer_id → Your company (demo_company)")
     vprint("  user_id → Individual users (alice, bob, charlie...)")
     vprint("  session_id → Individual conversation threads")
     vprint("\n📊 View in Dashboard:")
@@ -322,11 +335,13 @@ Personalize recommendations based on what you know about the user."""
     vprint("  • Explore the knowledge graph interactively")
     vprint("\n📚 Compare with mem0:")
     vprint("  mem0: ~20 lines of boilerplate to write search/save functions")
-    vprint("  Ryumem: 1 line - add_memory_to_agent(agent, user_id='...')")
+    vprint("  Ryumem: 1 line - add_memory_to_agent(agent, ryumem_customer_id='...')")
     vprint("  mem0: No multi-user isolation out of the box")
     vprint("  Ryumem: Built-in memory isolation per user")
     vprint("  mem0: No built-in visualization dashboard")
     vprint("  Ryumem: Interactive dashboard to explore the knowledge graph")
+    vprint("  mem0: Requires separate API keys for agent and memory")
+    vprint("  Ryumem: Auto-detects GOOGLE_API_KEY from your ADK setup")
     vprint("=" * 60)
 
 

@@ -28,7 +28,7 @@ class RyumemConfig(BaseModel):
     # LLM Provider settings
     llm_provider: str = Field(
         default="openai",
-        description="LLM provider: 'openai' or 'ollama'"
+        description="LLM provider: 'openai', 'ollama', or 'gemini'"
     )
 
     # OpenAI settings (when llm_provider='openai')
@@ -38,7 +38,13 @@ class RyumemConfig(BaseModel):
     )
     llm_model: str = Field(
         default="gpt-4",
-        description="LLM model to use (e.g., 'gpt-4' for OpenAI, 'llama3.2:3b' for Ollama)"
+        description="LLM model to use (e.g., 'gpt-4' for OpenAI, 'llama3.2:3b' for Ollama, 'gemini-2.0-flash-exp' for Gemini)"
+    )
+
+    # Gemini settings (when llm_provider='gemini')
+    gemini_api_key: Optional[str] = Field(
+        default=None,
+        description="Google API key (required if llm_provider='gemini')"
     )
 
     # Ollama settings (when llm_provider='ollama')
@@ -48,13 +54,17 @@ class RyumemConfig(BaseModel):
     )
 
     # Embedding settings
+    embedding_provider: str = Field(
+        default="openai",
+        description="Embedding provider: 'openai' or 'gemini'"
+    )
     embedding_model: str = Field(
         default="text-embedding-3-large",
         description="Embedding model to use"
     )
     embedding_dimensions: int = Field(
         default=3072,
-        description="Embedding vector dimensions (text-embedding-3-large uses 3072)"
+        description="Embedding vector dimensions (text-embedding-3-large uses 3072, text-embedding-004 uses 768)"
     )
 
     # Extraction settings
@@ -117,9 +127,18 @@ class RyumemConfig(BaseModel):
     @classmethod
     def validate_llm_provider(cls, v: str) -> str:
         """Validate LLM provider"""
-        valid_providers = ["openai", "ollama"]
+        valid_providers = ["openai", "ollama", "gemini"]
         if v not in valid_providers:
             raise ValueError(f"LLM provider must be one of {valid_providers}")
+        return v
+
+    @field_validator("embedding_provider")
+    @classmethod
+    def validate_embedding_provider(cls, v: str) -> str:
+        """Validate embedding provider"""
+        valid_providers = ["openai", "gemini"]
+        if v not in valid_providers:
+            raise ValueError(f"Embedding provider must be one of {valid_providers}")
         return v
 
     @field_validator("embedding_model")
@@ -129,7 +148,8 @@ class RyumemConfig(BaseModel):
         valid_models = [
             "text-embedding-3-large",
             "text-embedding-3-small",
-            "text-embedding-ada-002"
+            "text-embedding-ada-002",
+            "text-embedding-004",  # Google's embedding model
         ]
         if v not in valid_models:
             raise ValueError(f"Embedding model must be one of {valid_models}")
@@ -143,7 +163,8 @@ class RyumemConfig(BaseModel):
         expected_dims = {
             "text-embedding-3-large": 3072,
             "text-embedding-3-small": 1536,
-            "text-embedding-ada-002": 1536
+            "text-embedding-ada-002": 1536,
+            "text-embedding-004": 768,  # Google's embedding model
         }
         expected = expected_dims.get(embedding_model, 3072)
         if v != expected:
@@ -191,18 +212,24 @@ class RyumemConfig(BaseModel):
         # Get configuration
         llm_provider = os.getenv("RYUMEM_LLM_PROVIDER", "openai")
         openai_api_key = os.getenv("OPENAI_API_KEY")
+        gemini_api_key = os.getenv("GOOGLE_API_KEY")
+        embedding_provider = os.getenv("RYUMEM_EMBEDDING_PROVIDER", "openai")
 
         # Validate API key requirement based on provider
         if llm_provider == "openai" and not openai_api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required when using llm_provider='openai'")
+        if llm_provider == "gemini" and not gemini_api_key:
+            raise ValueError("GOOGLE_API_KEY environment variable is required when using llm_provider='gemini'")
 
         # Build config from environment variables
         config_dict = {
             "openai_api_key": openai_api_key,
+            "gemini_api_key": gemini_api_key,
             "db_path": os.getenv("RYUMEM_DB_PATH", "./data/memory.db"),
             "llm_provider": llm_provider,
             "llm_model": os.getenv("RYUMEM_LLM_MODEL", "gpt-4"),
             "ollama_base_url": os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://localhost:11434"),
+            "embedding_provider": embedding_provider,
             "embedding_model": os.getenv("RYUMEM_EMBEDDING_MODEL", "text-embedding-3-large"),
         }
 
