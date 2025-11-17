@@ -21,7 +21,6 @@ export interface EpisodeInfo {
   source_description: string;
   created_at: string;
   valid_at: string;
-  group_id: string;
   user_id?: string;
   agent_id?: string;
   session_id?: string;

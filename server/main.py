@@ -128,7 +128,6 @@ class EpisodeInfo(BaseModel):
     source_description: str
     created_at: str
     valid_at: str
-    group_id: str
     user_id: Optional[str] = None
     agent_id: Optional[str] = None
     session_id: Optional[str] = None
@@ -438,7 +437,6 @@ async def get_episodes(
                 source_description=ep["source_description"],
                 created_at=ep["created_at"].isoformat() if isinstance(ep["created_at"], datetime) else str(ep["created_at"]),
                 valid_at=ep["valid_at"].isoformat() if isinstance(ep["valid_at"], datetime) else str(ep["valid_at"]),
-                group_id=ep["group_id"],
                 user_id=ep.get("user_id"),
                 agent_id=ep.get("agent_id"),
                 session_id=ep.get("session_id"),
