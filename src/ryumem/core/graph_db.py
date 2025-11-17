@@ -1100,22 +1100,29 @@ class RyugraphDB:
             return result
         else:
             # Create new tool
-            create_query = f"""
-            CREATE (t:Tool {{
-                uuid: $uuid,
-                tool_name: $tool_name,
-                description: $description,
-            """
             if name_embedding is not None:
-                create_query += f"""
-                name_embedding: CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]'),
-            """
-            create_query += """
-                mentions: $mentions,
-                created_at: $created_at
-            }})
-            RETURN t.uuid AS uuid
-            """
+                create_query = f"""
+                CREATE (t:Tool {{
+                    uuid: $uuid,
+                    tool_name: $tool_name,
+                    description: $description,
+                    name_embedding: CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]'),
+                    mentions: $mentions,
+                    created_at: $created_at
+                }})
+                RETURN t.uuid AS uuid
+                """
+            else:
+                create_query = """
+                CREATE (t:Tool {
+                    uuid: $uuid,
+                    tool_name: $tool_name,
+                    description: $description,
+                    mentions: $mentions,
+                    created_at: $created_at
+                })
+                RETURN t.uuid AS uuid
+                """
 
             params = {
                 "uuid": tool_uuid,
