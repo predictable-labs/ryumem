@@ -1066,56 +1066,69 @@ class RyugraphDB:
         """
         from datetime import datetime, timezone
         from uuid import uuid4
+        import hashlib
 
-        # Build query based on whether embedding is provided
-        if name_embedding is not None:
-            embedding_clause = f"t.name_embedding = CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]')"
+        # Generate deterministic UUID from tool_name for consistency
+        tool_uuid = str(uuid4())  # Will be used only if creating
+
+        # Check if tool exists first
+        existing = self.get_tool_by_name(tool_name)
+
+        if existing:
+            # Tool exists - just update mentions and description
+            update_query = f"""
+            MATCH (t:Tool {{tool_name: $tool_name}})
+            SET t.mentions = coalesce(t.mentions, 0) + 1,
+                t.description = $description
+            """
+            if name_embedding is not None:
+                update_query += f""",
+                t.name_embedding = CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]')
+            """
+            update_query += """
+            RETURN t.uuid AS uuid
+            """
+
+            params = {
+                "tool_name": tool_name,
+                "description": description,
+                "name_embedding": name_embedding,
+            }
+
+            result = self.execute(update_query, params)
+            logger.debug(f"Updated existing tool: {tool_name}")
+            return result
         else:
-            embedding_clause = None
+            # Create new tool
+            create_query = f"""
+            CREATE (t:Tool {{
+                uuid: $uuid,
+                tool_name: $tool_name,
+                description: $description,
+            """
+            if name_embedding is not None:
+                create_query += f"""
+                name_embedding: CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]'),
+            """
+            create_query += """
+                mentions: $mentions,
+                created_at: $created_at
+            }})
+            RETURN t.uuid AS uuid
+            """
 
-        create_fields = [
-            "t.tool_name = $tool_name",
-            "t.description = $description",
-        ]
-        if embedding_clause:
-            create_fields.append(embedding_clause)
-        create_fields.extend([
-            "t.mentions = $mentions",
-            "t.created_at = $created_at"
-        ])
+            params = {
+                "uuid": tool_uuid,
+                "tool_name": tool_name,
+                "description": description,
+                "name_embedding": name_embedding,
+                "mentions": 1,
+                "created_at": datetime.now(timezone.utc),
+            }
 
-        update_fields = [
-            "t.mentions = coalesce(t.mentions, 0) + 1",
-            "t.description = $description",
-        ]
-        if embedding_clause:
-            update_fields.append(embedding_clause)
-
-        create_clause = ',\n            '.join(create_fields)
-        update_clause = ',\n            '.join(update_fields)
-
-        query = f"""
-        MERGE (t:Tool {{tool_name: $tool_name}})
-        ON CREATE SET
-            t.uuid = $uuid,
-            {create_clause}
-        ON MATCH SET
-            {update_clause}
-        RETURN t.uuid AS uuid
-        """
-
-        params = {
-            "uuid": str(uuid4()),
-            "tool_name": tool_name,
-            "description": description,
-            "name_embedding": name_embedding,
-            "mentions": 1,
-            "created_at": datetime.now(timezone.utc),
-        }
-
-        result = self.execute(query, params)
-        logger.debug(f"Saved tool: {tool_name}")
-        return result
+            result = self.execute(create_query, params)
+            logger.debug(f"Created new tool: {tool_name}")
+            return result
 
     def get_tool_by_name(self, tool_name: str) -> Optional[Dict[str, Any]]:
         """
