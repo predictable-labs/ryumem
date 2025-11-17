@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { api, Entity, GraphDataResponse, EntitiesListResponse, Edge } from "@/lib/api";
 
 export default function Home() {
-  const [groupId, setGroupId] = useState("demo_company");
+  const [groupId, setGroupId] = useState("user1234");
   const [userId, setUserId] = useState("");
   const [refreshStats, setRefreshStats] = useState(0);
 

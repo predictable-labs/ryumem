@@ -257,7 +257,7 @@ Query → Embedding → Semantic Search → Graph Traversal → RRF Fusion → R
 ```bash
 # OpenAI (default provider)
 OPENAI_API_KEY=sk-...
-RYUMEM_DB_PATH=./data/ryumem.db
+RYUMEM_DB_PATH=./data/memory.db
 RYUMEM_LLM_PROVIDER=openai
 RYUMEM_LLM_MODEL=gpt-4
 RYUMEM_EMBEDDING_MODEL=text-embedding-3-large

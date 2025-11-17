@@ -30,7 +30,7 @@ This example saves to ./server/data/google_adk_demo.db so you can see the
 knowledge graph in the interactive dashboard!
 
 To view:
-1. Update server/.env: RYUMEM_DB_PATH=./data/google_adk_demo.db
+1. Update server/.env: RYUMEM_DB_PATH=./data/memory.db
 2. Start server: cd server && uvicorn main:app --reload
 3. Start dashboard: cd dashboard && npm run dev
 4. Open http://localhost:3000 and explore:
@@ -150,7 +150,7 @@ Always personalize responses based on what you remember about the specific user.
     vprint("     - save_memory(content, user_id, source)")
     vprint("     - get_entity_context(entity_name, user_id)")
     vprint("\n   💡 View the knowledge graph in the dashboard:")
-    vprint("      1. Update server/.env: RYUMEM_DB_PATH=./data/google_adk_demo.db")
+    vprint("      1. Update server/.env: RYUMEM_DB_PATH=./data/memory.db")
     vprint("      2. Start server: cd server && uvicorn main:app --reload")
     vprint("      3. Start dashboard: cd dashboard && npm run dev")
     vprint("      4. Open: http://localhost:3000")
@@ -313,7 +313,7 @@ Personalize recommendations based on what you know about the user."""
     vprint("  user_id → Individual users (alice, bob, charlie...)")
     vprint("  session_id → Individual conversation threads")
     vprint("\n📊 View in Dashboard:")
-    vprint("  1. Update server/.env with: RYUMEM_DB_PATH=./data/google_adk_demo.db")
+    vprint("  1. Update server/.env with: RYUMEM_DB_PATH=./data/memory.db")
     vprint("  2. Start API: cd server && uvicorn main:app --reload")
     vprint("  3. Start UI: cd dashboard && npm run dev")
     vprint("  4. Browse: http://localhost:3000")

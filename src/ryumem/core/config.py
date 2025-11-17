@@ -199,7 +199,7 @@ class RyumemConfig(BaseModel):
         # Build config from environment variables
         config_dict = {
             "openai_api_key": openai_api_key,
-            "db_path": os.getenv("RYUMEM_DB_PATH", "./data/ryumem.db"),
+            "db_path": os.getenv("RYUMEM_DB_PATH", "./data/memory.db"),
             "llm_provider": llm_provider,
             "llm_model": os.getenv("RYUMEM_LLM_MODEL", "gpt-4"),
             "ollama_base_url": os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://localhost:11434"),

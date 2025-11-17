@@ -225,7 +225,7 @@ def add_memory_to_agent(
     user_id: Optional[str] = None,
     db_path: str = "./data/memory.db",
     ryumem_instance: Optional[Ryumem] = None,
-    track_tools: bool = False,
+    track_tools: bool = True,
     track_queries: bool = True,
     augment_queries: bool = True,
     similarity_threshold: float = 0.3,

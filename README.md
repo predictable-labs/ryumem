@@ -223,7 +223,7 @@ RYUMEM_LLM_MODEL=llama3.2:3b  # Ollama model name
 RYUMEM_LLM_MODEL=gpt-4  # OpenAI model name
 
 # Other optional settings (with defaults)
-RYUMEM_DB_PATH=./data/ryumem.db
+RYUMEM_DB_PATH=./data/memory.db
 RYUMEM_EMBEDDING_MODEL=text-embedding-3-large
 RYUMEM_EMBEDDING_DIMENSIONS=3072
 RYUMEM_ENTITY_SIMILARITY_THRESHOLD=0.7

@@ -229,7 +229,7 @@ These provide:
 | `RYUMEM_LLM_PROVIDER` | LLM provider (openai/ollama) | openai |
 | `RYUMEM_LLM_MODEL` | LLM model name | gpt-4o-mini |
 | `RYUMEM_OLLAMA_BASE_URL` | Ollama base URL | http://localhost:11434 |
-| `RYUMEM_DB_PATH` | Database file path | ./data/ryumem_server.db |
+| `RYUMEM_DB_PATH` | Database file path | ../data/memory.db |
 | `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | http://localhost:3000 |
 | `HOST` | Server host | 0.0.0.0 |
 | `PORT` | Server port | 8000 |
