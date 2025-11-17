@@ -989,21 +989,12 @@ async def list_agent_instructions(
 # Tool Analytics Endpoints
 # ============================================================================
 
-class ToolForTaskResponse(BaseModel):
-    """Response model for tools used for a specific task"""
-    tool_name: str
-    usage_count: int
-    success_rate: float
-    avg_duration_ms: float
-
-
 class ToolMetricsResponse(BaseModel):
     """Response model for detailed tool metrics"""
     tool_name: str
     usage_count: int
     success_rate: float
     avg_duration_ms: float
-    task_types: List[str]
     recent_errors: List[str]
 
 
@@ -1014,42 +1005,23 @@ class ToolPreferenceResponse(BaseModel):
     last_used: str
 
 
-@app.get("/tools/for-task", response_model=List[ToolForTaskResponse], tags=["Tool Analytics"])
-async def get_tools_for_task(
-    task_type: str,
-    group_id: str,
-    user_id: Optional[str] = None,
-    limit: int = 10
-):
+@app.get("/tools", tags=["Tool Analytics"])
+async def get_all_tools():
     """
-    Get tools used for a specific task type.
+    Get all registered tools.
 
-    Returns tools ranked by usage frequency and success rate.
+    Returns list of all tools with their descriptions.
     """
     try:
         if not ryumem_instance:
             raise HTTPException(status_code=500, detail="Ryumem not initialized")
 
-        tools = ryumem_instance.get_tools_for_task(
-            task_type=task_type,
-            group_id=group_id,
-            user_id=user_id,
-            limit=limit
-        )
-
-        return [
-            ToolForTaskResponse(
-                tool_name=tool["tool_name"],
-                usage_count=tool["usage_count"],
-                success_rate=tool["success_rate"],
-                avg_duration_ms=tool["avg_duration_ms"]
-            )
-            for tool in tools
-        ]
+        tools = ryumem_instance.get_all_tools()
+        return tools
 
     except Exception as e:
-        logger.error(f"Error getting tools for task: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error getting tools for task: {str(e)}")
+        logger.error(f"Error getting tools: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting tools: {str(e)}")
 
 
 @app.get("/tools/{tool_name}/metrics", response_model=ToolMetricsResponse, tags=["Tool Analytics"])
@@ -1062,7 +1034,7 @@ async def get_tool_metrics(
     """
     Get detailed metrics for a specific tool.
 
-    Includes success rate, usage count, average duration, task types, and recent errors.
+    Includes success rate, usage count, average duration, and recent errors.
     """
     try:
         if not ryumem_instance:
@@ -1083,7 +1055,6 @@ async def get_tool_metrics(
             usage_count=metrics["usage_count"],
             success_rate=metrics["success_rate"],
             avg_duration_ms=metrics["avg_duration_ms"],
-            task_types=metrics.get("task_types", []),
             recent_errors=metrics.get("recent_errors", [])
         )
 

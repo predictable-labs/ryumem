@@ -99,7 +99,6 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
         instruction_type: editingInstruction.instruction_type,
         description: editDescription,
         original_user_request: editOriginalRequest,
-        user_id: userId,
       })
 
       setSuccess("Instruction updated successfully!")

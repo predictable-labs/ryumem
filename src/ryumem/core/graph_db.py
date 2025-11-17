@@ -91,8 +91,21 @@ class RyugraphDB:
                 description STRING,
                 version INT64,
                 active BOOLEAN,
-                created_at TIMESTAMP,
-                user_id STRING
+                created_at TIMESTAMP
+            );
+            """
+        )
+
+        # Tool nodes (separate from Entities)
+        self.execute(
+            f"""
+            CREATE NODE TABLE IF NOT EXISTS Tool(
+                uuid STRING PRIMARY KEY,
+                tool_name STRING,
+                description STRING,
+                name_embedding FLOAT[{self.embedding_dimensions}],
+                mentions INT64,
+                created_at TIMESTAMP
             );
             """
         )
@@ -1036,6 +1049,136 @@ class RyugraphDB:
 
         self.execute(query, {"group_id": group_id})
         logger.info(f"Deleted all communities for group: {group_id}")
+
+    # ===== Tool Methods =====
+
+    def save_tool(self, tool_name: str, description: str, name_embedding: Optional[List[float]] = None) -> Dict[str, Any]:
+        """
+        Save a tool node to the database.
+
+        Args:
+            tool_name: Name of the tool
+            description: Description of the tool
+            name_embedding: Optional embedding vector for the tool name
+
+        Returns:
+            Result dictionary
+        """
+        from datetime import datetime, timezone
+        from uuid import uuid4
+        import hashlib
+
+        # Generate deterministic UUID from tool_name for consistency
+        tool_uuid = str(uuid4())  # Will be used only if creating
+
+        # Check if tool exists first
+        existing = self.get_tool_by_name(tool_name)
+
+        if existing:
+            # Tool exists - just update mentions and description
+            update_query = f"""
+            MATCH (t:Tool {{tool_name: $tool_name}})
+            SET t.mentions = coalesce(t.mentions, 0) + 1,
+                t.description = $description
+            """
+            if name_embedding is not None:
+                update_query += f""",
+                t.name_embedding = CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]')
+            """
+            update_query += """
+            RETURN t.uuid AS uuid
+            """
+
+            params = {
+                "tool_name": tool_name,
+                "description": description,
+                "name_embedding": name_embedding,
+            }
+
+            result = self.execute(update_query, params)
+            logger.debug(f"Updated existing tool: {tool_name}")
+            return result
+        else:
+            # Create new tool
+            if name_embedding is not None:
+                create_query = f"""
+                CREATE (t:Tool {{
+                    uuid: $uuid,
+                    tool_name: $tool_name,
+                    description: $description,
+                    name_embedding: CAST($name_embedding, 'FLOAT[{self.embedding_dimensions}]'),
+                    mentions: $mentions,
+                    created_at: $created_at
+                }})
+                RETURN t.uuid AS uuid
+                """
+            else:
+                create_query = """
+                CREATE (t:Tool {
+                    uuid: $uuid,
+                    tool_name: $tool_name,
+                    description: $description,
+                    mentions: $mentions,
+                    created_at: $created_at
+                })
+                RETURN t.uuid AS uuid
+                """
+
+            params = {
+                "uuid": tool_uuid,
+                "tool_name": tool_name,
+                "description": description,
+                "name_embedding": name_embedding,
+                "mentions": 1,
+                "created_at": datetime.now(timezone.utc),
+            }
+
+            result = self.execute(create_query, params)
+            logger.debug(f"Created new tool: {tool_name}")
+            return result
+
+    def get_tool_by_name(self, tool_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a tool by its name.
+
+        Args:
+            tool_name: Name of the tool
+
+        Returns:
+            Tool dictionary or None
+        """
+        query = """
+        MATCH (t:Tool {tool_name: $tool_name})
+        RETURN
+            t.uuid AS uuid,
+            t.tool_name AS tool_name,
+            t.description AS description,
+            t.mentions AS mentions,
+            t.created_at AS created_at
+        """
+
+        result = self.execute(query, {"tool_name": tool_name})
+        return result[0] if result else None
+
+    def get_all_tools(self) -> List[Dict[str, Any]]:
+        """
+        Get all tools.
+
+        Returns:
+            List of tool dictionaries
+        """
+        query = """
+        MATCH (t:Tool)
+        RETURN
+            t.uuid AS uuid,
+            t.tool_name AS tool_name,
+            t.description AS description,
+            t.mentions AS mentions,
+            t.created_at AS created_at
+        ORDER BY t.tool_name
+        """
+
+        return self.execute(query)
 
     def close(self) -> None:
         """Close the database connection"""

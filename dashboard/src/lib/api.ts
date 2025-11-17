@@ -141,7 +141,6 @@ export interface ToolMetrics {
   usage_count: number;
   success_rate: number;
   avg_duration_ms: number;
-  task_types: string[];
   recent_errors: string[];
 }
 
@@ -330,19 +329,8 @@ class RyumemAPI {
   // Tool Analytics
   // ============================================================================
 
-  async getToolsForTask(
-    taskType: string,
-    groupId: string,
-    userId?: string,
-    limit: number = 10
-  ): Promise<ToolForTask[]> {
-    const params = new URLSearchParams({
-      task_type: taskType,
-      group_id: groupId,
-      ...(userId && { user_id: userId }),
-      limit: limit.toString(),
-    });
-    return this.request(`/tools/for-task?${params}`);
+  async getAllTools(): Promise<any[]> {
+    return this.request('/tools');
   }
 
   async getToolMetrics(

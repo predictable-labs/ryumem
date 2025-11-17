@@ -379,6 +379,20 @@ def add_memory_to_agent(
         tracker.wrap_agent_tools(agent)
         logger.info(f"Tool tracking enabled for agent: {agent.name if hasattr(agent, 'name') else 'unnamed'}")
 
+        # Register all agent tools in the database
+        tools_to_register = []
+        for tool in agent.tools:
+            tool_name = getattr(tool, 'name', getattr(tool, '__name__', 'unknown'))
+            tool_description = getattr(tool, 'description', getattr(tool, '__doc__', ''))
+            tools_to_register.append({
+                'name': tool_name,
+                'description': tool_description or f"Tool: {tool_name}"
+            })
+
+        if tools_to_register:
+            tracker.register_tools(tools_to_register)
+            logger.info(f"Registered {len(tools_to_register)} tools in database")
+
         # Store tracker reference in memory object for advanced usage
         memory.tracker = tracker
 
