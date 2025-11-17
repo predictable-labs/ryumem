@@ -803,6 +803,94 @@ class RyugraphDB:
         params = {"episode_uuid": episode_uuid}
         return self.execute(query, params)
 
+    def get_episodes(
+        self,
+        user_id: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        search: Optional[str] = None,
+        sort_order: str = "desc",
+    ) -> Dict[str, Any]:
+        """
+        Get episodes with pagination and filtering.
+
+        Args:
+            user_id: Optional user ID filter
+            limit: Maximum number of episodes to return
+            offset: Number of episodes to skip
+            start_date: Optional start date filter
+            end_date: Optional end date filter
+            search: Optional content search filter
+            sort_order: Sort order - "desc" (newest first) or "asc" (oldest first)
+
+        Returns:
+            Dictionary with 'episodes' list and 'total' count
+        """
+        conditions = []
+        params = {
+            "limit": limit,
+            "offset": offset,
+        }
+
+        if user_id:
+            conditions.append("e.user_id = $user_id")
+            params["user_id"] = user_id
+
+        if start_date:
+            conditions.append("e.created_at >= $start_date")
+            params["start_date"] = start_date
+
+        if end_date:
+            conditions.append("e.created_at <= $end_date")
+            params["end_date"] = end_date
+
+        if search:
+            conditions.append("e.content CONTAINS $search")
+            params["search"] = search
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        order_clause = "DESC" if sort_order.lower() == "desc" else "ASC"
+
+        # Get total count
+        count_query = f"""
+        MATCH (e:Episode)
+        WHERE {where_clause}
+        RETURN COUNT(e) AS total
+        """
+        count_result = self.execute(count_query, params)
+        total = count_result[0]["total"] if count_result else 0
+
+        # Get episodes
+        episodes_query = f"""
+        MATCH (e:Episode)
+        WHERE {where_clause}
+        RETURN
+            e.uuid AS uuid,
+            e.name AS name,
+            e.content AS content,
+            e.source AS source,
+            e.source_description AS source_description,
+            e.created_at AS created_at,
+            e.valid_at AS valid_at,
+            e.group_id AS group_id,
+            e.user_id AS user_id,
+            e.agent_id AS agent_id,
+            e.session_id AS session_id,
+            e.metadata AS metadata
+        ORDER BY e.created_at {order_clause}
+        LIMIT $limit
+        OFFSET $offset
+        """
+
+        episodes = self.execute(episodes_query, params)
+
+        return {
+            "episodes": episodes,
+            "total": total,
+        }
+
     # ===== Community Methods =====
 
     def save_community(self, community: "CommunityNode") -> Dict[str, Any]:

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User } from "lucide-react";
-import { EpisodeForm } from "@/components/episode-form";
+import { EpisodesList } from "@/components/episodes-list";
+import { EpisodeFormModal } from "@/components/episode-form-modal";
 import { ChatInterface } from "@/components/chat-interface";
 import { StatsPanel } from "@/components/stats-panel";
 import { GraphVisualization } from "@/components/graph-visualization";
@@ -34,6 +35,10 @@ export default function Home() {
   const [entityType, setEntityType] = useState<string | undefined>(undefined);
   const [entitiesOffset, setEntitiesOffset] = useState(0);
 
+  // Episode modal state
+  const [isEpisodeModalOpen, setIsEpisodeModalOpen] = useState(false);
+  const [episodeListRefresh, setEpisodeListRefresh] = useState(0);
+
   // Load users on mount
   useEffect(() => {
     const loadUsers = async () => {
@@ -57,6 +62,8 @@ export default function Home() {
   const handleEpisodeAdded = () => {
     // Trigger stats refresh
     setRefreshStats(prev => prev + 1);
+    // Trigger episode list refresh
+    setEpisodeListRefresh(prev => prev + 1);
   };
 
   // Load graph data
@@ -199,7 +206,7 @@ export default function Home() {
             </TabsTrigger>
             <TabsTrigger value="episodes" className="flex items-center gap-2">
               <Database className="h-4 w-4" />
-              Add Episodes
+              Episodes
             </TabsTrigger>
             <TabsTrigger value="analytics" className="flex items-center gap-2">
               <Wrench className="h-4 w-4" />
@@ -307,24 +314,16 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="episodes" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Network className="h-5 w-5" />
-                  Add New Episode
-                </CardTitle>
-                <CardDescription>
-                  Add memories to the knowledge graph. Entities and relationships
-                  will be automatically extracted and resolved.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <EpisodeForm
-                  userId={userId}
-                  onEpisodeAdded={handleEpisodeAdded}
-                />
-              </CardContent>
-            </Card>
+            <EpisodesList
+              userId={userId}
+              onAddEpisodeClick={() => setIsEpisodeModalOpen(true)}
+            />
+            <EpisodeFormModal
+              userId={userId}
+              open={isEpisodeModalOpen}
+              onOpenChange={setIsEpisodeModalOpen}
+              onEpisodeAdded={handleEpisodeAdded}
+            />
           </TabsContent>
 
           <TabsContent value="analytics" className="space-y-4">
