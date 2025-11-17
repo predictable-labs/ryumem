@@ -383,7 +383,7 @@ def enable_memory(
         memory.tracker = tracker
 
         # Automatically enhance agent instructions to use tool history
-        _enhance_agent_instructions_for_tool_tracking(agent)
+        _enhance_agent_instructions_for_tool_tracking(agent, ryumem, ryumem_customer_id)
 
     # Log query tracking status
     if track_queries:
@@ -713,17 +713,39 @@ def create_query_tracking_runner(
     return original_runner
 
 
-def _enhance_agent_instructions_for_tool_tracking(agent):
+def _enhance_agent_instructions_for_tool_tracking(agent, ryumem, group_id: str, agent_type: str = "google_adk"):
     """
     Automatically append instructions to agent for using tool tracking history.
-    
+
     This enables the agent to search memory for past tool usage patterns
     when deciding which tools to use, making tool tracking actionable.
-    
+
+    First checks the database for custom instructions. If none found,
+    falls back to default hardcoded instructions.
+
     Args:
         agent: Google ADK Agent instance
+        ryumem: Ryumem instance for database access
+        group_id: Group ID for multi-tenancy
+        agent_type: Type of agent (default: "google_adk")
     """
-    tool_tracking_instruction = """
+    # Try to get custom instruction from database
+    custom_instruction = None
+    try:
+        custom_instruction = ryumem.get_active_agent_instruction(
+            group_id=group_id,
+            agent_type=agent_type,
+            instruction_type="tool_tracking"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to retrieve custom agent instruction from database: {e}")
+
+    if custom_instruction:
+        tool_tracking_instruction = "\n\n" + custom_instruction
+        logger.info(f"Using custom tool tracking instruction from database (group_id={group_id})")
+    else:
+        # Fallback to default hardcoded instruction
+        tool_tracking_instruction = """
 
 TOOL SELECTION GUIDANCE (IMPORTANT):
 Before selecting which tool to use for a user's request, you MUST first call search_memory to check for past tool usage patterns.
@@ -739,12 +761,13 @@ Example queries for search_memory:
 - "What tools successfully handled external API calls?"
 
 This historical context will help you make better tool selections based on proven success rates."""
+        logger.info(f"Using default tool tracking instruction (no custom instruction found in database)")
 
     try:
         # Check if agent has instruction attribute
         if hasattr(agent, 'instruction'):
             current_instruction = agent.instruction or ""
-            
+
             # Only append if not already present
             if "TOOL SELECTION GUIDANCE" not in current_instruction:
                 agent.instruction = current_instruction + tool_tracking_instruction

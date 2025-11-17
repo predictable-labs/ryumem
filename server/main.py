@@ -847,6 +847,353 @@ async def list_relationships(
         raise HTTPException(status_code=500, detail=f"Error listing relationships: {str(e)}")
 
 
+# ============================================================================
+# Agent Instruction Management Endpoints
+# ============================================================================
+
+class AgentInstructionRequest(BaseModel):
+    """Request model for creating/updating agent instructions"""
+    instruction_text: str = Field(..., description="The converted/final instruction text to add to agent prompt")
+    agent_type: str = Field("google_adk", description="Type of agent (e.g., google_adk, custom_agent)")
+    instruction_type: str = Field("tool_tracking", description="Type of instruction (e.g., tool_tracking, memory_guidance)")
+    description: str = Field("", description="User-friendly description of what this instruction does")
+    group_id: str = Field(..., description="Group ID for multi-tenancy")
+    user_id: Optional[str] = Field(None, description="Optional user ID for user-specific instructions")
+    active: bool = Field(True, description="Whether this instruction is currently active")
+    original_user_request: Optional[str] = Field(None, description="Original request from user before conversion")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "original_user_request": "Make the agent check past tool usage before selecting tools",
+                "instruction_text": "TOOL SELECTION GUIDANCE:\nAlways check memory before selecting tools...",
+                "agent_type": "google_adk",
+                "instruction_type": "tool_tracking",
+                "description": "Custom tool selection guidance for improved performance",
+                "group_id": "company_123",
+                "active": True
+            }
+        }
+
+
+class AgentInstructionResponse(BaseModel):
+    """Response model for agent instructions"""
+    instruction_id: str = Field(..., description="UUID of the instruction episode")
+    instruction_text: str = Field(..., description="The converted/final instruction text")
+    name: str = Field(..., description="Name/title of the instruction")
+    agent_type: str = Field(..., description="Type of agent")
+    instruction_type: str = Field(..., description="Type of instruction")
+    version: int = Field(..., description="Version number")
+    active: bool = Field(..., description="Whether this instruction is active")
+    description: str = Field(..., description="Description of the instruction")
+    original_user_request: str = Field("", description="Original request from user")
+    converted_instruction: str = Field("", description="Converted/final instruction")
+    created_at: str = Field(..., description="Creation timestamp")
+
+
+@app.post("/agent-instructions", response_model=AgentInstructionResponse, tags=["Agent Instructions"])
+async def create_agent_instruction(request: AgentInstructionRequest):
+    """
+    Create a new custom agent instruction.
+
+    The instruction will be stored in the database and can be retrieved
+    by agents to customize their behavior. If active=True, this will
+    deactivate other instructions of the same type.
+    """
+    try:
+        # Validate ryumem instance
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        # Note: Server runs in read-only mode, so this will fail
+        # In production, you'd want a separate write instance or endpoint
+        logger.warning("Server is in read-only mode - agent instruction creation may fail")
+
+        # Save the instruction
+        instruction_id = ryumem_instance.save_agent_instruction(
+            instruction_text=request.instruction_text,
+            group_id=request.group_id,
+            agent_type=request.agent_type,
+            instruction_type=request.instruction_type,
+            description=request.description,
+            user_id=request.user_id,
+            active=request.active,
+            original_user_request=request.original_user_request
+        )
+
+        # Get the created instruction details
+        instructions = ryumem_instance.list_agent_instructions(
+            group_id=request.group_id,
+            agent_type=request.agent_type,
+            instruction_type=request.instruction_type,
+            limit=1
+        )
+
+        if not instructions:
+            raise HTTPException(status_code=500, detail="Failed to retrieve created instruction")
+
+        created = instructions[0]
+
+        return AgentInstructionResponse(
+            instruction_id=created["instruction_id"],
+            instruction_text=created["instruction_text"],
+            name=created["name"],
+            agent_type=created["agent_type"],
+            instruction_type=created["instruction_type"],
+            version=created["version"],
+            active=created["active"],
+            description=created["description"],
+            original_user_request=created.get("original_user_request", ""),
+            converted_instruction=created.get("converted_instruction", created["instruction_text"]),
+            created_at=created["created_at"]
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating agent instruction: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error creating agent instruction: {str(e)}")
+
+
+@app.get("/agent-instructions", response_model=List[AgentInstructionResponse], tags=["Agent Instructions"])
+async def list_agent_instructions(
+    group_id: str,
+    agent_type: Optional[str] = None,
+    instruction_type: Optional[str] = None,
+    active_only: bool = False,
+    limit: int = 50
+):
+    """
+    List all agent instructions with optional filters.
+
+    Returns instructions ordered by creation date (newest first).
+    Use active_only=True to get only currently active instructions.
+    """
+    try:
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        instructions = ryumem_instance.list_agent_instructions(
+            group_id=group_id,
+            agent_type=agent_type,
+            instruction_type=instruction_type,
+            active_only=active_only,
+            limit=limit
+        )
+
+        return [
+            AgentInstructionResponse(
+                instruction_id=instr["instruction_id"],
+                instruction_text=instr["instruction_text"],
+                name=instr["name"],
+                agent_type=instr["agent_type"],
+                instruction_type=instr["instruction_type"],
+                version=instr["version"],
+                active=instr["active"],
+                description=instr["description"],
+                original_user_request=instr.get("original_user_request", ""),
+                converted_instruction=instr.get("converted_instruction", instr["instruction_text"]),
+                created_at=instr["created_at"]
+            )
+            for instr in instructions
+        ]
+
+    except Exception as e:
+        logger.error(f"Error listing agent instructions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error listing agent instructions: {str(e)}")
+
+
+@app.get("/agent-instructions/active", response_model=Optional[AgentInstructionResponse], tags=["Agent Instructions"])
+async def get_active_instruction(
+    group_id: str,
+    agent_type: str,
+    instruction_type: str = "tool_tracking",
+    user_id: Optional[str] = None
+):
+    """
+    Get the currently active instruction for an agent.
+
+    Returns the active instruction if found, or null if no custom instruction is configured.
+    """
+    try:
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        # Get active instructions
+        instructions = ryumem_instance.list_agent_instructions(
+            group_id=group_id,
+            agent_type=agent_type,
+            instruction_type=instruction_type,
+            active_only=True,
+            limit=1
+        )
+
+        if not instructions:
+            return None
+
+        active = instructions[0]
+
+        return AgentInstructionResponse(
+            instruction_id=active["instruction_id"],
+            instruction_text=active["instruction_text"],
+            name=active["name"],
+            agent_type=active["agent_type"],
+            instruction_type=active["instruction_type"],
+            version=active["version"],
+            active=active["active"],
+            description=active["description"],
+            original_user_request=active.get("original_user_request", ""),
+            converted_instruction=active.get("converted_instruction", active["instruction_text"]),
+            created_at=active["created_at"]
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting active instruction: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting active instruction: {str(e)}")
+
+
+# ============================================================================
+# Tool Analytics Endpoints
+# ============================================================================
+
+class ToolForTaskResponse(BaseModel):
+    """Response model for tools used for a specific task"""
+    tool_name: str
+    usage_count: int
+    success_rate: float
+    avg_duration_ms: float
+
+
+class ToolMetricsResponse(BaseModel):
+    """Response model for detailed tool metrics"""
+    tool_name: str
+    usage_count: int
+    success_rate: float
+    avg_duration_ms: float
+    task_types: List[str]
+    recent_errors: List[str]
+
+
+class ToolPreferenceResponse(BaseModel):
+    """Response model for user tool preferences"""
+    tool_name: str
+    usage_count: int
+    last_used: str
+
+
+@app.get("/tools/for-task", response_model=List[ToolForTaskResponse], tags=["Tool Analytics"])
+async def get_tools_for_task(
+    task_type: str,
+    group_id: str,
+    user_id: Optional[str] = None,
+    limit: int = 10
+):
+    """
+    Get tools used for a specific task type.
+
+    Returns tools ranked by usage frequency and success rate.
+    """
+    try:
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        tools = ryumem_instance.get_tools_for_task(
+            task_type=task_type,
+            group_id=group_id,
+            user_id=user_id,
+            limit=limit
+        )
+
+        return [
+            ToolForTaskResponse(
+                tool_name=tool["tool_name"],
+                usage_count=tool["usage_count"],
+                success_rate=tool["success_rate"],
+                avg_duration_ms=tool["avg_duration_ms"]
+            )
+            for tool in tools
+        ]
+
+    except Exception as e:
+        logger.error(f"Error getting tools for task: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting tools for task: {str(e)}")
+
+
+@app.get("/tools/{tool_name}/metrics", response_model=ToolMetricsResponse, tags=["Tool Analytics"])
+async def get_tool_metrics(
+    tool_name: str,
+    group_id: str,
+    user_id: Optional[str] = None,
+    min_executions: int = 1
+):
+    """
+    Get detailed metrics for a specific tool.
+
+    Includes success rate, usage count, average duration, task types, and recent errors.
+    """
+    try:
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        metrics = ryumem_instance.get_tool_success_rate(
+            tool_name=tool_name,
+            group_id=group_id,
+            user_id=user_id,
+            min_executions=min_executions
+        )
+
+        if not metrics:
+            raise HTTPException(status_code=404, detail=f"No metrics found for tool: {tool_name}")
+
+        return ToolMetricsResponse(
+            tool_name=metrics["tool_name"],
+            usage_count=metrics["usage_count"],
+            success_rate=metrics["success_rate"],
+            avg_duration_ms=metrics["avg_duration_ms"],
+            task_types=metrics.get("task_types", []),
+            recent_errors=metrics.get("recent_errors", [])
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting tool metrics: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting tool metrics: {str(e)}")
+
+
+@app.get("/users/{user_id}/tool-preferences", response_model=List[ToolPreferenceResponse], tags=["Tool Analytics"])
+async def get_user_tool_preferences(
+    user_id: str,
+    group_id: str,
+    limit: int = 10
+):
+    """
+    Get user's most frequently used tools.
+
+    Returns tools ordered by usage frequency.
+    """
+    try:
+        if not ryumem_instance:
+            raise HTTPException(status_code=500, detail="Ryumem not initialized")
+
+        preferences = ryumem_instance.get_user_tool_preferences(
+            user_id=user_id,
+            group_id=group_id,
+            limit=limit
+        )
+
+        return [
+            ToolPreferenceResponse(
+                tool_name=pref["tool_name"],
+                usage_count=pref["usage_count"],
+                last_used=pref.get("last_used", "")
+            )
+            for pref in preferences
+        ]
+
+    except Exception as e:
+        logger.error(f"Error getting user tool preferences: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting user tool preferences: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
 

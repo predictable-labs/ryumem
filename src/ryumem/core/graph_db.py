@@ -294,12 +294,16 @@ class RyugraphDB:
             update_fields.append(embedding_clause)
         update_fields.append("e.attributes = $attributes")
 
+        # Build query with proper string formatting (can't use \n in f-string expressions)
+        create_clause = ',\n            '.join(create_fields)
+        update_clause = ',\n            '.join(update_fields)
+
         query = f"""
         MERGE (e:Entity {{uuid: $uuid}})
         ON CREATE SET
-            {',\n            '.join(create_fields)}
+            {create_clause}
         ON MATCH SET
-            {',\n            '.join(update_fields)}
+            {update_clause}
         RETURN e.uuid AS uuid
         """
 

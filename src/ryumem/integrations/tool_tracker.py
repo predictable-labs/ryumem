@@ -193,6 +193,10 @@ class ToolTracker:
         self.fail_open = fail_open
         self._execution_count = 0
 
+        # Background task management
+        self.async_classification = True  # Enable async classification by default
+        self._background_tasks = set()    # Track background tasks
+
         logger.info(
             f"Initialized ToolTracker for customer: {ryumem_customer_id}, "
             f"sampling: {sampling_rate*100}%"

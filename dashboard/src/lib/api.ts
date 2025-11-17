@@ -107,6 +107,53 @@ export interface EntityTypesResponse {
   entity_types: string[];
 }
 
+export interface AgentInstruction {
+  instruction_text: string;
+  agent_type?: string;
+  instruction_type?: string;
+  description?: string;
+  group_id: string;
+  user_id?: string;
+  active?: boolean;
+  original_user_request?: string;
+}
+
+export interface AgentInstructionResponse {
+  instruction_id: string;
+  instruction_text: string;
+  name: string;
+  agent_type: string;
+  instruction_type: string;
+  version: number;
+  active: boolean;
+  description: string;
+  original_user_request: string;
+  converted_instruction: string;
+  created_at: string;
+}
+
+export interface ToolForTask {
+  tool_name: string;
+  usage_count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+}
+
+export interface ToolMetrics {
+  tool_name: string;
+  usage_count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  task_types: string[];
+  recent_errors: string[];
+}
+
+export interface ToolPreference {
+  tool_name: string;
+  usage_count: number;
+  last_used: string;
+}
+
 class RyumemAPI {
   private baseURL: string;
 
@@ -256,6 +303,94 @@ class RyumemAPI {
 
   async health() {
     return this.request('/health');
+  }
+
+  // ============================================================================
+  // Agent Instruction Management
+  // ============================================================================
+
+  async createAgentInstruction(instruction: AgentInstruction): Promise<AgentInstructionResponse> {
+    return this.request('/agent-instructions', {
+      method: 'POST',
+      body: JSON.stringify(instruction),
+    });
+  }
+
+  async listAgentInstructions(
+    groupId: string,
+    agentType?: string,
+    instructionType?: string,
+    activeOnly: boolean = false,
+    limit: number = 50
+  ): Promise<AgentInstructionResponse[]> {
+    const params = new URLSearchParams({
+      group_id: groupId,
+      ...(agentType && { agent_type: agentType }),
+      ...(instructionType && { instruction_type: instructionType }),
+      active_only: activeOnly.toString(),
+      limit: limit.toString(),
+    });
+    return this.request(`/agent-instructions?${params}`);
+  }
+
+  async getActiveAgentInstruction(
+    groupId: string,
+    agentType: string,
+    instructionType: string = 'tool_tracking',
+    userId?: string
+  ): Promise<AgentInstructionResponse | null> {
+    const params = new URLSearchParams({
+      group_id: groupId,
+      agent_type: agentType,
+      instruction_type: instructionType,
+      ...(userId && { user_id: userId }),
+    });
+    return this.request(`/agent-instructions/active?${params}`);
+  }
+
+  // ============================================================================
+  // Tool Analytics
+  // ============================================================================
+
+  async getToolsForTask(
+    taskType: string,
+    groupId: string,
+    userId?: string,
+    limit: number = 10
+  ): Promise<ToolForTask[]> {
+    const params = new URLSearchParams({
+      task_type: taskType,
+      group_id: groupId,
+      ...(userId && { user_id: userId }),
+      limit: limit.toString(),
+    });
+    return this.request(`/tools/for-task?${params}`);
+  }
+
+  async getToolMetrics(
+    toolName: string,
+    groupId: string,
+    userId?: string,
+    minExecutions: number = 1
+  ): Promise<ToolMetrics> {
+    const params = new URLSearchParams({
+      group_id: groupId,
+      ...(userId && { user_id: userId }),
+      min_executions: minExecutions.toString(),
+    });
+    return this.request(`/tools/${encodeURIComponent(toolName)}/metrics?${params}`);
+  }
+
+  async getUserToolPreferences(
+    userId: string,
+    groupId: string,
+    limit: number = 10
+  ): Promise<ToolPreference[]> {
+    const params = new URLSearchParams({
+      group_id: groupId,
+      limit: limit.toString(),
+    });
+    return this.request(`/users/${encodeURIComponent(userId)}/tool-preferences?${params}`);
   }
 }
 

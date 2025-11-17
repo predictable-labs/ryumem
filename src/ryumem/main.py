@@ -685,6 +685,255 @@ class Ryumem:
 
         return result_list[:limit]
 
+    def save_agent_instruction(
+        self,
+        instruction_text: str,
+        group_id: str,
+        agent_type: str = "google_adk",
+        instruction_type: str = "tool_tracking",
+        description: str = "",
+        user_id: Optional[str] = None,
+        active: bool = True,
+        original_user_request: Optional[str] = None,
+    ) -> str:
+        """
+        Save custom agent instruction as an Episode in the database.
+
+        This tracks both what the user originally requested and what instruction
+        text will actually be added to the agent's prompt.
+
+        Args:
+            instruction_text: The actual instruction text to add to agent prompt (converted/final)
+            group_id: Group ID for multi-tenancy
+            agent_type: Type of agent (e.g., "google_adk", "custom_agent")
+            instruction_type: Type of instruction (e.g., "tool_tracking", "memory_guidance")
+            description: User-friendly description of what this instruction does
+            user_id: Optional user ID for user-specific instructions
+            active: Whether this instruction is currently active
+            original_user_request: Optional original request from user before conversion
+
+        Returns:
+            UUID of the created Episode
+
+        Example:
+            instruction_id = ryumem.save_agent_instruction(
+                instruction_text="TOOL SELECTION:\nAlways check memory...",
+                original_user_request="Make the agent check past tool usage",
+                group_id="company_123",
+                agent_type="google_adk",
+                description="Custom tool selection guidance"
+            )
+        """
+        import json
+        from datetime import datetime
+
+        # If marking as active, deactivate other instructions of same type
+        if active:
+            # Get existing active instructions and mark them as inactive
+            existing = self.list_agent_instructions(
+                group_id=group_id,
+                agent_type=agent_type,
+                instruction_type=instruction_type,
+                active_only=True
+            )
+            for existing_instr in existing:
+                # Update metadata to set active=false
+                # Note: We'll create a new version instead of updating in place
+                pass
+
+        # Get version number (count of existing instructions + 1)
+        all_instructions = self.list_agent_instructions(
+            group_id=group_id,
+            agent_type=agent_type,
+            instruction_type=instruction_type
+        )
+        version = len(all_instructions) + 1
+
+        # Create metadata
+        metadata = {
+            "type": "agent_instruction",
+            "instruction_type": instruction_type,
+            "agent_type": agent_type,
+            "version": version,
+            "active": active,
+            "description": description,
+            "original_user_request": original_user_request or "",  # Track what user originally wanted
+            "converted_instruction": instruction_text,  # Track what it became
+            "created_at": datetime.utcnow().isoformat()
+        }
+
+        # Create episode name
+        name = f"Agent Instruction - {agent_type} - {instruction_type} v{version}"
+
+        # Save as Episode
+        episode_id = self.add_episode(
+            content=instruction_text,
+            group_id=group_id,
+            user_id=user_id,
+            source="text",
+            name=name,
+            metadata=metadata
+        )
+
+        return episode_id
+
+    def get_active_agent_instruction(
+        self,
+        group_id: str,
+        agent_type: str,
+        instruction_type: str = "tool_tracking",
+        user_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Retrieve the currently active instruction text for an agent.
+
+        Args:
+            group_id: Group ID for multi-tenancy
+            agent_type: Type of agent (e.g., "google_adk")
+            instruction_type: Type of instruction (e.g., "tool_tracking")
+            user_id: Optional user ID for user-specific instructions
+
+        Returns:
+            The instruction text if found, None otherwise
+
+        Example:
+            instruction = ryumem.get_active_agent_instruction(
+                group_id="company_123",
+                agent_type="google_adk",
+                instruction_type="tool_tracking"
+            )
+            if instruction:
+                print(f"Using custom instruction: {instruction}")
+            else:
+                print("No custom instruction found, using default")
+        """
+        import json
+
+        # Query for active instruction
+        query = """
+        MATCH (ep:Episode)
+        WHERE ep.group_id = $group_id
+          AND ep.metadata CONTAINS '"type": "agent_instruction"'
+          AND ep.metadata CONTAINS $agent_type
+          AND ep.metadata CONTAINS $instruction_type
+          AND ep.metadata CONTAINS '"active": true'
+        """
+
+        # Add user_id filter if provided
+        params = {
+            "group_id": group_id,
+            "agent_type": f'"{agent_type}"',
+            "instruction_type": f'"{instruction_type}"'
+        }
+
+        if user_id:
+            query += " AND ep.user_id = $user_id"
+            params["user_id"] = user_id
+        else:
+            query += " AND ep.user_id IS NULL"
+
+        query += """
+        ORDER BY ep.created_at DESC
+        LIMIT 1
+        RETURN ep.content AS instruction_text, ep.metadata AS metadata
+        """
+
+        result = self.db.execute_query(query, params)
+
+        if result and len(result) > 0:
+            return result[0]["instruction_text"]
+
+        return None
+
+    def list_agent_instructions(
+        self,
+        group_id: str,
+        agent_type: Optional[str] = None,
+        instruction_type: Optional[str] = None,
+        active_only: bool = False,
+        limit: int = 50
+    ) -> List[Dict]:
+        """
+        List all agent instructions with metadata and version history.
+
+        Args:
+            group_id: Group ID for multi-tenancy
+            agent_type: Optional filter by agent type
+            instruction_type: Optional filter by instruction type
+            active_only: If True, only return active instructions
+            limit: Maximum number of instructions to return
+
+        Returns:
+            List of instruction dictionaries with metadata
+
+        Example:
+            instructions = ryumem.list_agent_instructions(
+                group_id="company_123",
+                agent_type="google_adk",
+                active_only=True
+            )
+            for instr in instructions:
+                print(f"Version {instr['version']}: {instr['description']}")
+        """
+        import json
+
+        # Build query
+        query = """
+        MATCH (ep:Episode)
+        WHERE ep.group_id = $group_id
+          AND ep.metadata CONTAINS '"type": "agent_instruction"'
+        """
+
+        params = {"group_id": group_id}
+
+        if agent_type:
+            query += " AND ep.metadata CONTAINS $agent_type"
+            params["agent_type"] = f'"{agent_type}"'
+
+        if instruction_type:
+            query += " AND ep.metadata CONTAINS $instruction_type"
+            params["instruction_type"] = f'"{instruction_type}"'
+
+        if active_only:
+            query += " AND ep.metadata CONTAINS '\"active\": true'"
+
+        query += """
+        ORDER BY ep.created_at DESC
+        RETURN ep.uuid AS instruction_id,
+               ep.content AS instruction_text,
+               ep.metadata AS metadata,
+               ep.created_at AS created_at,
+               ep.name AS name
+        LIMIT $limit
+        """
+
+        params["limit"] = limit
+
+        result = self.db.execute_query(query, params)
+
+        # Parse metadata and format results
+        formatted_results = []
+        for row in result:
+            try:
+                metadata = json.loads(row["metadata"]) if isinstance(row["metadata"], str) else row["metadata"]
+                formatted_results.append({
+                    "instruction_id": row["instruction_id"],
+                    "instruction_text": row["instruction_text"],
+                    "name": row.get("name", ""),
+                    "agent_type": metadata.get("agent_type", ""),
+                    "instruction_type": metadata.get("instruction_type", ""),
+                    "version": metadata.get("version", 1),
+                    "active": metadata.get("active", False),
+                    "description": metadata.get("description", ""),
+                    "original_user_request": metadata.get("original_user_request", ""),
+                    "converted_instruction": metadata.get("converted_instruction", row["instruction_text"]),
+                    "created_at": row.get("created_at", ""),
+                })
+            except json.JSONDecodeError:
+                continue
+
+        return formatted_results
+
     def prune_memories(
         self,
         group_id: str,
