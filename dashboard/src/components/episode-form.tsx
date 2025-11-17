@@ -38,7 +38,7 @@ export function EpisodeForm({ groupId, userId, onEpisodeAdded }: EpisodeFormProp
     try {
       const response = await api.addEpisode({
         content: content.trim(),
-        user_id: groupId,
+        group_id: groupId,
         user_id: userId,
         source,
       });

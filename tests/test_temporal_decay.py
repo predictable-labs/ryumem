@@ -27,7 +27,7 @@ class TestTemporalDecay:
                 mentions=1,
                 created_at=now - timedelta(days=1),  # 1 day old
                 embedding=[0.1] * 3072,
-                user_id="test",
+                group_id="test",
             ),
             EntityNode(
                 uuid="old_entity",
@@ -37,7 +37,7 @@ class TestTemporalDecay:
                 mentions=1,
                 created_at=now - timedelta(days=100),  # 100 days old
                 embedding=[0.2] * 3072,
-                user_id="test",
+                group_id="test",
             ),
             EntityNode(
                 uuid="medium_entity",
@@ -47,7 +47,7 @@ class TestTemporalDecay:
                 mentions=1,
                 created_at=now - timedelta(days=30),  # 30 days old
                 embedding=[0.3] * 3072,
-                user_id="test",
+                group_id="test",
             ),
         ]
 
@@ -206,7 +206,7 @@ class TestTemporalDecay:
                 mentions=1,
                 created_at=now - timedelta(days=100),
                 embedding=[0.1] * 3072,
-                user_id="test",
+                group_id="test",
             ),
             EntityNode(
                 uuid="low_score_recent",
@@ -216,7 +216,7 @@ class TestTemporalDecay:
                 mentions=1,
                 created_at=now - timedelta(days=1),
                 embedding=[0.2] * 3072,
-                user_id="test",
+                group_id="test",
             ),
         ]
 
@@ -246,7 +246,7 @@ class TestTemporalDecay:
         """Test SearchConfig with temporal decay parameters."""
         config = SearchConfig(
             query="test",
-            user_id="test",
+            group_id="test",
             apply_temporal_decay=True,
             temporal_decay_factor=0.98,
         )
@@ -258,7 +258,7 @@ class TestTemporalDecay:
         """Test SearchConfig default temporal decay settings."""
         config = SearchConfig(
             query="test",
-            user_id="test",
+            group_id="test",
         )
 
         # Check defaults
@@ -269,7 +269,7 @@ class TestTemporalDecay:
         """Test disabling temporal decay in SearchConfig."""
         config = SearchConfig(
             query="test",
-            user_id="test",
+            group_id="test",
             apply_temporal_decay=False,
         )
 
@@ -288,7 +288,7 @@ class TestTemporalDecay:
                 mentions=1,
                 created_at=now,  # 0 days old
                 embedding=[0.1] * 3072,
-                user_id="test",
+                group_id="test",
             ),
             EntityNode(
                 uuid="very_old",
@@ -298,7 +298,7 @@ class TestTemporalDecay:
                 mentions=1,
                 created_at=now - timedelta(days=365),  # 1 year old
                 embedding=[0.2] * 3072,
-                user_id="test",
+                group_id="test",
             ),
         ]
 
@@ -335,7 +335,7 @@ class TestTemporalDecay:
                 mentions=1,
                 created_at=now - timedelta(days=10),
                 embedding=[0.1] * 3072,
-                user_id="test",
+                group_id="test",
             ),
             EntityNode(
                 uuid="low_score",
@@ -345,7 +345,7 @@ class TestTemporalDecay:
                 mentions=1,
                 created_at=now - timedelta(days=11),  # Only 1 day older
                 embedding=[0.2] * 3072,
-                user_id="test",
+                group_id="test",
             ),
         ]
 

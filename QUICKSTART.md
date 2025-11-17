@@ -81,7 +81,7 @@ ryumem = Ryumem(
 # Add an episode
 episode_id = ryumem.add_episode(
     content="Alice works at Google in Mountain View.",
-    user_id="test_user",
+    group_id="test_user",
 )
 
 print(f"Created episode: {episode_id}")
@@ -89,7 +89,7 @@ print(f"Created episode: {episode_id}")
 # Search
 results = ryumem.search(
     query="Where does Alice work?",
-    user_id="test_user",
+    group_id="test_user",
 )
 
 for entity in results.entities:
@@ -124,12 +124,12 @@ ryumem = Ryumem(
 # Use the exact same API!
 episode_id = ryumem.add_episode(
     content="Alice works at Google in Mountain View.",
-    user_id="test_user",
+    group_id="test_user",
 )
 
 results = ryumem.search(
     query="Where does Alice work?",
-    user_id="test_user",
+    group_id="test_user",
 )
 
 for entity in results.entities:
@@ -166,7 +166,7 @@ This will demonstrate:
 # Add a single episode
 ryumem.add_episode(
     content="Bob graduated from Stanford in 2018.",
-    user_id="user_123",
+    group_id="user_123",
     user_id="user_123",
     source="text",  # or "message" or "json"
 )
@@ -176,7 +176,7 @@ episodes = [
     {"content": "Alice works at Google"},
     {"content": "Bob works at Meta"},
 ]
-ryumem.add_episodes_batch(episodes, user_id="user_123")
+ryumem.add_episodes_batch(episodes, group_id="user_123")
 ```
 
 ### Search Strategies
@@ -185,14 +185,14 @@ ryumem.add_episodes_batch(episodes, user_id="user_123")
 # Semantic search (embedding similarity)
 results = ryumem.search(
     query="AI researchers",
-    user_id="user_123",
+    group_id="user_123",
     strategy="semantic",
 )
 
 # Graph traversal (navigate relationships)
 results = ryumem.search(
     query="Alice",
-    user_id="user_123",
+    group_id="user_123",
     strategy="traversal",
     max_depth=2,
 )
@@ -200,7 +200,7 @@ results = ryumem.search(
 # Hybrid (best of both - recommended)
 results = ryumem.search(
     query="people working in technology",
-    user_id="user_123",
+    group_id="user_123",
     strategy="hybrid",  # Default
 )
 ```
@@ -210,7 +210,7 @@ results = ryumem.search(
 ```python
 context = ryumem.get_entity_context(
     entity_name="Alice",
-    user_id="user_123",
+    group_id="user_123",
 )
 
 print(f"Name: {context['entity']['name']}")
@@ -338,7 +338,7 @@ BM25 provides traditional keyword/lexical matching as a complement to semantic s
 # Pure BM25 search (exact keyword matching)
 results = ryumem.search(
     query="machine learning natural language processing",
-    user_id="user_123",
+    group_id="user_123",
     strategy="bm25",
     limit=10,
 )
@@ -346,7 +346,7 @@ results = ryumem.search(
 # BM25 is also included in hybrid search automatically
 results = ryumem.search(
     query="machine learning",
-    user_id="user_123",
+    group_id="user_123",
     strategy="hybrid",  # Combines semantic + BM25 + graph traversal
 )
 ```
@@ -365,7 +365,7 @@ Recent facts automatically score higher than old facts with configurable decay r
 # Temporal decay is enabled by default
 results = ryumem.search(
     query="Alice's job",
-    user_id="user_123",
+    group_id="user_123",
     strategy="hybrid",
 )
 # Recent facts will rank higher automatically
@@ -375,7 +375,7 @@ from ryumem.core.models import SearchConfig
 
 config = SearchConfig(
     query="current projects",
-    user_id="user_123",
+    group_id="user_123",
     apply_temporal_decay=True,
     temporal_decay_factor=0.99,  # 1% decay per day (slower)
     # Or use 0.95 for 5% decay per day (faster)
@@ -396,7 +396,7 @@ Automatically cluster related entities into communities for better organization 
 ```python
 # Detect communities in your knowledge graph
 num_communities = ryumem.detect_communities(
-    user_id="user_123",
+    group_id="user_123",
     resolution=1.0,  # Higher = more granular communities
     min_community_size=2,  # Minimum entities per community
 )
@@ -428,7 +428,7 @@ Keep your knowledge graph clean and efficient by removing obsolete data.
 ```python
 # Run comprehensive pruning
 stats = ryumem.prune_memories(
-    user_id="user_123",
+    group_id="user_123",
     expired_cutoff_days=90,  # Remove facts expired >90 days ago
     min_mentions=2,  # Keep entities with at least 2 mentions
     compact_redundant=True,  # Merge near-duplicate relationships
@@ -463,13 +463,13 @@ episodes = [
 ]
 
 for episode in episodes:
-    ryumem.add_episode(episode, user_id="user_123")
+    ryumem.add_episode(episode, group_id="user_123")
     time.sleep(1)  # Space out over time
 
 # Search with temporal decay
 results = ryumem.search(
     query="Alice's current job",
-    user_id="user_123",
+    group_id="user_123",
     strategy="hybrid",
 )
 
@@ -483,7 +483,7 @@ for edge in results.edges:
 ```python
 # Build a large knowledge graph
 for i in range(100):
-    ryumem.add_episode(your_episodes[i], user_id="user_123")
+    ryumem.add_episode(your_episodes[i], group_id="user_123")
 
 # Organize into communities
 num_communities = ryumem.detect_communities("user_123")
@@ -491,7 +491,7 @@ num_communities = ryumem.detect_communities("user_123")
 # Search is now community-aware for better context
 results = ryumem.search(
     query="AI research topics",
-    user_id="user_123",
+    group_id="user_123",
     strategy="hybrid",
 )
 
@@ -508,7 +508,7 @@ query = "machine learning research"
 for strategy in ["semantic", "bm25", "hybrid"]:
     results = ryumem.search(
         query=query,
-        user_id="user_123",
+        group_id="user_123",
         strategy=strategy,
         limit=5,
     )

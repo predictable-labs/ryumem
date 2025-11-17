@@ -132,9 +132,10 @@ class SearchEngine:
         logger.debug(f"🎬 Searching for similar episodes (threshold: {config.similarity_threshold}, limit: {config.limit})")
         episode_results = self.db.search_similar_episodes(
             embedding=query_embedding,
-            user_id=config.user_id,
+            group_id=config.group_id,
             threshold=config.similarity_threshold,
             limit=config.limit,
+            user_id=config.user_id,
         )
         logger.debug(f"📊 Found {len(episode_results)} similar episodes")
 
@@ -151,6 +152,7 @@ class SearchEngine:
         logger.debug(f"🔎 Searching for similar entities (threshold: {config.similarity_threshold}, limit: {config.limit})")
         entity_results = self.db.search_similar_entities(
             embedding=query_embedding,
+            group_id=config.group_id,
             threshold=config.similarity_threshold,
             limit=config.limit,
             user_id=config.user_id,
@@ -161,7 +163,7 @@ class SearchEngine:
         logger.debug(f"🔎 Searching for similar edges (threshold: {config.similarity_threshold}, limit: {config.limit})")
         edge_results = self.db.search_similar_edges(
             embedding=query_embedding,
-            user_id=config.user_id,
+            group_id=config.group_id,
             threshold=config.similarity_threshold,
             limit=config.limit,
         )
@@ -180,7 +182,7 @@ class SearchEngine:
                 entity_type=result["entity_type"],
                 summary=result.get("summary", ""),
                 mentions=result["mentions"],
-                user_id=result["user_id"],
+                group_id=result["group_id"],
             )
             entities.append(entity)
             scores[entity.uuid] = result["similarity"]
@@ -198,7 +200,7 @@ class SearchEngine:
                         entity_type=entity_data["entity_type"],
                         summary=entity_data.get("summary", ""),
                         mentions=entity_data["mentions"],
-                        user_id=entity_data["user_id"],
+                        group_id=entity_data["group_id"],
                     )
                     entities.append(entity)
                     # Give these entities a slightly lower score since they came from episode association
@@ -213,7 +215,7 @@ class SearchEngine:
                 target_node_uuid=result["target_uuid"],
                 name=result["relation_type"],
                 fact=result["fact"],
-                user_id=config.user_id,
+                group_id=config.group_id,
             )
             edges.append(edge)
             scores[edge.uuid] = result["similarity"]
@@ -242,6 +244,7 @@ class SearchEngine:
                     content=result["content"],
                     source=EpisodeType.from_str(result.get("source", "text")),
                     source_description=result.get("source_description", ""),
+                    group_id=result["group_id"],
                     user_id=safe_str_or_none(result.get("user_id")),
                     agent_id=safe_str_or_none(result.get("agent_id")),
                     session_id=safe_str_or_none(result.get("session_id")),
@@ -288,9 +291,10 @@ class SearchEngine:
 
         starting_entities = self.db.search_similar_entities(
             embedding=query_embedding,
-            user_id=config.user_id,
+            group_id=config.group_id,
             threshold=config.similarity_threshold,
             limit=min(config.limit, 5),  # Limit starting points
+            user_id=config.user_id,
         )
 
         if not starting_entities:
@@ -315,7 +319,7 @@ class SearchEngine:
                 entity_type=result["entity_type"],
                 summary=result.get("summary", ""),
                 mentions=result["mentions"],
-                user_id=result["user_id"],
+                group_id=result["group_id"],
             )
             entities.append(entity)
             scores[entity_uuid] = result["similarity"]
@@ -349,7 +353,7 @@ class SearchEngine:
                             valid_at=rel.get("valid_at"),
                             invalid_at=rel.get("invalid_at"),
                             expired_at=rel.get("expired_at"),
-                            user_id=config.user_id,
+                            group_id=config.group_id,
                         )
                         edges.append(edge)
                         # Decay score by depth
@@ -364,7 +368,7 @@ class SearchEngine:
                             uuid=other_uuid,
                             name=rel["other_name"],
                             entity_type="ENTITY",  # Would need to fetch full details
-                            user_id=config.user_id,
+                            group_id=config.group_id,
                         )
                         entities.append(entity)
                         next_layer.append(other_uuid)
@@ -429,8 +433,8 @@ class SearchEngine:
             # Get entity from DB
             entity_data = self.db.get_entity_by_uuid(entity_uuid)
             if entity_data:
-                # Apply user_id filter
-                if entity_data["user_id"] == config.user_id:
+                # Apply group_id filter
+                if entity_data["group_id"] == config.group_id:
                     # Apply user_id filter if specified
                     if config.user_id is None or entity_data.get("user_id") == config.user_id:
                         entity = EntityNode(
@@ -439,6 +443,7 @@ class SearchEngine:
                             entity_type=entity_data["entity_type"],
                             summary=entity_data.get("summary", ""),
                             mentions=entity_data["mentions"],
+                            group_id=entity_data["group_id"],
                             user_id=_sanitize_user_id(entity_data.get("user_id")),
                         )
                         entities.append(entity)
@@ -455,8 +460,8 @@ class SearchEngine:
             # Get edge from DB
             edge_data = self.db.get_edge_by_uuid(edge_uuid)
             if edge_data:
-                # Apply user_id filter
-                if edge_data["user_id"] == config.user_id:
+                # Apply group_id filter
+                if edge_data["group_id"] == config.group_id:
                     edge = EntityEdge(
                         uuid=edge_data["uuid"],
                         source_node_uuid=edge_data["source_uuid"],
@@ -466,7 +471,7 @@ class SearchEngine:
                         valid_at=edge_data.get("valid_at"),
                         invalid_at=edge_data.get("invalid_at"),
                         expired_at=edge_data.get("expired_at"),
-                        user_id=edge_data["user_id"],
+                        group_id=edge_data["group_id"],
                     )
                     edges.append(edge)
                     scores[edge.uuid] = score

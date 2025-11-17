@@ -16,19 +16,19 @@ Example:
     # Add episodes
     ryumem.add_episode(
         content="Alice works at Google in Mountain View",
-        user_id="user_123",
+        group_id="user_123",
     )
 
     # Search
     results = ryumem.search(
         query="Where does Alice work?",
-        user_id="user_123",
+        group_id="user_123",
     )
 
     # Get entity context
     context = ryumem.get_entity_context(
         entity_name="Alice",
-        user_id="user_123",
+        group_id="user_123",
     )
 """
 

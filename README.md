@@ -14,7 +14,7 @@ Ryumem is a memory system inspired by the Zep paper, combining the best of mem0 
 - ⏱️ **Temporal decay scoring** - Recent facts automatically score higher with configurable decay
 - 🌐 **Community detection** - Automatic clustering of related entities using Louvain algorithm
 - 🧹 **Memory pruning & compaction** - Keep graphs efficient by removing obsolete data
-- 👥 **Full multi-tenancy** - Support for user_id, agent_id, session_id, user_id
+- 👥 **Full multi-tenancy** - Support for user_id, agent_id, session_id, group_id
 - ♻️ **Automatic contradiction handling** - Detects and invalidates outdated facts
 - 📊 **Incremental updates** - No batch reprocessing required
 
@@ -90,12 +90,12 @@ ryumem = Ryumem(
 # Add episodes
 ryumem.add_episode(
     content="Alice works at Google in Mountain View as a Software Engineer.",
-    user_id="user_123",
+    group_id="user_123",
 )
 
 ryumem.add_episode(
     content="Bob is Alice's colleague and recently moved to Meta.",
-    user_id="user_123",
+    group_id="user_123",
 )
 ```
 
@@ -123,7 +123,7 @@ ryumem = Ryumem(
 # Use exactly the same API - Ollama is a drop-in replacement!
 ryumem.add_episode(
     content="Alice works at Google in Mountain View.",
-    user_id="user_123",
+    group_id="user_123",
 )
 ```
 
@@ -143,7 +143,7 @@ See [examples/ollama_usage.py](examples/ollama_usage.py) for a complete example.
 # Search using hybrid strategy (semantic + BM25 + graph traversal)
 results = ryumem.search(
     query="Where does Alice work?",
-    user_id="user_123",
+    group_id="user_123",
     strategy="hybrid",  # Combines all search methods
     limit=10,
 )
@@ -159,7 +159,7 @@ for edge in results.edges:
 # Get comprehensive context for an entity
 context = ryumem.get_entity_context(
     entity_name="Alice",
-    user_id="user_123",
+    group_id="user_123",
 )
 
 print(f"Entity: {context['entity']['name']}")
@@ -277,21 +277,21 @@ Episodes are the fundamental unit of ingestion. Every piece of information start
 # Text episode
 ryumem.add_episode(
     content="Alice graduated from Stanford in 2018.",
-    user_id="user_123",
+    group_id="user_123",
     source="text",
 )
 
 # Message episode (conversational)
 ryumem.add_episode(
     content="user: Where did you go to school?\nassistant: I went to MIT.",
-    user_id="user_123",
+    group_id="user_123",
     source="message",
 )
 
 # JSON episode (structured data)
 ryumem.add_episode(
     content='{"person": "Bob", "company": "Meta", "role": "Engineer"}',
-    user_id="user_123",
+    group_id="user_123",
     source="json",
 )
 ```
@@ -303,7 +303,7 @@ Ryumem supports multiple levels of isolation:
 ```python
 ryumem.add_episode(
     content="...",
-    user_id="organization_1",      # Organization level
+    group_id="organization_1",      # Organization level
     user_id="user_123",             # User level
     agent_id="agent_assistant",     # Agent level
     session_id="session_xyz",       # Session level
@@ -312,7 +312,7 @@ ryumem.add_episode(
 # Search within specific scope
 results = ryumem.search(
     query="...",
-    user_id="organization_1",
+    group_id="organization_1",
     user_id="user_123",             # Optional: filter by user
 )
 ```
@@ -340,14 +340,14 @@ All strategies benefit from:
 
 ```python
 # Try different strategies
-results = ryumem.search("AI researchers", user_id="user_123", strategy="semantic")
-results = ryumem.search("machine learning", user_id="user_123", strategy="bm25")
-results = ryumem.search("tech companies", user_id="user_123", strategy="hybrid")
+results = ryumem.search("AI researchers", group_id="user_123", strategy="semantic")
+results = ryumem.search("machine learning", group_id="user_123", strategy="bm25")
+results = ryumem.search("tech companies", group_id="user_123", strategy="hybrid")
 
 # Customize temporal decay
 results = ryumem.search(
     query="recent news",
-    user_id="user_123",
+    group_id="user_123",
     strategy="hybrid",
     # Override temporal decay settings
 )

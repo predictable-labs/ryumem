@@ -54,7 +54,7 @@ class CommunityDetector:
 
     def detect_communities(
         self,
-        user_id: str,
+        group_id: str,
         resolution: float = 1.0,
         min_community_size: int = 2,
     ) -> int:
@@ -64,7 +64,7 @@ class CommunityDetector:
         Creates CommunityNode objects for each detected community.
 
         Args:
-            user_id: Group ID to detect communities for
+            group_id: Group ID to detect communities for
             resolution: Resolution parameter for Louvain (higher = more communities)
             min_community_size: Minimum number of entities in a community
 
@@ -76,14 +76,14 @@ class CommunityDetector:
             num_communities = detector.detect_communities("user_123")
             print(f"Created {num_communities} communities")
         """
-        logger.info(f"Detecting communities for group: {user_id}")
+        logger.info(f"Detecting communities for group: {group_id}")
 
         # Step 1: Fetch all entities and edges for this group
-        entities = self.db.get_all_entities(user_id)
-        edges = self.db.get_all_edges(user_id)
+        entities = self.db.get_all_entities(group_id)
+        edges = self.db.get_all_edges(group_id)
 
         if not entities:
-            logger.warning(f"No entities found for group {user_id}")
+            logger.warning(f"No entities found for group {group_id}")
             return 0
 
         logger.info(f"Building graph from {len(entities)} entities and {len(edges)} edges")
@@ -144,7 +144,7 @@ class CommunityDetector:
                 community = self._create_community(
                     community_id=i,
                     entity_uuids=list(community_entities),
-                    user_id=user_id,
+                    group_id=group_id,
                     graph=G,
                 )
 
@@ -161,14 +161,14 @@ class CommunityDetector:
                 logger.error(f"Error creating community {i}: {e}")
                 continue
 
-        logger.info(f"Successfully created {created_count} communities for group {user_id}")
+        logger.info(f"Successfully created {created_count} communities for group {group_id}")
         return created_count
 
     def _create_community(
         self,
         community_id: int,
         entity_uuids: List[str],
-        user_id: str,
+        group_id: str,
         graph: nx.Graph,
     ) -> CommunityNode:
         """
@@ -177,7 +177,7 @@ class CommunityDetector:
         Args:
             community_id: Community identifier
             entity_uuids: List of entity UUIDs in this community
-            user_id: Group ID
+            group_id: Group ID
             graph: NetworkX graph (for accessing entity data)
 
         Returns:
@@ -205,7 +205,7 @@ class CommunityDetector:
             summary=summary,
             members=entity_uuids,
             created_at=datetime.now(timezone.utc),
-            user_id=user_id,
+            group_id=group_id,
         )
 
     def _generate_community_summary(self, entity_infos: List[Dict]) -> str:
@@ -312,7 +312,7 @@ Summary:"""
 
     def update_communities(
         self,
-        user_id: str,
+        group_id: str,
         resolution: float = 1.0,
         min_community_size: int = 2,
     ) -> int:
@@ -322,7 +322,7 @@ Summary:"""
         Should be called periodically as the knowledge graph evolves.
 
         Args:
-            user_id: Group ID to update communities for
+            group_id: Group ID to update communities for
             resolution: Resolution parameter for Louvain
             min_community_size: Minimum community size
 
@@ -333,18 +333,18 @@ Summary:"""
             # Re-detect communities after adding many new entities
             num_communities = detector.update_communities("user_123")
         """
-        logger.info(f"Updating communities for group: {user_id}")
+        logger.info(f"Updating communities for group: {group_id}")
 
         # Delete existing communities for this group
         try:
-            self.db.delete_communities(user_id)
-            logger.info(f"Deleted existing communities for group {user_id}")
+            self.db.delete_communities(group_id)
+            logger.info(f"Deleted existing communities for group {group_id}")
         except Exception as e:
             logger.error(f"Error deleting existing communities: {e}")
 
         # Re-detect communities
         return self.detect_communities(
-            user_id=user_id,
+            group_id=group_id,
             resolution=resolution,
             min_community_size=min_community_size,
         )

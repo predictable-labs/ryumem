@@ -73,7 +73,7 @@ def main():
     for i, episode in enumerate(all_episodes, 1):
         ryumem.add_episode(
             content=episode,
-            user_id="demo_advanced",
+            group_id="demo_advanced",
             user_id="demo_user",
             source="text",
         )
@@ -90,7 +90,7 @@ def main():
 
     bm25_results = ryumem.search(
         query="machine learning natural language processing",
-        user_id="demo_advanced",
+        group_id="demo_advanced",
         strategy="bm25",  # Use pure BM25 search
         limit=5,
     )
@@ -114,7 +114,7 @@ def main():
         print(f"   Strategy: {strategy.upper()}")
         results = ryumem.search(
             query=query,
-            user_id="demo_advanced",
+            group_id="demo_advanced",
             strategy=strategy,
             limit=3,
         )
@@ -134,7 +134,7 @@ def main():
     # Search with temporal decay enabled (default)
     results_with_decay = ryumem.search(
         query="Alice's job",
-        user_id="demo_advanced",
+        group_id="demo_advanced",
         strategy="hybrid",
         limit=5,
     )
@@ -151,7 +151,7 @@ def main():
 
     config_no_decay = SearchConfig(
         query="Alice's job",
-        user_id="demo_advanced",
+        group_id="demo_advanced",
         strategy="hybrid",
         limit=5,
         apply_temporal_decay=False,  # Disable temporal decay
@@ -173,7 +173,7 @@ def main():
     print("   Using Louvain algorithm with LLM-generated summaries...\n")
 
     num_communities = ryumem.detect_communities(
-        user_id="demo_advanced",
+        group_id="demo_advanced",
         resolution=1.0,  # Standard resolution
         min_community_size=2,  # At least 2 entities per community
     )
@@ -192,7 +192,7 @@ def main():
     print("\n   Searching with community-aware context...")
     results = ryumem.search(
         query="AI research",
-        user_id="demo_advanced",
+        group_id="demo_advanced",
         strategy="hybrid",
         limit=5,
     )
@@ -214,7 +214,7 @@ def main():
 
     # Run pruning
     pruning_stats = ryumem.prune_memories(
-        user_id="demo_advanced",
+        group_id="demo_advanced",
         expired_cutoff_days=30,  # Remove facts expired > 30 days ago
         min_mentions=1,  # Keep entities with at least 1 mention
         compact_redundant=True,  # Merge similar relationships
@@ -241,7 +241,7 @@ def main():
     # Search for Alice's job history
     alice_context = ryumem.get_entity_context(
         entity_name="alice",
-        user_id="demo_advanced",
+        group_id="demo_advanced",
     )
 
     if alice_context and alice_context['relationships']:
@@ -276,7 +276,7 @@ def main():
     for decay in decay_factors:
         config = SearchConfig(
             query="Stanford research",
-            user_id="demo_advanced",
+            group_id="demo_advanced",
             strategy="semantic",
             limit=3,
             apply_temporal_decay=True,

@@ -117,6 +117,7 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     memory = add_memory_to_agent(
         weather_sentiment_agent,
         user_id=USER_ID,
+        ryumem_customer_id="demo_company",
         track_tools=True,  # 🎯 Track all tool usage
         track_queries=True,  # 🎯 Track user queries as episodes
         augment_queries=True,  # ✨ Augment queries with historical context

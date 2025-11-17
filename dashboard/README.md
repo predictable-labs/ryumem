@@ -182,14 +182,14 @@ import { api } from "@/lib/api";
 // Add episode
 await api.addEpisode({
   content: "Alice works at Google",
-  user_id: "user_123",
+  group_id: "user_123",
   source: "text"
 });
 
 // Search
 const results = await api.search({
   query: "Where does Alice work?",
-  user_id: "user_123",
+  group_id: "user_123",
   strategy: "hybrid",
   limit: 10
 });

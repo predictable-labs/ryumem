@@ -11,7 +11,7 @@ RETURN
     e.uuid AS uuid,
     e.name AS name,
     e.name_embedding IS NOT NULL AS has_embedding,
-    e.user_id AS user_id
+    e.group_id AS group_id
 LIMIT 10
 """
 
@@ -19,7 +19,7 @@ results = db.execute(query, {})
 
 print(f"Found {len(results)} entities:")
 for r in results:
-    print(f"  - {r['name']}: has_embedding={r['has_embedding']}, user_id={r['user_id']}")
+    print(f"  - {r['name']}: has_embedding={r['has_embedding']}, group_id={r['group_id']}")
 
 # Count total
 count_query = """

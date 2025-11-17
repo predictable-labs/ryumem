@@ -53,7 +53,7 @@ def main():
     for i, content in enumerate(episodes, 1):
         episode_id = ryumem.add_episode(
             content=content,
-            user_id="demo_user",
+            group_id="demo_user",
             user_id="demo_user",
             source="text",
         )
@@ -73,7 +73,7 @@ def main():
         print(f"\n   Query: '{query}'")
         results = ryumem.search(
             query=query,
-            user_id="demo_user",
+            group_id="demo_user",
             strategy="hybrid",
             limit=5,
         )
@@ -98,7 +98,7 @@ def main():
     print("\n4. Getting entity context...")
     context = ryumem.get_entity_context(
         entity_name="alice",
-        user_id="demo_user",
+        group_id="demo_user",
     )
 
     if context:

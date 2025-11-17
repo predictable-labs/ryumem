@@ -48,7 +48,7 @@ export function ChatInterface({ groupId, userId }: ChatInterfaceProps) {
     try {
       const searchResult = await api.search({
         query: query.trim(),
-        user_id: groupId,
+        group_id: groupId,
         user_id: userId,
         limit: 10,
         strategy,
