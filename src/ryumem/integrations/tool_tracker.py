@@ -52,11 +52,14 @@ _session_episode_map: Dict[tuple, str] = {}
 _session_episode_lock = threading.RLock()
 
 # Blacklist of Ryumem memory tools to prevent circular dependencies
-RYUMEM_TOOL_BLACKLIST = {
-    "search_memory",
-    "save_memory",
-    "get_entity_context",
-}
+# NOTE: Commented out - no actual circular dependency risk with current design
+# Uncomment if you want to exclude memory tools from analytics
+# RYUMEM_TOOL_BLACKLIST = {
+#     "search_memory",
+#     "save_memory",
+#     "get_entity_context",
+# }
+RYUMEM_TOOL_BLACKLIST = set()  # Empty set - track all tools
 
 
 def set_current_query_episode(episode_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
