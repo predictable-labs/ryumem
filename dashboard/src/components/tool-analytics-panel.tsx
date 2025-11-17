@@ -4,32 +4,29 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Wrench, TrendingUp, User, Target, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Wrench, TrendingUp, User, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { api } from '@/lib/api';
 
-interface ToolUsage {
+interface Tool {
+  uuid: string;
   tool_name: string;
-  usage_count: number;
-  success_rate: number;
-  avg_duration_ms: number;
-  examples?: Array<{
-    input: any;
-    output: string;
-    success: boolean;
-  }>;
+  description: string;
+  mentions: number;
+  created_at: string;
 }
 
 interface ToolMetrics {
   tool_name: string;
   usage_count: number;
   success_rate: number;
-  failure_count: number;
   avg_duration_ms: number;
-  task_types: Record<string, number>;
-  recent_errors: Array<{
-    error: string;
-    timestamp: string;
-  }>;
+  recent_errors: string[];
+}
+
+interface ToolPreference {
+  tool_name: string;
+  usage_count: number;
+  last_used: string;
 }
 
 interface ToolAnalyticsPanelProps {
@@ -38,36 +35,29 @@ interface ToolAnalyticsPanelProps {
 }
 
 export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps) {
-  const [taskType, setTaskType] = useState('information_retrieval');
-  const [toolsForTask, setToolsForTask] = useState<ToolUsage[]>([]);
+  const [tools, setTools] = useState<Tool[]>([]);
   const [selectedTool, setSelectedTool] = useState<string>('');
   const [toolMetrics, setToolMetrics] = useState<ToolMetrics | null>(null);
-  const [userPreferences, setUserPreferences] = useState<ToolUsage[]>([]);
+  const [userPreferences, setUserPreferences] = useState<ToolPreference[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load tools for the selected task type
+  // Load all tools
   useEffect(() => {
-    const loadToolsForTask = async () => {
+    const loadTools = async () => {
       setIsLoading(true);
       try {
-        const tools = await api.getToolsForTask(taskType, groupId, userId);
-        const formatted: ToolUsage[] = tools.map((tool) => ({
-          name: tool.tool_name,
-          count: tool.usage_count,
-          successRate: tool.success_rate,
-          avgDuration: tool.avg_duration_ms,
-        }));
-        setToolsForTask(formatted);
+        const allTools = await api.getAllTools();
+        setTools(allTools);
       } catch (error) {
-        console.error("Failed to load tools for task:", error);
-        setToolsForTask([]);
+        console.error("Failed to load tools:", error);
+        setTools([]);
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadToolsForTask();
-  }, [groupId, userId, taskType]);
+    loadTools();
+  }, []);
 
   const handleLoadToolMetrics = async (toolName: string) => {
     setSelectedTool(toolName);
@@ -75,23 +65,10 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
 
     try {
       const metrics = await api.getToolMetrics(toolName, groupId, userId);
-
-      // Update the selected tool's detailed metrics
-      const toolUsage: ToolUsage = {
-        name: metrics.tool_name,
-        count: metrics.usage_count,
-        successRate: metrics.success_rate,
-        avgDuration: metrics.avg_duration_ms,
-        taskTypes: metrics.task_types,
-        errors: metrics.recent_errors,
-      };
-
-      // Update the tools list with detailed info
-      setToolsForTask((prev) =>
-        prev.map((tool) => (tool.name === toolName ? toolUsage : tool))
-      );
+      setToolMetrics(metrics);
     } catch (error) {
       console.error("Failed to load tool metrics:", error);
+      setToolMetrics(null);
     } finally {
       setIsLoading(false);
     }
@@ -103,13 +80,7 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
     setIsLoading(true);
     try {
       const prefs = await api.getUserToolPreferences(userId, groupId);
-      const formatted: ToolUsage[] = prefs.map((pref) => ({
-        name: pref.tool_name,
-        count: pref.usage_count,
-        successRate: 0, // Not available in preferences endpoint
-        avgDuration: 0, // Not available in preferences endpoint
-      }));
-      setUserPreferences(formatted);
+      setUserPreferences(prefs);
     } catch (error) {
       console.error("Failed to load user preferences:", error);
       setUserPreferences([]);
@@ -125,92 +96,58 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
     }
   }, [userId, groupId]);
 
-  const taskTypes = [
-    'information_retrieval',
-    'data_transformation',
-    'calculation',
-    'external_api',
-    'file_operation',
-    'database_operation',
-    'communication',
-    'automation',
-    'analysis',
-  ];
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-bold flex items-center gap-2">
           <Wrench className="h-6 w-6" />
-          Tool Usage Analytics
+          Tool Analytics
         </h2>
         <p className="text-muted-foreground mt-1">
-          Analyze tool performance, success rates, and usage patterns
+          View registered tools and their performance metrics
         </p>
       </div>
 
-      {/* Tools by Task Type */}
+      {/* All Tools */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Target className="h-5 w-5" />
-            Tools by Task Type
+            <Wrench className="h-5 w-5" />
+            Registered Tools
           </CardTitle>
           <CardDescription>
-            Discover which tools work best for different types of tasks
+            All tools available in the system
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {/* Task type selector */}
-            <div>
-              <label className="text-sm font-medium mb-2 block">Select Task Type:</label>
-              <div className="flex flex-wrap gap-2">
-                {taskTypes.map((type) => (
-                  <Badge
-                    key={type}
-                    variant={taskType === type ? "default" : "outline"}
-                    className="cursor-pointer"
-                    onClick={() => setTaskType(type)}
-                  >
-                    {type.replace(/_/g, ' ')}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-
-            {/* Tools list */}
-            <div className="space-y-2">
-              {toolsForTask.length > 0 ? (
-                toolsForTask.map((tool) => (
-                  <div
-                    key={tool.tool_name}
-                    className="p-4 border rounded-lg hover:bg-accent cursor-pointer"
-                    onClick={() => handleLoadToolMetrics(tool.tool_name)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-semibold">{tool.tool_name}</h4>
-                        <p className="text-sm text-muted-foreground">
-                          {tool.usage_count} uses • {(tool.success_rate * 100).toFixed(1)}% success
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <Badge variant={tool.success_rate > 0.9 ? "default" : "secondary"}>
-                          {tool.avg_duration_ms}ms avg
-                        </Badge>
-                      </div>
+          <div className="space-y-2">
+            {tools.length > 0 ? (
+              tools.map((tool) => (
+                <div
+                  key={tool.uuid}
+                  className="p-4 border rounded-lg hover:bg-accent cursor-pointer"
+                  onClick={() => handleLoadToolMetrics(tool.tool_name)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-semibold">{tool.tool_name}</h4>
+                      <p className="text-sm text-muted-foreground">
+                        {tool.description}
+                      </p>
                     </div>
+                    <Badge variant="outline">
+                      {tool.mentions || 0} mentions
+                    </Badge>
                   </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>No tool usage data for "{taskType}"</p>
-                  <p className="text-sm mt-2">Run some tools to see analytics here</p>
                 </div>
-              )}
-            </div>
+              ))
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <p>No tools registered yet</p>
+                <p className="text-sm mt-2">Register tools at startup to see them here</p>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -221,14 +158,14 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
-              {selectedTool} - Detailed Metrics
+              {selectedTool} - Metrics
             </CardTitle>
             <CardDescription>
               Performance analysis and error tracking
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
               <div className="text-center p-4 border rounded-lg">
                 <div className="text-2xl font-bold">{toolMetrics.usage_count}</div>
                 <div className="text-sm text-muted-foreground">Total Uses</div>
@@ -243,33 +180,6 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
                 <div className="text-2xl font-bold">{toolMetrics.avg_duration_ms}ms</div>
                 <div className="text-sm text-muted-foreground">Avg Duration</div>
               </div>
-              <div className="text-center p-4 border rounded-lg">
-                <div className="text-2xl font-bold text-red-600">{toolMetrics.failure_count}</div>
-                <div className="text-sm text-muted-foreground">Failures</div>
-              </div>
-            </div>
-
-            {/* Task Types Distribution */}
-            <div className="mb-6">
-              <h4 className="font-semibold mb-3">Task Types Distribution</h4>
-              <div className="space-y-2">
-                {Object.entries(toolMetrics.task_types).map(([task, count]) => (
-                  <div key={task} className="flex items-center justify-between">
-                    <span className="text-sm">{task.replace(/_/g, ' ')}</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary"
-                          style={{
-                            width: `${(count / toolMetrics.usage_count) * 100}%`,
-                          }}
-                        />
-                      </div>
-                      <span className="text-sm font-medium w-12 text-right">{count}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
 
             {/* Recent Errors */}
@@ -282,8 +192,7 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
                 <div className="space-y-2">
                   {toolMetrics.recent_errors.map((error, idx) => (
                     <div key={idx} className="p-3 border border-red-200 rounded-lg bg-red-50">
-                      <p className="text-sm text-red-800">{error.error}</p>
-                      <p className="text-xs text-red-600 mt-1">{error.timestamp}</p>
+                      <p className="text-sm text-red-800">{error}</p>
                     </div>
                   ))}
                 </div>
@@ -319,7 +228,7 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
                     <div>
                       <h4 className="font-medium">{pref.tool_name}</h4>
                       <p className="text-sm text-muted-foreground">
-                        {pref.usage_count} uses • {(pref.success_rate * 100).toFixed(1)}% success
+                        {pref.usage_count} uses • Last used: {new Date(pref.last_used).toLocaleDateString()}
                       </p>
                     </div>
                     <CheckCircle className="h-5 w-5 text-green-600" />
@@ -334,26 +243,6 @@ export function ToolAnalyticsPanel({ groupId, userId }: ToolAnalyticsPanelProps)
           </CardContent>
         </Card>
       )}
-
-      {/* Implementation Note */}
-      <Card className="border-dashed">
-        <CardContent className="pt-6">
-          <div className="text-center text-sm text-muted-foreground">
-            <p className="font-medium mb-2">📝 Implementation Note</p>
-            <p>
-              Tool analytics API endpoints exist in the backend at:
-            </p>
-            <ul className="mt-2 space-y-1">
-              <li>• <code className="text-xs bg-muted px-2 py-1 rounded">GET /tools/for-task</code></li>
-              <li>• <code className="text-xs bg-muted px-2 py-1 rounded">GET /tools/{'{'}tool_name{'}'}/metrics</code></li>
-              <li>• <code className="text-xs bg-muted px-2 py-1 rounded">GET /users/{'{'}user_id{'}'}/tool-preferences</code></li>
-            </ul>
-            <p className="mt-3 text-xs">
-              These endpoints need to be added to the backend server to enable full analytics.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
