@@ -52,7 +52,7 @@ def main():
         print(f"   --- Attempt {i} ---")
         episode_id = ryumem.add_episode(
             content=test_episode,
-            group_id="dedup_test_user",
+            user_id="dedup_test_user",
             user_id="dedup_test_user",
             source="text",
         )

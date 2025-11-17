@@ -274,7 +274,7 @@ curl -X POST http://localhost:8000/episodes \
   -H "Content-Type: application/json" \
   -d '{
     "content": "Alice works at Google",
-    "group_id": "test",
+    "user_id": "test",
     "source": "text"
   }'
 
@@ -283,12 +283,12 @@ curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
   -d '{
     "query": "Where does Alice work?",
-    "group_id": "test",
+    "user_id": "test",
     "strategy": "hybrid"
   }'
 
 # Get stats
-curl http://localhost:8000/stats?group_id=test
+curl http://localhost:8000/stats?user_id=test
 ```
 
 ### Test Dashboard

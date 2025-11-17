@@ -82,7 +82,7 @@ def main():
     for i, content in enumerate(episodes, 1):
         episode_id = ryumem.add_episode(
             content=content,
-            group_id="ollama_user",
+            user_id="ollama_user",
             user_id="ollama_user",
             source="text",
         )
@@ -102,7 +102,7 @@ def main():
         print(f"\n   Query: '{query}'")
         results = ryumem.search(
             query=query,
-            group_id="ollama_user",
+            user_id="ollama_user",
             strategy="hybrid",
             limit=3,
             min_rrf_score=0.0325,
