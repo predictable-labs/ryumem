@@ -29,6 +29,7 @@ class QueryRun(BaseModel):
     augmented_query: Optional[str] = None  # Query with historical context added
     agent_response: str = ""
     tools_used: list[ToolExecution] = Field(default_factory=list)
+    llm_saved_memory: str = ""  # Memory saved by LLM during this run
 
 
 class EpisodeMetadata(BaseModel):

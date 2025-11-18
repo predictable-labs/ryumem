@@ -148,19 +148,40 @@ class RyumemGoogleADK:
         Returns:
             Dict with status and episode_id
         """
+        from .tool_tracker import get_current_query_episode
+
         # Use provided user_id or fall back to instance default
         effective_user_id = user_id or self.user_id
 
-        # Use provided extract_entities or fall back to instance default
-        effective_extract_entities = extract_entities if extract_entities is not None else self.extract_entities
-
-        logger.info(f"Saving memory for user '{effective_user_id}': {content[:50]}... (extract_entities={effective_extract_entities if effective_extract_entities is not None else 'config default'})")
+        logger.info(f"Saving memory for user '{effective_user_id}': {content[:50]}...")
 
         try:
-            # Validate source type
+            # Try to get current query episode
+            parent_episode_id = get_current_query_episode(session_id=None, user_id=effective_user_id)
+
+            # If we have a parent query episode, append to it
+            if parent_episode_id:
+                try:
+                    from google.adk.tools import tool_context
+                    session_id = tool_context.get('session_id')
+
+                    if session_id:
+                        logger.info(f"Appending memory to query episode: {parent_episode_id}")
+                        self._update_episode_with_memory(parent_episode_id, session_id, content)
+                        return {
+                            "status": "success",
+                            "episode_id": parent_episode_id,
+                            "message": "Memory appended to current query episode"
+                        }
+                except (ImportError, AttributeError):
+                    logger.debug("Could not get session_id from tool_context")
+
+            # Fallback: Create new episode
+            effective_extract_entities = extract_entities if extract_entities is not None else self.extract_entities
+
             valid_sources = ["text", "message", "json"]
             if source not in valid_sources:
-                source = "text"  # Default to text if invalid
+                source = "text"
 
             episode_id = self.ryumem.add_episode(
                 content=content,
@@ -181,6 +202,27 @@ class RyumemGoogleADK:
                 "status": "error",
                 "message": str(e)
             }
+
+    def _update_episode_with_memory(self, episode_id: str, session_id: str, content: str) -> None:
+        """Update episode metadata to append saved memory."""
+        episode = self.ryumem.db.get_episode_by_uuid(episode_id)
+        if not episode:
+            raise ValueError(f"Episode {episode_id} not found")
+
+        metadata_dict = json.loads(episode['metadata']) if isinstance(episode['metadata'], str) else episode['metadata']
+        episode_metadata = EpisodeMetadata(**metadata_dict)
+
+        latest_run = episode_metadata.get_latest_run(session_id)
+        if not latest_run:
+            raise ValueError(f"No run found for session {session_id} in episode {episode_id}")
+
+        if latest_run.llm_saved_memory:
+            latest_run.llm_saved_memory += "\n" + content
+        else:
+            latest_run.llm_saved_memory = content
+
+        self.ryumem.db.update_episode_metadata(episode_id, episode_metadata.model_dump())
+        logger.debug(f"Appended memory to episode {episode_id} session {session_id[:8]}")
 
     def get_entity_context(self, entity_name: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
