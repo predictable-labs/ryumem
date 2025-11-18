@@ -768,13 +768,16 @@ def _prepare_query_and_episode(
             query_text, memory, user_id, similarity_threshold, top_k_similar
         )
 
-        # Update message if query was augmented
+        # Update message if context was added (query text might be same but context added)
         if augmented_query_text != original_query_text:
             logger.info(f"Query augmented (+{len(augmented_query_text) - len(original_query_text)} chars)")
             augmented_message = types.Content(
                 role='user',
                 parts=[types.Part(text=augmented_query_text)]
             )
+        else:
+            # Query text unchanged, but make sure to use it in message anyway
+            augmented_query_text = original_query_text
     else:
         augmented_query_text = original_query_text
 
@@ -968,6 +971,11 @@ def wrap_runner_with_tracking(
                 set_current_query_episode(query_episode_id, session_id=session_id, user_id=user_id)
 
             # Call original run_async - it returns an async generator directly
+            # Log what we're actually sending to the agent
+            if hasattr(augmented_message, 'parts') and augmented_message.parts:
+                msg_text = ''.join([p.text for p in augmented_message.parts if hasattr(p, 'text')])
+                logger.info(f"Sending to agent: {msg_text[:300]}...")
+
             event_stream = original_run_async(
                 user_id=user_id,
                 session_id=session_id,
