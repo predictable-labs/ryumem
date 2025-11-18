@@ -545,16 +545,12 @@ def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> Lis
 
 def _build_context_section(similar_queries: List[Dict[str, Any]], memory: RyumemGoogleADK, top_k: int) -> str:
     """Build historical context string from similar queries and their tool executions."""
-    context_parts = ["\n\n[IMPORTANT - Learn from Past Attempts:"]
+    context_parts = ["\n\n[CRITICAL INSTRUCTION: You attempted this query before and it FAILED. DO NOT repeat the same approach. You MUST try a completely different strategy.\n\nPrevious failed attempts:"]
 
     for idx, similar in enumerate(similar_queries[:top_k if top_k > 0 else len(similar_queries)], 1):
-        query_content = similar["content"]
         query_metadata = similar.get("metadata")
-        similarity_score = similar["score"]
 
-        context_parts.append(f"\n{idx}. Previous similar query: \"{query_content}\"")
-
-        # Parse metadata to get agent response and tools
+        # Parse metadata to get tools only (skip verbose response)
         try:
             if not query_metadata:
                 continue
@@ -562,29 +558,15 @@ def _build_context_section(similar_queries: List[Dict[str, Any]], memory: Ryumem
             metadata_dict = json.loads(query_metadata) if isinstance(query_metadata, str) else query_metadata
             episode_metadata = EpisodeMetadata(**metadata_dict)
 
-            # Get agent response from all runs
-            agent_response = None
-            for runs in episode_metadata.sessions.values():
-                for run in runs:
-                    if run.agent_response:
-                        agent_response = run.agent_response
-                        break
-                if agent_response:
-                    break
-
-            # Show what happened
-            if agent_response:
-                context_parts.append(f"   Previous approach: {agent_response}")
-
             # Get tool usage summary
             tool_summary = episode_metadata.get_tool_usage_summary()
             if tool_summary:
-                context_parts.append(f"   Tools used: {tool_summary}")
+                context_parts.append(f"\n- Failed with: {tool_summary}")
 
         except Exception as e:
             logger.warning(f"Failed to parse query metadata: {e}")
 
-    context_parts.append("\n\nIMPORTANT: Learn from the above. If the previous approach failed, try a DIFFERENT strategy. Don't repeat the same failed attempts.]\n")
+    context_parts.append("\n\nREQUIRED: Try a DIFFERENT approach than above. Think of what you did NOT try yet.]\n")
     return ''.join(context_parts)
 
 
