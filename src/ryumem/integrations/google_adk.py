@@ -63,14 +63,16 @@ class RyumemGoogleADK:
         ryumem: Ryumem,
         ryumem_customer_id: str,
         user_id: Optional[str] = None,
-        auto_save: bool = False
+        auto_save: bool = False,
+        extract_entities: Optional[bool] = None
     ):
         self.ryumem = ryumem
         self.ryumem_customer_id = ryumem_customer_id
         self.user_id = user_id  # Default user_id, can be None
         self.auto_save = auto_save
+        self.extract_entities = extract_entities  # Default entity extraction override
 
-        logger.info(f"Initialized RyumemGoogleADK for customer: {ryumem_customer_id}, default_user: {user_id or 'dynamic'}")
+        logger.info(f"Initialized RyumemGoogleADK for customer: {ryumem_customer_id}, default_user: {user_id or 'dynamic'}, extract_entities: {extract_entities if extract_entities is not None else 'config default'}")
 
     def search_memory(self, query: str, user_id: Optional[str] = None, limit: int = 5) -> Dict[str, Any]:
         """
@@ -129,7 +131,7 @@ class RyumemGoogleADK:
                 "message": str(e)
             }
 
-    def save_memory(self, content: str, user_id: Optional[str] = None, source: str = "text") -> Dict[str, Any]:
+    def save_memory(self, content: str, user_id: Optional[str] = None, source: str = "text", extract_entities: Optional[bool] = None) -> Dict[str, Any]:
         """
         Auto-generated save function for persisting memories.
 
@@ -139,6 +141,7 @@ class RyumemGoogleADK:
             content: Information to save to memory
             user_id: User identifier (optional - uses instance default if not provided)
             source: Episode type - must be "text", "message", or "json"
+            extract_entities: Override config/instance setting for entity extraction (None uses instance/config default)
 
         Returns:
             Dict with status and episode_id
@@ -146,7 +149,10 @@ class RyumemGoogleADK:
         # Use provided user_id or fall back to instance default
         effective_user_id = user_id or self.user_id
 
-        logger.info(f"Saving memory for user '{effective_user_id}': {content[:50]}...")
+        # Use provided extract_entities or fall back to instance default
+        effective_extract_entities = extract_entities if extract_entities is not None else self.extract_entities
+
+        logger.info(f"Saving memory for user '{effective_user_id}': {content[:50]}... (extract_entities={effective_extract_entities if effective_extract_entities is not None else 'config default'})")
 
         try:
             # Validate source type
@@ -158,7 +164,8 @@ class RyumemGoogleADK:
                 content=content,
                 user_id=effective_user_id,
                 source=source,
-                metadata={"integration": "google_adk"}
+                metadata={"integration": "google_adk"},
+                extract_entities=effective_extract_entities
             )
             logger.info(f"Saved memory for user '{effective_user_id}' with episode_id: {episode_id}")
             return {
@@ -238,6 +245,7 @@ def add_memory_to_agent(
     augment_queries: bool = True,
     similarity_threshold: float = 0.3,
     top_k_similar: int = 5,
+    extract_entities: Optional[bool] = None,
     **kwargs
 ) -> RyumemGoogleADK:
     """
@@ -265,7 +273,9 @@ def add_memory_to_agent(
         similarity_threshold: Minimum similarity score for query matching (0.0-1.0, default: 0.3)
                             Lower = more matches, higher = stricter matches
         top_k_similar: Number of similar queries to consider for augmentation (default: 5, -1 for all)
-        **kwargs: Additional arguments for Ryumem constructor (llm_provider, llm_model)
+        extract_entities: Override config setting for entity extraction (None uses config default, False disables, True enables)
+                         This controls whether episodes trigger entity/relationship extraction (reduces token usage when False)
+        **kwargs: Additional arguments for Ryumem constructor (llm_provider, llm_model, enable_entity_extraction)
                   and tool tracking config (sampling_rate, etc.)
 
     Returns:
@@ -401,7 +411,8 @@ def add_memory_to_agent(
     memory = RyumemGoogleADK(
         ryumem=ryumem,
         ryumem_customer_id=ryumem_customer_id,
-        user_id=user_id
+        user_id=user_id,
+        extract_entities=extract_entities
     )
 
     # Store augmentation config for use by wrap_runner_with_tracking()
@@ -702,6 +713,7 @@ def wrap_runner_with_tracking(
                         augmented_query_text = None  # No augmentation occurred
 
                 # Create episode for user query (store ORIGINAL query, not augmented)
+                # Use memory.extract_entities setting if available
                 query_episode_id = memory.ryumem.add_episode(
                     content=original_query_text,  # Store original for similarity matching
                     user_id=user_id,
@@ -717,7 +729,8 @@ def wrap_runner_with_tracking(
                             "similarity_threshold": similarity_threshold,
                             "top_k_similar": top_k_similar,
                         } if augment_queries else None,
-                    }
+                    },
+                    extract_entities=memory.extract_entities  # Use memory's default setting
                 )
 
                 # Store in multiple places for maximum reliability:

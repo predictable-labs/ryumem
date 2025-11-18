@@ -68,6 +68,10 @@ class RyumemConfig(BaseModel):
     )
 
     # Extraction settings
+    enable_entity_extraction: bool = Field(
+        default=False,
+        description="Whether to enable entity extraction during ingestion (disabled by default to reduce token usage)"
+    )
     entity_similarity_threshold: float = Field(
         default=0.65,
         description="Cosine similarity threshold for entity deduplication (0.0-1.0). Lowered to 0.65 for better deduplication.",
@@ -257,7 +261,7 @@ class RyumemConfig(BaseModel):
                 config_dict[key] = float(env_value)
 
         # Add optional boolean settings
-        for key in ["enable_community_detection", "read_only"]:
+        for key in ["enable_entity_extraction", "enable_community_detection", "read_only"]:
             env_key = f"RYUMEM_{key.upper()}"
             env_value = os.getenv(env_key)
             if env_value:

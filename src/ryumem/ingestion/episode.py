@@ -36,6 +36,7 @@ class EpisodeIngestion:
         relationship_similarity_threshold: float = 0.8,
         max_context_episodes: int = 5,
         bm25_index: Optional["BM25Index"] = None,
+        enable_entity_extraction: bool = False,
     ):
         """
         Initialize episode ingestion pipeline.
@@ -48,12 +49,14 @@ class EpisodeIngestion:
             relationship_similarity_threshold: Threshold for relationship deduplication
             max_context_episodes: Maximum number of previous episodes to use as context
             bm25_index: Optional BM25 index for keyword search
+            enable_entity_extraction: Whether to enable entity extraction (default: False)
         """
         self.db = db
         self.llm_client = llm_client
         self.embedding_client = embedding_client
         self.max_context_episodes = max_context_episodes
         self.bm25_index = bm25_index
+        self.enable_entity_extraction = enable_entity_extraction
 
         # Initialize extractors
         self.entity_extractor = EntityExtractor(
@@ -70,7 +73,7 @@ class EpisodeIngestion:
             similarity_threshold=relationship_similarity_threshold,
         )
 
-        logger.info("Initialized EpisodeIngestion pipeline")
+        logger.info(f"Initialized EpisodeIngestion pipeline (entity_extraction={'enabled' if enable_entity_extraction else 'disabled'})")
 
     def ingest(
         self,
@@ -82,6 +85,7 @@ class EpisodeIngestion:
         source_description: str = "",
         metadata: Optional[Dict] = None,
         name: Optional[str] = None,
+        extract_entities: Optional[bool] = None,
     ) -> str:
         """
         Ingest a new episode and extract entities/relationships.
@@ -90,12 +94,12 @@ class EpisodeIngestion:
 
         Pipeline:
         1. Create episode node
-        2. Get context from previous episodes
-        3. Extract entities and resolve against existing
-        4. Extract relationships and resolve against existing
-        5. Create MENTIONS edges from episode to entities
-        6. Detect and invalidate contradicting edges
-        7. Update entity summaries
+        2. Get context from previous episodes (if entity extraction enabled)
+        3. Extract entities and resolve against existing (if enabled)
+        4. Extract relationships and resolve against existing (if enabled)
+        5. Create MENTIONS edges from episode to entities (if entities extracted)
+        6. Detect and invalidate contradicting edges (if enabled)
+        7. Update entity summaries (if enabled)
 
         Args:
             content: Episode content (text, message, or JSON)
@@ -106,10 +110,15 @@ class EpisodeIngestion:
             source_description: Description of the source
             metadata: Optional metadata dictionary
             name: Optional name for the episode
+            extract_entities: Override instance setting for entity extraction (None uses instance default)
 
         Returns:
             UUID of the created episode
         """
+        # Determine whether to extract entities for this request
+        # Per-request override takes precedence over instance setting
+        should_extract_entities = extract_entities if extract_entities is not None else self.enable_entity_extraction
+
         # Check for duplicate episode FIRST (before expensive LLM calls)
         existing_episode = self.db.find_similar_episode(
             content=content,
@@ -163,27 +172,37 @@ class EpisodeIngestion:
         logger.info(f"⏱️  [TIMING] Step 1 - Create episode node with embedding: {step_duration:.2f}s")
         logger.debug(f"Created episode node: {episode_uuid}")
 
-        # Step 2: Get context from previous episodes
-        step_start = datetime.utcnow()
-        context = self._get_episode_context(
-            user_id=user_id,
-            session_id=session_id,
-        )
-        step_duration = (datetime.utcnow() - step_start).total_seconds()
-        logger.info(f"⏱️  [TIMING] Step 2 - Get episode context: {step_duration:.2f}s")
+        # Step 2: Get context from previous episodes (only if entity extraction is enabled)
+        if should_extract_entities:
+            step_start = datetime.utcnow()
+            context = self._get_episode_context(
+                user_id=user_id,
+                session_id=session_id,
+            )
+            step_duration = (datetime.utcnow() - step_start).total_seconds()
+            logger.info(f"⏱️  [TIMING] Step 2 - Get episode context: {step_duration:.2f}s")
+        else:
+            context = []
+            logger.info(f"Entity extraction disabled for episode {episode_uuid}, skipping context retrieval")
 
-        # Step 3: Extract and resolve entities
-        step_start = datetime.utcnow()
-        entities, entity_map = self.entity_extractor.extract_and_resolve(
-            content=content,
-            user_id=user_id,
-            context=context,
-        )
-        step_duration = (datetime.utcnow() - step_start).total_seconds()
-        logger.info(f"⏱️  [TIMING] Step 3 - Extract and resolve entities: {step_duration:.2f}s ({len(entities)} entities)")
+        # Step 3: Extract and resolve entities (OPTIONAL - controlled by flag)
+        if should_extract_entities:
+            step_start = datetime.utcnow()
+            entities, entity_map = self.entity_extractor.extract_and_resolve(
+                content=content,
+                user_id=user_id,
+                context=context,
+            )
+            step_duration = (datetime.utcnow() - step_start).total_seconds()
+            logger.info(f"⏱️  [TIMING] Step 3 - Extract and resolve entities: {step_duration:.2f}s ({len(entities)} entities)")
 
-        if not entities:
-            logger.info(f"No entities extracted for episode {episode_uuid}")
+            if not entities:
+                logger.info(f"No entities extracted for episode {episode_uuid}")
+                return episode_uuid
+        else:
+            entities = []
+            entity_map = {}
+            logger.info(f"Entity extraction disabled for episode {episode_uuid}, skipping Steps 3-7")
             return episode_uuid
 
         # Add entities to BM25 index

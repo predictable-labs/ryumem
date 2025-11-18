@@ -181,6 +181,7 @@ class Ryumem:
             relationship_similarity_threshold=config.relationship_similarity_threshold,
             max_context_episodes=config.max_context_episodes,
             bm25_index=self.search_engine.bm25_index,
+            enable_entity_extraction=config.enable_entity_extraction,
         )
 
         # Initialize community detector
@@ -202,17 +203,18 @@ class Ryumem:
         session_id: Optional[str] = None,
         source: str = "text",
         metadata: Optional[Dict] = None,
+        extract_entities: Optional[bool] = None,
     ) -> str:
         """
         Add a new episode to the memory system.
 
         This is the main ingestion method. It will:
         1. Create an episode node
-        2. Extract entities and resolve against existing
-        3. Extract relationships and resolve against existing
-        4. Create MENTIONS edges
-        5. Detect and invalidate contradicting facts
-        6. Update entity summaries
+        2. Extract entities and resolve against existing (if enabled)
+        3. Extract relationships and resolve against existing (if enabled)
+        4. Create MENTIONS edges (if entities extracted)
+        5. Detect and invalidate contradicting facts (if enabled)
+        6. Update entity summaries (if enabled)
 
         Args:
             content: Episode content (text, message, or JSON)
@@ -221,6 +223,7 @@ class Ryumem:
             session_id: Optional session ID
             source: Type of episode ("text", "message", or "json")
             metadata: Optional metadata dictionary
+            extract_entities: Override config setting for entity extraction (None uses config default)
 
         Returns:
             UUID of the created episode
@@ -230,6 +233,7 @@ class Ryumem:
                 content="Alice works at Google in Mountain View",
                 user_id="user_123",
                 source="text",
+                extract_entities=False,  # Skip entity extraction for this episode
             )
         """
         # Convert source string to EpisodeType
@@ -242,6 +246,7 @@ class Ryumem:
             session_id=session_id,
             source=source_type,
             metadata=metadata,
+            extract_entities=extract_entities,
         )
 
         # Persist BM25 index to disk after ingestion

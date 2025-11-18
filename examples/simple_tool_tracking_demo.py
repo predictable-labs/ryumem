@@ -135,6 +135,7 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
         llm_provider="ollama",
         llm_model="qwen2.5:7b",
         ollama_base_url="http://100.108.18.43:11434/",
+        extract_entities=True,
         # llm_provider="openai",
         # llm_model="gpt-4o",
     )

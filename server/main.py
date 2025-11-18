@@ -101,13 +101,15 @@ class AddEpisodeRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="Optional session ID")
     source: str = Field("text", description="Episode source type: text, message, or json")
     metadata: Optional[Dict] = Field(None, description="Optional metadata")
+    extract_entities: Optional[bool] = Field(None, description="Override config setting for entity extraction (None uses config default)")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "content": "Alice works at Google as a Software Engineer in Mountain View.",
                 "user_id": "user_123",
-                "source": "text"
+                "source": "text",
+                "extract_entities": False
             }
         }
 
@@ -344,6 +346,7 @@ async def add_episode(
             session_id=request.session_id,
             source=request.source,
             metadata=request.metadata,
+            extract_entities=request.extract_entities,
         )
 
         return AddEpisodeResponse(

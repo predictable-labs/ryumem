@@ -409,12 +409,31 @@ agent = genai.Agent(
 )
 
 # Enable memory - that's it! 🎉
-add_memory_to_agent(agent, user_id="user_123")
+add_memory_to_agent(
+    agent,
+    ryumem_customer_id="my_company",
+    user_id="user_123",
+    extract_entities=False  # Disable entity extraction to reduce token usage (default: False)
+)
 
 # Agent now has 3 auto-generated memory tools:
 # - search_memory() - Find relevant information
 # - save_memory() - Store new information
 # - get_entity_context() - Get full context about entities
+```
+
+**Entity Extraction Control:**
+- `extract_entities=False` (default): Episodes are stored but entities/relationships are NOT extracted (saves 30-50% tokens)
+- `extract_entities=True`: Full knowledge graph extraction (entities, relationships, contradictions)
+- `extract_entities=None`: Uses config setting from `enable_entity_extraction` in RyumemConfig
+
+You can also control entity extraction per memory save:
+```python
+# Override at tool call level
+memory.save_memory(
+    content="Important fact to extract entities from",
+    extract_entities=True  # Enable for this specific save
+)
 ```
 
 **Why Ryumem > mem0?**
