@@ -385,7 +385,9 @@ def add_memory_to_agent(
             tool_tracking_kwargs[key] = value
     
     if ryumem_instance is None:
-        ryumem = Ryumem(config=RyumemConfig())
+        config = RyumemConfig()
+        config.auto_configure_google_adk_settings()
+        ryumem = Ryumem(config=config)
         logger.info("Using provided Ryumem instance")
     else:
         ryumem = ryumem_instance

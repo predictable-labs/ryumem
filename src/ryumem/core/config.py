@@ -378,6 +378,42 @@ class RyumemConfig(BaseSettings):
                 "GOOGLE_API_KEY is required when using embedding provider='gemini'. "
                 "Set it with: export GOOGLE_API_KEY=your-key"
             )
+    
+    def auto_configure_google_adk_settings(self) -> None:
+        # AUTO-DETECTION LOGIC for Google ADK integration
+        # Check for GOOGLE_API_KEY in environment
+        google_api_key = self.llm.gemini_api_key
+
+        if not google_api_key:
+            raise ValueError(
+                "Google ADK integration requires GOOGLE_API_KEY environment variable. "
+                "Set it with: export GOOGLE_API_KEY='your-key'"
+            )
+
+        # Auto-configure for Gemini if not explicitly set
+        if self.llm.gemini_api_key is None:
+            self.llm.gemini_api_key = google_api_key
+
+        # Use Gemini for LLM by default
+        if self.llm.provider == "openai":  # Default from env
+            self.llm.provider = "gemini"
+            self.llm.model = "gemini-2.0-flash-exp"
+
+        # Set embedding provider based on key availability
+        openai_api_key = self.llm.openai_api_key
+
+        if openai_api_key:
+            # Prefer OpenAI for embeddings if available
+            self.embedding.provider = 'openai'
+            self.embedding.model = 'text-embedding-3-large'
+            self.embedding.dimensions = 3072
+            self.llm.openai_api_key = openai_api_key
+            self.info("📊 Using OpenAI for embeddings (better quality)")
+        else:
+            # Fallback to Gemini for embeddings
+            self.embedding.provider = 'gemini'
+            self.embedding.model = 'text-embedding-004'
+            self.embedding.dimensions = 768
 
     @model_validator(mode='after')
     def validate_provider_compatibility(self) -> 'RyumemConfig':
