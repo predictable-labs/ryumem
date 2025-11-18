@@ -97,7 +97,6 @@ class AddEpisodeRequest(BaseModel):
     """Request model for adding an episode"""
     content: str = Field(..., description="Episode content (text, message, or JSON)")
     user_id: str = Field(..., description="User ID for isolation")
-    agent_id: Optional[str] = Field(None, description="Optional agent ID")
     session_id: Optional[str] = Field(None, description="Optional session ID")
     source: str = Field("text", description="Episode source type: text, message, or json")
     metadata: Optional[Dict] = Field(None, description="Optional metadata")
@@ -119,6 +118,28 @@ class AddEpisodeResponse(BaseModel):
     episode_id: str = Field(..., description="UUID of the created episode")
     message: str = Field(..., description="Success message")
     timestamp: str = Field(..., description="Timestamp of creation")
+
+
+class EpisodeInfo(BaseModel):
+    """Episode information"""
+    uuid: str
+    name: str
+    content: str
+    source: str
+    source_description: str
+    created_at: str
+    valid_at: str
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    metadata: Optional[str] = None
+
+
+class GetEpisodesResponse(BaseModel):
+    """Response model for getting episodes"""
+    episodes: List[EpisodeInfo] = Field(default_factory=list, description="List of episodes")
+    total: int = Field(0, description="Total count of episodes")
+    offset: int = Field(0, description="Offset for pagination")
+    limit: int = Field(20, description="Limit for pagination")
 
 
 class SearchRequest(BaseModel):
@@ -342,7 +363,6 @@ async def add_episode(
         episode_id = ryumem.add_episode(
             content=request.content,
             user_id=request.user_id,
-            agent_id=request.agent_id,
             session_id=request.session_id,
             source=request.source,
             metadata=request.metadata,
@@ -357,6 +377,92 @@ async def add_episode(
     except Exception as e:
         logger.error(f"Error adding episode: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error adding episode: {str(e)}")
+
+
+@app.get("/episodes", response_model=GetEpisodesResponse)
+async def get_episodes(
+    user_id: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    search: Optional[str] = None,
+    sort_order: str = "desc",
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get episodes with pagination and filtering.
+
+    Supports:
+    - Pagination (limit, offset)
+    - Date range filtering (start_date, end_date)
+    - Content search
+    - Sort order (newest/oldest first)
+    """
+    try:
+        # Parse dates if provided
+        start_dt = None
+        end_dt = None
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid start_date format: {start_date}")
+
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid end_date format: {end_date}")
+
+        # Get episodes from database
+        result = ryumem.db.get_episodes(
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+            start_date=start_dt,
+            end_date=end_dt,
+            search=search,
+            sort_order=sort_order,
+        )
+
+        # Convert to response format
+        # Helper to convert nan/None to proper None
+        def clean_value(val):
+            if val is None:
+                return None
+            if isinstance(val, float):
+                import math
+                if math.isnan(val):
+                    return None
+            return val
+
+        episodes = []
+        for ep in result["episodes"]:
+            episodes.append(EpisodeInfo(
+                uuid=ep["uuid"],
+                name=ep["name"],
+                content=ep["content"],
+                source=ep["source"],
+                source_description=ep["source_description"],
+                created_at=ep["created_at"].isoformat() if isinstance(ep["created_at"], datetime) else str(ep["created_at"]),
+                valid_at=ep["valid_at"].isoformat() if isinstance(ep["valid_at"], datetime) else str(ep["valid_at"]),
+                user_id=clean_value(ep.get("user_id")),
+                session_id=clean_value(ep.get("session_id")),
+                metadata=clean_value(ep.get("metadata")),
+            ))
+
+        return GetEpisodesResponse(
+            episodes=episodes,
+            total=result["total"],
+            offset=offset,
+            limit=limit
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting episodes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting episodes: {str(e)}")
 
 
 @app.post("/search", response_model=SearchResponse)
