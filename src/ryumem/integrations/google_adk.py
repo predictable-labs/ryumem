@@ -698,6 +698,7 @@ def _create_query_episode(
         run_id=run_id,
         timestamp=datetime.datetime.utcnow().isoformat(),
         query=query_text,
+        augmented_query=augmented_query_text if augmented_query_text != query_text else None,
         agent_response="",
         tools_used=[]
     )

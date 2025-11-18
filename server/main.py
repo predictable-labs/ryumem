@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from ryumem import Ryumem
 from ryumem.core.config import RyumemConfig
+from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
 
 # Load environment variables
 load_dotenv()
@@ -1197,33 +1198,17 @@ async def get_user_tool_preferences(
         raise HTTPException(status_code=500, detail=f"Error getting user tool preferences: {str(e)}")
 
 
-class QueryRun(BaseModel):
-    """Model for a single query run"""
-    run_id: str
-    timestamp: str
-    original_query: str
-    augmented_query: str
-    augmentation_config: Optional[Dict[str, Any]]
-    tools_used: List[Dict[str, Any]]
-    agent_response: Optional[str] = None
-
-
-class AugmentedQueryResponse(BaseModel):
-    """Response model for augmented queries"""
+class QueryEpisodeResponse(BaseModel):
+    """Response model for query episodes with metadata"""
     episode_id: str
-    original_query: str
+    query: str
     user_id: str
     session_id: Optional[str]
     created_at: str
     runs: List[QueryRun]
-    # Backward compatibility fields
-    augmented_query: Optional[str] = None
-    augmented: bool = False
-    augmentation_config: Optional[Dict[str, Any]] = None
-    tools_used: Optional[List[Dict[str, Any]]] = None
 
 
-@app.get("/augmented-queries", response_model=List[AugmentedQueryResponse], tags=["Query Augmentation"])
+@app.get("/augmented-queries", response_model=List[QueryEpisodeResponse], tags=["Query Augmentation"])
 async def get_augmented_queries(
     user_id: Optional[str] = None,
     limit: int = 50,
@@ -1264,13 +1249,16 @@ async def get_augmented_queries(
             # Parse metadata (comes as JSON string from database)
             metadata_str = episode.get("metadata", "{}")
             try:
-                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
             except json.JSONDecodeError:
                 logger.warning(f"Failed to parse metadata for episode {episode.get('uuid')}: {metadata_str}")
-                metadata = {}
+                continue
 
-            # If only_augmented is True, skip non-augmented queries
-            if only_augmented and not metadata.get("augmented", False):
+            # Parse into EpisodeMetadata model
+            try:
+                episode_metadata = EpisodeMetadata(**metadata_dict)
+            except Exception as e:
+                logger.warning(f"Failed to parse EpisodeMetadata for episode {episode.get('uuid')}: {e}")
                 continue
 
             # Handle session_id (can be nan from database)
@@ -1278,51 +1266,25 @@ async def get_augmented_queries(
             if session_id is not None and (isinstance(session_id, float) or str(session_id).lower() == 'nan'):
                 session_id = None
 
-            # Extract runs from metadata
+            # Flatten all runs from all sessions
             runs = []
+            for session_runs in episode_metadata.sessions.values():
+                runs.extend(session_runs)
 
-            # NEW structure: metadata.sessions{session_id: [runs]}
-            if "sessions" in metadata:
-                # Flatten all runs from all sessions
-                for session_runs in metadata["sessions"].values():
-                    if isinstance(session_runs, list):
-                        for run in session_runs:
-                            runs.append(QueryRun(
-                                run_id=run.get("run_id", "unknown"),
-                                timestamp=run.get("timestamp", ""),
-                                original_query=run.get("query", ""),  # NEW: field is 'query' not 'original_query'
-                                augmented_query=run.get("query", ""),  # For display - augmentation is in query context
-                                augmentation_config=None,  # No longer stored per-run in new structure
-                                tools_used=run.get("tools_used", []),
-                                agent_response=run.get("agent_response", "")
-                            ))
-
-            # OLD structure (backward compatibility): metadata.runs[]
-            elif "runs" in metadata:
-                for run in metadata["runs"]:
-                    runs.append(QueryRun(
-                        run_id=run.get("run_id", "unknown"),
-                        timestamp=run.get("timestamp", ""),
-                        original_query=run.get("original_query", ""),
-                        augmented_query=run.get("augmented_query", ""),
-                        augmentation_config=run.get("augmentation_config"),
-                        tools_used=run.get("tools_used", []),
-                        agent_response=run.get("agent_response")
-                    ))
+            # If only_augmented is True, filter runs that have augmented queries
+            if only_augmented:
+                runs = [run for run in runs if run.augmented_query and run.augmented_query != run.query]
+                if not runs:
+                    continue
 
             query_episodes.append(
-                AugmentedQueryResponse(
+                QueryEpisodeResponse(
                     episode_id=episode["uuid"],
-                    original_query=episode["content"],
+                    query=episode["content"],
                     user_id=episode["user_id"],
                     session_id=session_id,
                     created_at=episode["created_at"].isoformat() if hasattr(episode["created_at"], "isoformat") else str(episode["created_at"]),
-                    runs=runs,
-                    # Backward compatibility fields
-                    augmented_query=metadata.get("augmented_query"),
-                    augmented=metadata.get("augmented", False),
-                    augmentation_config=metadata.get("augmentation_config"),
-                    tools_used=metadata.get("tools_used", [])
+                    runs=runs
                 )
             )
 

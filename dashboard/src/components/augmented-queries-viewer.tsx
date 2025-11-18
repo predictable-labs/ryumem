@@ -102,14 +102,14 @@ export default function AugmentedQueriesViewer() {
       episode_id: query.episode_id,
       user_id: query.user_id,
       session_id: query.session_id,
-      original_query: query.original_query,
+      query: query.query,
       created_at: query.created_at,
       run: run,
     }))
   )
 
   const getRunAugmentationBadge = (run: any) => {
-    const isAugmented = run.augmented_query !== run.original_query
+    const isAugmented = run.augmented_query && run.augmented_query !== run.query
     if (!isAugmented) {
       return <Badge variant="secondary">Not Augmented</Badge>
     }
@@ -221,7 +221,7 @@ export default function AugmentedQueriesViewer() {
                     <TableRow key={`${item.episode_id}-${item.run.run_id}-${idx}`}>
                       <TableCell className="max-w-md">
                         <div className="truncate font-mono text-sm">
-                          {item.original_query}
+                          {item.query}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -273,11 +273,20 @@ export default function AugmentedQueriesViewer() {
             <div className="space-y-6">
               {/* Query Info */}
               <div>
-                <h3 className="text-sm font-semibold mb-2">Original Query</h3>
+                <h3 className="text-sm font-semibold mb-2">Query</h3>
                 <div className="p-3 bg-muted rounded-md font-mono text-sm">
-                  {selectedRun.query.original_query}
+                  {selectedRun.query.query}
                 </div>
               </div>
+
+              {selectedRun.run.augmented_query && selectedRun.run.augmented_query !== selectedRun.run.query && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-2">Augmented Query</h3>
+                  <div className="p-3 bg-muted rounded-md font-mono text-sm whitespace-pre-wrap">
+                    {selectedRun.run.augmented_query}
+                  </div>
+                </div>
+              )}
 
               {/* Metadata */}
               <div className="grid grid-cols-2 gap-4">
@@ -325,7 +334,7 @@ export default function AugmentedQueriesViewer() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {/* Augmented Query for this run */}
-                    {selectedRun.run.augmented_query !== selectedRun.run.original_query && (
+                    {selectedRun.run.augmented_query && selectedRun.run.augmented_query !== selectedRun.run.query && (
                       <div>
                         <h4 className="text-xs font-semibold mb-1">Augmented Query</h4>
                         <div className="p-2 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded text-xs font-mono whitespace-pre-wrap max-h-40 overflow-y-auto">
@@ -382,22 +391,6 @@ export default function AugmentedQueriesViewer() {
                       </div>
                     )}
 
-                    {/* Augmentation Config for this run */}
-                    {selectedRun.run.augmentation_config && (
-                      <div>
-                        <h4 className="text-xs font-semibold mb-1">Augmentation Config</h4>
-                        <div className="p-2 bg-muted rounded space-y-1 text-xs">
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Threshold:</span>
-                            <span className="font-mono">{selectedRun.run.augmentation_config.similarity_threshold}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Top K:</span>
-                            <span className="font-mono">{selectedRun.run.augmentation_config.top_k_similar}</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               </div>

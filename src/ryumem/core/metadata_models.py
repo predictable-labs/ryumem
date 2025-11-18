@@ -26,6 +26,7 @@ class QueryRun(BaseModel):
     run_id: str
     timestamp: str
     query: str
+    augmented_query: Optional[str] = None  # Query with historical context added
     agent_response: str = ""
     tools_used: list[ToolExecution] = Field(default_factory=list)
 

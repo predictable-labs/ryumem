@@ -162,6 +162,21 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
     return metadata.tools_used || [];
   };
 
+  const getQueryRuns = (episode: EpisodeInfo) => {
+    const metadata = parseMetadata(episode.metadata);
+    if (!metadata?.sessions) return [];
+
+    const allRuns: any[] = [];
+    Object.entries(metadata.sessions).forEach(([sessionId, runs]: [string, any]) => {
+      if (Array.isArray(runs)) {
+        runs.forEach((run: any) => {
+          allRuns.push({ ...run, session_id: sessionId });
+        });
+      }
+    });
+    return allRuns;
+  };
+
   return (
     <div className="space-y-4">
       {/* Header with Add Button */}
@@ -287,6 +302,70 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                     {episode.source_description}
                   </p>
                 )}
+
+                {/* Query Runs Section */}
+                {(() => {
+                  const queryRuns = getQueryRuns(episode);
+                  if (queryRuns.length === 0) return null;
+
+                  return (
+                    <div className="mt-4 pt-4 border-t">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Search className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium text-muted-foreground">
+                          Query Runs ({queryRuns.length})
+                        </span>
+                      </div>
+                      <div className="space-y-4">
+                        {queryRuns.map((run: any, idx: number) => (
+                          <div
+                            key={idx}
+                            className="p-3 rounded-md bg-muted/30 border border-muted text-xs space-y-2"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
+                                {run.session_id?.slice(0, 8)}
+                              </Badge>
+                              <span className="text-muted-foreground">
+                                {formatDate(run.timestamp)}
+                              </span>
+                            </div>
+
+                            {run.query && (
+                              <div>
+                                <p className="font-medium text-muted-foreground mb-1">Query:</p>
+                                <p className="text-foreground/90">{run.query}</p>
+                              </div>
+                            )}
+
+                            {run.augmented_query && (
+                              <div>
+                                <p className="font-medium text-purple-500 mb-1">
+                                  Augmented Query:
+                                  {run.augmented_query === run.query && (
+                                    <Badge variant="outline" className="ml-2 text-[10px]">
+                                      Same as query
+                                    </Badge>
+                                  )}
+                                </p>
+                                <p className="text-foreground/70 text-[11px] max-h-40 overflow-y-auto whitespace-pre-wrap">
+                                  {run.augmented_query}
+                                </p>
+                              </div>
+                            )}
+
+                            {run.agent_response && (
+                              <div>
+                                <p className="font-medium text-blue-500 mb-1">Agent Response:</p>
+                                <p className="text-foreground/80">{run.agent_response}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Tool Usage Section */}
                 {(() => {

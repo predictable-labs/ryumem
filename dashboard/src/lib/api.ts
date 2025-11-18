@@ -169,13 +169,8 @@ export interface ToolPreference {
 export interface QueryRun {
   run_id: string;
   timestamp: string;
-  original_query: string;
-  augmented_query: string;
-  augmentation_config?: {
-    enabled: boolean;
-    similarity_threshold: number;
-    top_k_similar: number;
-  };
+  query: string;
+  augmented_query?: string | null;
   tools_used: Array<{
     tool_name: string;
     success: boolean;
@@ -190,28 +185,11 @@ export interface QueryRun {
 
 export interface AugmentedQuery {
   episode_id: string;
-  original_query: string;
+  query: string;
   user_id: string;
   session_id?: string;
   created_at: string;
   runs: QueryRun[];
-  // Backward compatibility fields
-  augmented_query?: string;
-  augmented?: boolean;
-  augmentation_config?: {
-    enabled: boolean;
-    similarity_threshold: number;
-    top_k_similar: number;
-  };
-  tools_used?: Array<{
-    tool_name: string;
-    success: boolean;
-    duration_ms: number;
-    timestamp: string;
-    input?: any;
-    output?: any;
-    error?: string;
-  }>;
 }
 
 class RyumemAPI {
