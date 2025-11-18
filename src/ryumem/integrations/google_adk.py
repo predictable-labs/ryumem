@@ -578,49 +578,15 @@ def _build_context_section(similar_queries: List[Dict[str, Any]], memory: Ryumem
                 context_parts.append(f"   What worked: {response_preview}")
 
             # Get tool usage summary
-            all_tools = episode_metadata.get_all_tools_used()
-            if all_tools:
-                tool_summary = _summarize_tool_usage(all_tools)
-                if tool_summary:
-                    context_parts.append(f"   Tools: {tool_summary}")
+            tool_summary = episode_metadata.get_tool_usage_summary()
+            if tool_summary:
+                context_parts.append(f"   Tools: {tool_summary}")
 
         except Exception as e:
             logger.warning(f"Failed to parse query metadata: {e}")
 
     context_parts.append("]\n")
     return ''.join(context_parts)
-
-
-def _summarize_tool_usage(tools: List[ToolExecution]) -> str:
-    """Create concise tool usage summary."""
-    from collections import defaultdict
-
-    tool_stats = defaultdict(lambda: {'count': 0, 'success': 0, 'empty': 0})
-
-    for tool in tools:
-        name = tool.tool_name
-        tool_stats[name]['count'] += 1
-        if tool.success:
-            tool_stats[name]['success'] += 1
-        # Check if output was empty/null
-        if not tool.output_summary or tool.output_summary.strip() in ['', 'None', 'null', 'N/A']:
-            tool_stats[name]['empty'] += 1
-
-    summaries = []
-    for name, stats in tool_stats.items():
-        count = stats['count']
-        success_rate = int((stats['success'] / count) * 100) if count > 0 else 0
-
-        parts = [f"{name}({count}x"]
-        if success_rate < 100:
-            parts.append(f", {success_rate}% success")
-        if stats['empty'] > 0:
-            parts.append(f", {stats['empty']} empty")
-        parts.append(")")
-
-        summaries.append(''.join(parts))
-
-    return ', '.join(summaries)
 
 
 def _augment_query_with_history(

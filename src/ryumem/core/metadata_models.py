@@ -144,3 +144,49 @@ class EpisodeMetadata(BaseModel):
                         tool_usage[tool.tool_name]['success_count'] += 1
 
         return tool_usage
+
+    def get_tool_usage_summary(self) -> str:
+        """
+        Create concise tool usage summary for query augmentation.
+
+        Returns:
+            String showing inputs that worked/failed for each tool
+        """
+        from collections import defaultdict
+
+        # Group by tool name, then by input params
+        tool_data = defaultdict(lambda: {'worked': [], 'failed': [], 'empty': []})
+
+        for tool in self.get_all_tools_used():
+            name = tool.tool_name
+            # Convert input params to simple string
+            input_str = ', '.join([f"{k}={v}" for k, v in tool.input_params.items()]) if tool.input_params else 'no params'
+
+            # Check if output was empty
+            is_empty = not tool.output_summary or tool.output_summary.strip() in ['', 'None', 'null', 'N/A']
+
+            if is_empty:
+                tool_data[name]['empty'].append(input_str)
+            elif tool.success:
+                tool_data[name]['worked'].append(input_str)
+            else:
+                tool_data[name]['failed'].append(input_str)
+
+        summaries = []
+        for name, data in tool_data.items():
+            parts = [f"{name}: "]
+
+            if data['worked']:
+                parts.append(f"worked with [{', '.join(data['worked'])}]")
+            if data['failed']:
+                if data['worked']:
+                    parts.append("; ")
+                parts.append(f"failed with [{', '.join(data['failed'])}]")
+            if data['empty']:
+                if data['worked'] or data['failed']:
+                    parts.append("; ")
+                parts.append(f"empty for [{', '.join(data['empty'])}]")
+
+            summaries.append(''.join(parts))
+
+        return '; '.join(summaries)
