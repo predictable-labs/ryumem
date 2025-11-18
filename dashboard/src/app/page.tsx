@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User } from "lucide-react";
+import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User, History } from "lucide-react";
 import { EpisodesList } from "@/components/episodes-list";
 import { EpisodeFormModal } from "@/components/episode-form-modal";
 import { ChatInterface } from "@/components/chat-interface";
@@ -11,6 +11,7 @@ import { EntityBrowser } from "@/components/entity-browser";
 import { EntityDetailPanel } from "@/components/entity-detail-panel";
 import { ToolAnalyticsPanel } from "@/components/tool-analytics-panel";
 import { AgentInstructionEditor } from "@/components/agent-instruction-editor";
+import AugmentedQueriesViewer from "@/components/augmented-queries-viewer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -194,7 +195,7 @@ export default function Home() {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6 lg:w-full">
+          <TabsList className="grid w-full grid-cols-3 lg:grid-cols-7 lg:w-full">
             <TabsTrigger value="chat" className="flex items-center gap-2">
               <BookOpen className="h-4 w-4" />
               Chat & Query
@@ -218,6 +219,10 @@ export default function Home() {
             <TabsTrigger value="episodes" className="flex items-center gap-2">
               <Database className="h-4 w-4" />
               Episodes
+            </TabsTrigger>
+            <TabsTrigger value="queries" className="flex items-center gap-2">
+              <History className="h-4 w-4" />
+              Queries
             </TabsTrigger>
             <TabsTrigger value="analytics" className="flex items-center gap-2">
               <Wrench className="h-4 w-4" />
@@ -336,6 +341,10 @@ export default function Home() {
               onOpenChange={setIsEpisodeModalOpen}
               onEpisodeAdded={handleEpisodeAdded}
             />
+          </TabsContent>
+
+          <TabsContent value="queries" className="space-y-4">
+            <AugmentedQueriesViewer />
           </TabsContent>
 
           <TabsContent value="analytics" className="space-y-4">

@@ -10,12 +10,13 @@ This server provides RESTful API endpoints for:
 Run with: uvicorn main:app --reload --host 0.0.0.0 --port 8000
 """
 
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
@@ -1192,6 +1193,95 @@ async def get_user_tool_preferences(
     except Exception as e:
         logger.error(f"Error getting user tool preferences: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error getting user tool preferences: {str(e)}")
+
+
+class AugmentedQueryResponse(BaseModel):
+    """Response model for augmented queries"""
+    episode_id: str
+    original_query: str
+    augmented_query: Optional[str]
+    user_id: str
+    session_id: Optional[str]
+    created_at: str
+    augmented: bool
+    augmentation_config: Optional[Dict[str, Any]]
+    tools_used: Optional[List[Dict[str, Any]]]
+
+
+@app.get("/augmented-queries", response_model=List[AugmentedQueryResponse], tags=["Query Augmentation"])
+async def get_augmented_queries(
+    user_id: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    only_augmented: bool = False,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get all user queries with augmentation metadata.
+
+    Args:
+        user_id: Filter by user ID (optional)
+        limit: Maximum number of queries to return
+        offset: Number of queries to skip
+        only_augmented: If True, only return queries that were augmented
+
+    Returns:
+        List of queries with augmentation details
+    """
+    try:
+        # Get episodes from database with message source type (user queries)
+        result = ryumem.db.get_episodes(
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+            sort_order="desc"
+        )
+
+        episodes = result.get("episodes", [])
+
+        # Filter for message type episodes (user queries)
+        query_episodes = []
+        for episode in episodes:
+            # Check if episode is a user query (source == "message")
+            if episode.get("source") != "message":
+                continue
+
+            # Parse metadata (comes as JSON string from database)
+            metadata_str = episode.get("metadata", "{}")
+            try:
+                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse metadata for episode {episode.get('uuid')}: {metadata_str}")
+                metadata = {}
+
+            # If only_augmented is True, skip non-augmented queries
+            if only_augmented and not metadata.get("augmented", False):
+                continue
+
+            # Handle session_id (can be nan from database)
+            session_id = episode.get("session_id")
+            if session_id is not None and (isinstance(session_id, float) or str(session_id).lower() == 'nan'):
+                session_id = None
+
+            query_episodes.append(
+                AugmentedQueryResponse(
+                    episode_id=episode["uuid"],
+                    original_query=episode["content"],
+                    augmented_query=metadata.get("augmented_query"),
+                    user_id=episode["user_id"],
+                    session_id=session_id,
+                    created_at=episode["created_at"].isoformat() if hasattr(episode["created_at"], "isoformat") else str(episode["created_at"]),
+                    augmented=metadata.get("augmented", False),
+                    augmentation_config=metadata.get("augmentation_config"),
+                    tools_used=metadata.get("tools_used", [])
+                )
+            )
+
+        return query_episodes
+
+    except Exception as e:
+        logger.error(f"Error getting augmented queries: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting augmented queries: {str(e)}")
 
 
 if __name__ == "__main__":

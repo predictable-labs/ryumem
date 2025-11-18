@@ -166,6 +166,30 @@ export interface ToolPreference {
   last_used: string;
 }
 
+export interface AugmentedQuery {
+  episode_id: string;
+  original_query: string;
+  augmented_query?: string;
+  user_id: string;
+  session_id?: string;
+  created_at: string;
+  augmented: boolean;
+  augmentation_config?: {
+    enabled: boolean;
+    similarity_threshold: number;
+    top_k_similar: number;
+  };
+  tools_used?: Array<{
+    tool_name: string;
+    success: boolean;
+    duration_ms: number;
+    timestamp: string;
+    input?: any;
+    output?: any;
+    error?: string;
+  }>;
+}
+
 class RyumemAPI {
   private baseURL: string;
 
@@ -386,6 +410,25 @@ class RyumemAPI {
       limit: limit.toString(),
     });
     return this.request(`/users/${encodeURIComponent(userId)}/tool-preferences?${params}`);
+  }
+
+  // ============================================================================
+  // Query Augmentation
+  // ============================================================================
+
+  async getAugmentedQueries(
+    userId?: string,
+    limit: number = 50,
+    offset: number = 0,
+    onlyAugmented: boolean = false
+  ): Promise<AugmentedQuery[]> {
+    const params = new URLSearchParams({
+      limit: limit.toString(),
+      offset: offset.toString(),
+      only_augmented: onlyAugmented.toString(),
+      ...(userId && { user_id: userId }),
+    });
+    return this.request(`/augmented-queries?${params}`);
   }
 }
 

@@ -710,7 +710,8 @@ def wrap_runner_with_tracking(
                             parts=[types.Part(text=augmented_query_text)]
                         )
                     else:
-                        augmented_query_text = None  # No augmentation occurred
+                        logger.debug(f"No augmentation occurred - no similar queries found above threshold")
+                        # Keep augmented_query_text as original query for metadata tracking
 
                 # Create episode for user query (store ORIGINAL query, not augmented)
                 # Use memory.extract_entities setting if available
@@ -723,7 +724,8 @@ def wrap_runner_with_tracking(
                         "integration": "google_adk",
                         "type": "user_query",
                         "timestamp": __import__('datetime').datetime.utcnow().isoformat(),
-                        "augmented": augmented_query_text is not None,
+                        "augmented": augmented_query_text is not None and augmented_query_text != original_query_text,
+                        "augmented_query": augmented_query_text if augmented_query_text else None,
                         "augmentation_config": {
                             "enabled": augment_queries,
                             "similarity_threshold": similarity_threshold,
