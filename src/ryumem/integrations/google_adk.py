@@ -574,8 +574,7 @@ def _build_context_section(similar_queries: List[Dict[str, Any]], memory: Ryumem
 
             # Show what worked
             if agent_response:
-                response_preview = agent_response[:200] + "..." if len(agent_response) > 200 else agent_response
-                context_parts.append(f"   What worked: {response_preview}")
+                context_parts.append(f"   What worked: {agent_response}")
 
             # Get tool usage summary
             tool_summary = episode_metadata.get_tool_usage_summary()

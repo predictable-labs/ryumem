@@ -159,8 +159,13 @@ class EpisodeMetadata(BaseModel):
 
         for tool in self.get_all_tools_used():
             name = tool.tool_name
+
+            # Skip if no input params
+            if not tool.input_params:
+                continue
+
             # Convert input params to simple string
-            input_str = ', '.join([f"{k}={v}" for k, v in tool.input_params.items()]) if tool.input_params else 'no params'
+            input_str = ', '.join([f"{k}={v}" for k, v in tool.input_params.items()])
 
             # Check if output was empty
             is_empty = not tool.output_summary or tool.output_summary.strip() in ['', 'None', 'null', 'N/A']
