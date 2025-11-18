@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from ryumem import Ryumem
+from ryumem.core.config import RyumemConfig
 
 # Load environment variables
 load_dotenv()
@@ -47,17 +48,14 @@ def get_ryumem():
     - READ_ONLY mode is maintained for safe concurrent access
     - No persistent connections that could leak resources
     """
-    db_path = os.getenv("RYUMEM_DB_PATH", "../data/memory.db")
+    # Load config from environment
+    config = RyumemConfig()
+
+    # Override read_only to ensure server always uses READ_ONLY mode
+    config.database.read_only = True
 
     # Create new instance with context manager for automatic cleanup
-    with Ryumem(
-        db_path=db_path,
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
-        llm_provider=os.getenv("RYUMEM_LLM_PROVIDER", "openai"),
-        llm_model=os.getenv("RYUMEM_LLM_MODEL", "gpt-4o-mini"),
-        ollama_base_url=os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://localhost:11434"),
-        read_only=True,  # Always use READ_ONLY mode for dashboard server
-    ) as ryumem:
+    with Ryumem(config=config) as ryumem:
         yield ryumem
     # Connection automatically closed when request completes
 
@@ -67,6 +65,10 @@ async def lifespan(app: FastAPI):
     """Server startup/shutdown lifecycle"""
     logger.info("Starting Ryumem server...")
     logger.info("Using per-request database connections in READ_ONLY mode")
+    
+    # Print configuration on startup
+    config = RyumemConfig()
+    config.database.read_only = True
 
     yield
 
@@ -657,7 +659,7 @@ async def get_stats(
             total_entities=total_entities,
             total_relationships=total_relationships,
             total_communities=total_communities,
-            db_path=ryumem.config.db_path
+            db_path=ryumem.config.database.db_path
         )
     except Exception as e:
         logger.error(f"Error getting stats: {e}", exc_info=True)

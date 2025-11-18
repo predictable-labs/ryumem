@@ -338,71 +338,64 @@ def add_memory_to_agent(
     """
     import os
 
-    # Separate Ryumem kwargs from tool tracking kwargs
-    ryumem_kwargs = {}
+    # Separate tool tracking kwargs from other params
     tool_tracking_kwargs = {}
-
-    # Known Ryumem parameters
-    ryumem_params = {'llm_provider', 'llm_model', 'openai_api_key', 'gemini_api_key', 'ollama_base_url', 'embedding_provider', 'embedding_model'}
 
     # Known tool tracking parameters
     tracking_params = {'summarize_large_outputs', 'max_output_length',
                       'sanitize_pii', 'sampling_rate', 'fail_open', 'include_tools', 'exclude_tools'}
 
     for key, value in kwargs.items():
-        if key in ryumem_params:
-            ryumem_kwargs[key] = value
-        elif key in tracking_params:
+        if key in tracking_params:
             tool_tracking_kwargs[key] = value
-        else:
-            # Default to Ryumem kwargs for unknown parameters
-            ryumem_kwargs[key] = value
-
-    # AUTO-DETECTION LOGIC for Google ADK integration
-    # Only applies if Ryumem instance is not provided
-    if ryumem_instance is None:
-        # Check if Ollama is explicitly configured (highest priority)
-        ollama_configured = 'llm_provider' in ryumem_kwargs and ryumem_kwargs['llm_provider'] == 'ollama'
-
-        if not ollama_configured:
-            # Check for GOOGLE_API_KEY in environment
-            google_api_key = os.getenv("GOOGLE_API_KEY")
-
-            if not google_api_key:
-                raise ValueError(
-                    "Google ADK integration requires GOOGLE_API_KEY environment variable. "
-                    "Set it with: export GOOGLE_API_KEY='your-key' "
-                    "OR use llm_provider='ollama' to override."
-                )
-
-            # Auto-configure for Gemini if not explicitly set
-            if 'llm_provider' not in ryumem_kwargs:
-                ryumem_kwargs['llm_provider'] = 'gemini'
-                ryumem_kwargs['llm_model'] = 'gemini-2.0-flash-exp'
-                logger.info("🔍 Auto-detected GOOGLE_API_KEY, using Gemini for LLM")
-
-            if 'gemini_api_key' not in ryumem_kwargs:
-                ryumem_kwargs['gemini_api_key'] = google_api_key
-
-            # Set embedding provider based on key availability
-            if 'embedding_provider' not in ryumem_kwargs:
-                openai_api_key = ryumem_kwargs.get('openai_api_key') or os.getenv("OPENAI_API_KEY")
-
-                if openai_api_key:
-                    # Prefer OpenAI for embeddings if available
-                    ryumem_kwargs['embedding_provider'] = 'openai'
-                    ryumem_kwargs['embedding_model'] = 'text-embedding-3-large'
-                    ryumem_kwargs['openai_api_key'] = openai_api_key
-                    logger.info("📊 Using OpenAI for embeddings (better quality)")
-                else:
-                    # Fallback to Gemini for embeddings
-                    ryumem_kwargs['embedding_provider'] = 'gemini'
-                    ryumem_kwargs['embedding_model'] = 'text-embedding-004'
-                    logger.info("📊 Using Gemini for embeddings")
 
     # Create or use existing Ryumem instance
     if ryumem_instance is None:
-        ryumem = Ryumem(db_path=db_path, **ryumem_kwargs)
+        # Create config from environment
+        from ryumem.core.config import RyumemConfig
+        config = RyumemConfig()
+
+        # Set database path
+        config.database.db_path = db_path
+
+        # AUTO-DETECTION LOGIC for Google ADK integration
+        # Check for GOOGLE_API_KEY in environment
+        google_api_key = os.getenv("GOOGLE_API_KEY")
+
+        if not google_api_key:
+            raise ValueError(
+                "Google ADK integration requires GOOGLE_API_KEY environment variable. "
+                "Set it with: export GOOGLE_API_KEY='your-key'"
+            )
+
+        # Auto-configure for Gemini if not explicitly set
+        if config.llm.gemini_api_key is None:
+            config.llm.gemini_api_key = google_api_key
+
+        # Use Gemini for LLM by default
+        if config.llm.provider == "openai":  # Default from env
+            config.llm.provider = "gemini"
+            config.llm.model = "gemini-2.0-flash-exp"
+            logger.info("🔍 Auto-detected GOOGLE_API_KEY, using Gemini for LLM")
+
+        # Set embedding provider based on key availability
+        openai_api_key = config.llm.openai_api_key or os.getenv("OPENAI_API_KEY")
+
+        if openai_api_key:
+            # Prefer OpenAI for embeddings if available
+            config.embedding.provider = 'openai'
+            config.embedding.model = 'text-embedding-3-large'
+            config.embedding.dimensions = 3072
+            config.llm.openai_api_key = openai_api_key
+            logger.info("📊 Using OpenAI for embeddings (better quality)")
+        else:
+            # Fallback to Gemini for embeddings
+            config.embedding.provider = 'gemini'
+            config.embedding.model = 'text-embedding-004'
+            config.embedding.dimensions = 768
+            logger.info("📊 Using Gemini for embeddings")
+
+        ryumem = Ryumem(config=config)
         logger.info(f"Created new Ryumem instance at: {db_path}")
     else:
         ryumem = ryumem_instance

@@ -15,7 +15,7 @@ Prerequisites:
 
 Setup:
     export GOOGLE_API_KEY=your_api_key
-    export OPENAI_API_KEY=your_openai_key  # For embeddings and classification
+    # Optional: export OPENAI_API_KEY=your_openai_key  # For better embeddings (uses Gemini by default)
 """
 
 import os
@@ -127,17 +127,6 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
         weather_sentiment_agent,
         user_id=USER_ID,
         ryumem_customer_id="demo_company",
-        track_tools=True,  # 🎯 Track all tool usage
-        track_queries=True,  # 🎯 Track user queries as episodes
-        augment_queries=True,  # ✨ Augment queries with historical context
-        similarity_threshold=0.3,  # Match queries with 30%+ similarity
-        top_k_similar=5,  # Use top 5 similar queries
-        llm_provider="ollama",
-        llm_model="qwen2.5:7b",
-        ollama_base_url="http://100.108.18.43:11434/",
-        extract_entities=True,
-        # llm_provider="openai",
-        # llm_model="gpt-4o",
     )
 
     # Session and Runner Setup (standard Google ADK usage)
@@ -198,9 +187,9 @@ if __name__ == "__main__":
         print("Run: export GOOGLE_API_KEY=your_api_key")
         exit(1)
 
+    # OPENAI_API_KEY is optional - if not set, will use Gemini for embeddings
     if not os.getenv("OPENAI_API_KEY"):
-        print("ERROR: OPENAI_API_KEY environment variable not set")
-        print("Run: export OPENAI_API_KEY=your_openai_key")
-        exit(1)
+        print("INFO: OPENAI_API_KEY not set, will use Gemini for embeddings")
+        print("      For better embedding quality, set: export OPENAI_API_KEY=your_openai_key")
 
     asyncio.run(main())

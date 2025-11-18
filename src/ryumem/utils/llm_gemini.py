@@ -500,13 +500,20 @@ Identify all contradictions."""
 
             # Call embedding API
             logger.debug(f"🌐 Gemini API call for embedding: '{text[:50]}...'")
+            model_name = self.model if self.model == "text-embedding-004" else "text-embedding-004"
             result = self.client.models.embed_content(
-                model=self.model if self.model == "text-embedding-004" else "text-embedding-004",
-                content=text,
+                model=model_name,
+                contents=text,  # Changed from 'content' to 'contents'
             )
 
             # Extract embedding
-            embedding = result.embeddings[0].values
+            # Handle both response formats
+            if hasattr(result, 'embeddings'):
+                embedding = result.embeddings[0].values
+            elif hasattr(result, 'embedding'):
+                embedding = result.embedding.values if hasattr(result.embedding, 'values') else result.embedding
+            else:
+                raise ValueError(f"Unexpected embedding response format: {type(result)}")
 
             logger.debug(f"Generated Gemini embedding for text: '{text[:50]}...' (dim: {len(embedding)})")
             return embedding

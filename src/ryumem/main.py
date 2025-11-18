@@ -40,118 +40,107 @@ class Ryumem:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
         config: Optional[RyumemConfig] = None,
-        **kwargs,
     ):
         """
         Initialize Ryumem instance.
 
         Args:
-            db_path: Path to ryugraph database (overrides config)
             config: RyumemConfig instance (if not provided, loads from env)
-            **kwargs: Additional config parameters to override
 
         Example:
-            # From environment variables
+            # From environment variables (.env file)
             ryumem = Ryumem()
 
-            # With explicit config
-            ryumem = Ryumem(
-                db_path="./data/ryumem.db",
-                openai_api_key="sk-...",
-                llm_model="gpt-4",
-            )
-
             # With config object
-            config = RyumemConfig.from_env()
+            config = RyumemConfig()
+            ryumem = Ryumem(config=config)
+
+            # With custom config
+            config = RyumemConfig()
+            config.database.db_path = "./data/custom.db"
+            config.llm.provider = "openai"
+            config.llm.model = "gpt-4o-mini"
             ryumem = Ryumem(config=config)
         """
         # Load or create config
         if config is None:
-            if "openai_api_key" in kwargs or db_path or "read_only" in kwargs:
-                # Create config from kwargs
-                config_dict = kwargs.copy()
-                if db_path:
-                    config_dict["db_path"] = db_path
-                if "openai_api_key" not in config_dict:
-                    config = RyumemConfig.from_env()
-                    config_dict["openai_api_key"] = config.openai_api_key
-                config = RyumemConfig(**config_dict)
-            else:
-                # Load from environment
-                config = RyumemConfig.from_env()
+            # Load from environment by default
+            config = RyumemConfig()
 
         self.config = config
 
+        # Validate API keys are present for configured providers
+        config.validate_api_keys()
+
         # Ensure database directory exists (skip for read-only mode)
-        read_only = getattr(config, 'read_only', False)
-        db_path_obj = Path(config.db_path)
+        read_only = config.database.read_only
+        db_path_obj = Path(config.database.db_path)
         if not read_only:
             db_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
         # Initialize core components
         logger.info("Initializing Ryumem...")
-        logger.info(f"DEBUG: read_only={read_only}, config.read_only={config.read_only}, db_path={config.db_path}")
+        logger.info(f"DEBUG: read_only={read_only}, db_path={config.database.db_path}")
 
         self.db = RyugraphDB(
-            db_path=config.db_path,
-            embedding_dimensions=config.embedding_dimensions,
+            db_path=config.database.db_path,
+            embedding_dimensions=config.embedding.dimensions,
             read_only=read_only,
         )
 
         # Initialize LLM client based on provider
-        if config.llm_provider == "ollama":
-            logger.info(f"Using Ollama for LLM inference: {config.llm_model}")
+        if config.llm.provider == "ollama":
+            logger.info(f"Using Ollama for LLM inference: {config.llm.model}")
             self.llm_client = OllamaClient(
-                model=config.llm_model,
-                base_url=config.ollama_base_url,
-                max_retries=config.max_retries,
-                timeout=config.timeout_seconds,
+                model=config.llm.model,
+                base_url=config.llm.ollama_base_url,
+                max_retries=config.llm.max_retries,
+                timeout=config.llm.timeout_seconds,
             )
-        elif config.llm_provider == "gemini":
-            if not config.gemini_api_key:
+        elif config.llm.provider == "gemini":
+            if not config.llm.gemini_api_key:
                 raise ValueError("gemini_api_key is required when llm_provider='gemini'")
-            logger.info(f"Using Gemini for LLM inference: {config.llm_model}")
+            logger.info(f"Using Gemini for LLM inference: {config.llm.model}")
             self.llm_client = GeminiClient(
-                api_key=config.gemini_api_key,
-                model=config.llm_model,
-                max_retries=config.max_retries,
-                timeout=config.timeout_seconds,
+                api_key=config.llm.gemini_api_key,
+                model=config.llm.model,
+                max_retries=config.llm.max_retries,
+                timeout=config.llm.timeout_seconds,
             )
         else:  # openai
-            if not config.openai_api_key:
+            if not config.llm.openai_api_key:
                 raise ValueError("openai_api_key is required when llm_provider='openai'")
-            logger.info(f"Using OpenAI for LLM inference: {config.llm_model}")
+            logger.info(f"Using OpenAI for LLM inference: {config.llm.model}")
             self.llm_client = LLMClient(
-                api_key=config.openai_api_key,
-                model=config.llm_model,
-                max_retries=config.max_retries,
-                timeout=config.timeout_seconds,
+                api_key=config.llm.openai_api_key,
+                model=config.llm.model,
+                max_retries=config.llm.max_retries,
+                timeout=config.llm.timeout_seconds,
             )
 
         # Initialize embedding client based on provider
-        if config.embedding_provider == "gemini":
-            if not config.gemini_api_key:
+        if config.embedding.provider == "gemini":
+            if not config.llm.gemini_api_key:
                 raise ValueError("gemini_api_key is required when embedding_provider='gemini'")
-            logger.info(f"Using Gemini for embeddings: {config.embedding_model}")
+            logger.info(f"Using Gemini for embeddings: {config.embedding.model}")
             # Use GeminiClient for embeddings
             self.embedding_client = GeminiClient(
-                api_key=config.gemini_api_key,
-                model=config.embedding_model,
-                max_retries=config.max_retries,
-                timeout=config.timeout_seconds,
+                api_key=config.llm.gemini_api_key,
+                model=config.embedding.model,
+                max_retries=config.llm.max_retries,
+                timeout=config.embedding.timeout_seconds,
             )
         else:  # openai
-            if not config.openai_api_key:
+            if not config.llm.openai_api_key:
                 raise ValueError("openai_api_key is required when embedding_provider='openai'")
-            logger.info(f"Using OpenAI for embeddings: {config.embedding_model}")
+            logger.info(f"Using OpenAI for embeddings: {config.embedding.model}")
             self.embedding_client = EmbeddingClient(
-                api_key=config.openai_api_key,
-                model=config.embedding_model,
-                dimensions=config.embedding_dimensions,
-                batch_size=config.batch_size,
-                timeout=config.timeout_seconds,
+                api_key=config.llm.openai_api_key,
+                model=config.embedding.model,
+                dimensions=config.embedding.dimensions,
+                batch_size=config.embedding.batch_size,
+                timeout=config.embedding.timeout_seconds,
             )
 
         # Initialize search engine first (creates BM25 index)
@@ -177,11 +166,11 @@ class Ryumem:
             db=self.db,
             llm_client=self.llm_client,
             embedding_client=self.embedding_client,
-            entity_similarity_threshold=config.entity_similarity_threshold,
-            relationship_similarity_threshold=config.relationship_similarity_threshold,
-            max_context_episodes=config.max_context_episodes,
+            entity_similarity_threshold=config.entity_extraction.entity_similarity_threshold,
+            relationship_similarity_threshold=config.entity_extraction.relationship_similarity_threshold,
+            max_context_episodes=config.entity_extraction.max_context_episodes,
             bm25_index=self.search_engine.bm25_index,
-            enable_entity_extraction=config.enable_entity_extraction,
+            enable_entity_extraction=config.entity_extraction.enabled,
         )
 
         # Initialize community detector
@@ -193,7 +182,7 @@ class Ryumem:
         # Initialize memory pruner
         self.memory_pruner = MemoryPruner(db=self.db)
 
-        logger.info(f"Ryumem initialized successfully (db: {config.db_path})")
+        logger.info(f"Ryumem initialized successfully (db: {config.database.db_path})")
 
     def add_episode(
         self,
@@ -250,7 +239,7 @@ class Ryumem:
         )
 
         # Persist BM25 index to disk after ingestion
-        bm25_path = str(Path(self.config.db_path).parent / f"{Path(self.config.db_path).stem}_bm25.pkl")
+        bm25_path = str(Path(self.config.database.db_path).parent / f"{Path(self.config.database.db_path).stem}_bm25.pkl")
         self.search_engine.bm25_index.save(bm25_path)
 
         return episode_id
@@ -285,7 +274,7 @@ class Ryumem:
         episode_ids = self.ingestion.ingest_batch(episodes, user_id)
 
         # Persist BM25 index to disk after batch ingestion
-        bm25_path = str(Path(self.config.db_path).parent / f"{Path(self.config.db_path).stem}_bm25.pkl")
+        bm25_path = str(Path(self.config.database.db_path).parent / f"{Path(self.config.database.db_path).stem}_bm25.pkl")
         self.search_engine.bm25_index.save(bm25_path)
 
         return episode_ids
@@ -369,7 +358,7 @@ class Ryumem:
         """
         # Use default threshold from config if not provided
         if similarity_threshold is None:
-            similarity_threshold = self.config.entity_similarity_threshold
+            similarity_threshold = self.config.entity_extraction.entity_similarity_threshold
 
         # Create search config
         config = SearchConfig(
@@ -1009,7 +998,7 @@ class Ryumem:
             self.search_engine.bm25_index.add_edge(edge)
 
         # Save rebuilt index
-        bm25_path = str(Path(self.config.db_path).parent / f"{Path(self.config.db_path).stem}_bm25.pkl")
+        bm25_path = str(Path(self.config.database.db_path).parent / f"{Path(self.config.database.db_path).stem}_bm25.pkl")
         self.search_engine.bm25_index.save(bm25_path)
 
         logger.info(
@@ -1036,4 +1025,4 @@ class Ryumem:
 
     def __repr__(self) -> str:
         """String representation"""
-        return f"Ryumem(db_path='{self.config.db_path}', model='{self.config.llm_model}')"
+        return f"Ryumem(db_path='{self.config.database.db_path}', model='{self.config.llm.model}')"
