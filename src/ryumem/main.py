@@ -507,6 +507,7 @@ class Ryumem:
             # Returns: {"success_rate": 0.95, "usage_count": 100, "avg_duration_ms": 250, ...}
         """
         import json
+        from ryumem.core.metadata_models import EpisodeMetadata
 
         # Query query episodes (source='message') and extract tools_used from metadata
         query = """
@@ -534,34 +535,28 @@ class Ryumem:
             'recent_errors': [],
         }
 
-        # Aggregate statistics from tools_used arrays in query episodes
+        # Aggregate statistics using EpisodeMetadata methods
         while result.has_next():
             metadata_str = result.get_next()[0]
             if not metadata_str:
                 continue
 
-            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+            metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
 
-            # Extract tools_used array from query episode metadata
-            tools_used = metadata.get('tools_used', [])
+            # Parse into Pydantic model
+            try:
+                episode_metadata = EpisodeMetadata(**metadata_dict)
+                episode_stats = episode_metadata.get_tool_stats(tool_name)
 
-            # Iterate through tool executions in this query
-            for tool_execution in tools_used:
-                # Check if this is the tool we're looking for
-                if tool_execution.get('tool_name') == tool_name:
-                    stats['usage_count'] += 1
-
-                    if tool_execution.get('success'):
-                        stats['success_count'] += 1
-                    else:
-                        stats['failure_count'] += 1
-                        if len(stats['recent_errors']) < 5:
-                            stats['recent_errors'].append({
-                                'error': tool_execution.get('error', ''),
-                                'timestamp': tool_execution.get('timestamp', ''),
-                            })
-
-                    stats['total_duration_ms'] += tool_execution.get('duration_ms', 0)
+                # Aggregate into overall stats
+                stats['usage_count'] += episode_stats['usage_count']
+                stats['success_count'] += episode_stats['success_count']
+                stats['failure_count'] += episode_stats['failure_count']
+                stats['total_duration_ms'] += episode_stats['total_duration_ms']
+                stats['recent_errors'].extend(episode_stats['recent_errors'][:5 - len(stats['recent_errors'])])
+            except Exception:
+                # Skip episodes that don't match the new structure
+                continue
 
         # Calculate derived metrics
         if stats['usage_count'] >= min_executions:
@@ -598,6 +593,7 @@ class Ryumem:
             # Returns: [{"tool_name": "web_search", "usage_count": 50, ...}, ...]
         """
         import json
+        from ryumem.core.metadata_models import EpisodeMetadata
 
         # Query query episodes (source='message') and extract tools_used from metadata
         query = """
@@ -623,16 +619,15 @@ class Ryumem:
             if not metadata_str:
                 continue
 
-            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+            metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
 
-            # Extract tools_used array from query episode metadata
-            tools_used = metadata.get('tools_used', [])
+            # Parse into Pydantic model and get tool usage
+            try:
+                episode_metadata = EpisodeMetadata(**metadata_dict)
+                episode_tool_usage = episode_metadata.get_all_tool_usage()
 
-            # Iterate through tool executions in this query
-            for tool_execution in tools_used:
-                tool_name = tool_execution.get('tool_name')
-
-                if tool_name:
+                # Merge into overall tool_usage
+                for tool_name, usage in episode_tool_usage.items():
                     if tool_name not in tool_usage:
                         tool_usage[tool_name] = {
                             'tool_name': tool_name,
@@ -640,9 +635,11 @@ class Ryumem:
                             'success_count': 0,
                         }
 
-                    tool_usage[tool_name]['usage_count'] += 1
-                    if tool_execution.get('success'):
-                        tool_usage[tool_name]['success_count'] += 1
+                    tool_usage[tool_name]['usage_count'] += usage['usage_count']
+                    tool_usage[tool_name]['success_count'] += usage['success_count']
+            except Exception:
+                # Skip episodes that don't match the new structure
+                continue
 
         # Calculate success rates and format
         result_list = []
