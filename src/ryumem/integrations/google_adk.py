@@ -545,14 +545,14 @@ def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> Lis
 
 def _build_context_section(similar_queries: List[Dict[str, Any]], memory: RyumemGoogleADK, top_k: int) -> str:
     """Build historical context string from similar queries and their tool executions."""
-    context_parts = ["\n\n[Historical Context - What Worked Last Time:"]
+    context_parts = ["\n\n[IMPORTANT - Learn from Past Attempts:"]
 
     for idx, similar in enumerate(similar_queries[:top_k if top_k > 0 else len(similar_queries)], 1):
         query_content = similar["content"]
         query_metadata = similar.get("metadata")
         similarity_score = similar["score"]
 
-        context_parts.append(f"\n{idx}. Similar query (score: {similarity_score:.2f}): \"{query_content}\"")
+        context_parts.append(f"\n{idx}. Previous similar query: \"{query_content}\"")
 
         # Parse metadata to get agent response and tools
         try:
@@ -572,19 +572,19 @@ def _build_context_section(similar_queries: List[Dict[str, Any]], memory: Ryumem
                 if agent_response:
                     break
 
-            # Show what worked
+            # Show what happened
             if agent_response:
-                context_parts.append(f"   What worked: {agent_response}")
+                context_parts.append(f"   Previous approach: {agent_response}")
 
             # Get tool usage summary
             tool_summary = episode_metadata.get_tool_usage_summary()
             if tool_summary:
-                context_parts.append(f"   Tools: {tool_summary}")
+                context_parts.append(f"   Tools used: {tool_summary}")
 
         except Exception as e:
             logger.warning(f"Failed to parse query metadata: {e}")
 
-    context_parts.append("]\n")
+    context_parts.append("\n\nIMPORTANT: Learn from the above. If the previous approach failed, try a DIFFERENT strategy. Don't repeat the same failed attempts.]\n")
     return ''.join(context_parts)
 
 
