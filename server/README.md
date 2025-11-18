@@ -29,17 +29,17 @@ pip install -e .
 2. **Set up environment variables:**
 
 ```bash
-# Copy the example environment file
-cp .env.example .env
+# Copy the template environment file
+cp env.template .env
 
-# Edit .env and add your API keys
+# Edit .env and set your database path
 nano .env
 ```
 
 Required environment variables:
-- `OPENAI_API_KEY` - Your OpenAI API key (required for embeddings)
-- `RYUMEM_LLM_PROVIDER` - LLM provider: "openai" or "ollama"
-- `RYUMEM_LLM_MODEL` - Model name (e.g., "gpt-4o-mini" or "llama3.2:3b")
+- `RYUMEM_DB_PATH` - Path to your Ryumem database (e.g., "./data/ryumem.db")
+
+**Note:** The server runs in READ_ONLY mode and does not perform any LLM operations (entity extraction, embeddings, etc.). Therefore, **API keys are NOT required** to run the server. You only need to point it to an existing Ryumem database that was created by a write instance.
 
 ## Usage
 
@@ -221,42 +221,44 @@ These provide:
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key | Required |
-| `RYUMEM_LLM_PROVIDER` | LLM provider (openai/ollama) | openai |
-| `RYUMEM_LLM_MODEL` | LLM model name | gpt-4o-mini |
-| `RYUMEM_OLLAMA_BASE_URL` | Ollama base URL | http://localhost:11434 |
-| `RYUMEM_DB_PATH` | Database file path | ../data/memory.db |
-| `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | http://localhost:3000 |
-| `HOST` | Server host | 0.0.0.0 |
-| `PORT` | Server port | 8000 |
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `RYUMEM_DB_PATH` | Database file path | ./data/ryumem.db | ✅ Yes |
+| `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | http://localhost:3000 | No |
+| `HOST` | Server host | 0.0.0.0 | No |
+| `PORT` | Server port | 8000 | No |
 
-### Using Ollama (Local LLMs)
+**Note:** LLM provider settings (`OPENAI_API_KEY`, `RYUMEM_LLM_PROVIDER`, etc.) are NOT required for the server since it runs in READ_ONLY mode and doesn't perform any LLM operations.
 
-To use local LLMs via Ollama:
+### Creating a Ryumem Database
 
-1. **Install Ollama**: https://ollama.ai
+The server reads from an existing Ryumem database. To create a database with episodes and entities, you need to use a separate write instance (e.g., via Python script or CLI).
 
-2. **Start Ollama**:
-```bash
-ollama serve
+Example script to populate a database:
+
+```python
+from ryumem import Ryumem
+from ryumem.core.config import RyumemConfig
+
+# Create config with LLM provider (required for write operations)
+config = RyumemConfig()
+# API key must be set in environment: OPENAI_API_KEY or GOOGLE_API_KEY
+
+# Create Ryumem instance (not in read-only mode)
+with Ryumem(config=config) as ryumem:
+    # Add episodes
+    ryumem.add_episode(
+        content="Alice works at Google as a Software Engineer.",
+        user_id="user_123",
+        source="text"
+    )
+
+    # Search and explore
+    results = ryumem.search("Where does Alice work?", user_id="user_123")
+    print(results)
 ```
 
-3. **Pull a model**:
-```bash
-# Recommended models
-ollama pull qwen2.5:7b    # Best for structured output
-ollama pull llama3.2:3b   # Fast and efficient
-ollama pull mistral:7b    # Great reasoning
-```
-
-4. **Update .env**:
-```bash
-RYUMEM_LLM_PROVIDER=ollama
-RYUMEM_LLM_MODEL=qwen2.5:7b
-RYUMEM_OLLAMA_BASE_URL=http://localhost:11434
-```
+Once you have a populated database, you can start the server to query it via REST API without needing API keys.
 
 ## Architecture
 
@@ -347,18 +349,18 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ### Common Issues
 
 **1. "Ryumem not initialized" error**
-- Check that your `.env` file has all required variables
-- Ensure `OPENAI_API_KEY` is set
+- Check that your `.env` file has `RYUMEM_DB_PATH` set correctly
+- Ensure the database file exists and is accessible
 - Check server logs for initialization errors
 
 **2. CORS errors in browser**
 - Add your frontend URL to `CORS_ORIGINS` in `.env`
 - Restart the server after changing environment variables
 
-**3. Slow performance**
-- Consider using a faster LLM model (e.g., gpt-4o-mini)
-- Use Ollama for local inference (faster, no API costs)
+**3. Slow search performance**
 - Periodically run `/prune` endpoint to keep graph efficient
+- Use appropriate search strategy (semantic, bm25, or hybrid)
+- Consider filtering by user_id for multi-tenant scenarios
 
 **4. Database locked errors**
 - SQLite has limited concurrent write support

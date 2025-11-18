@@ -340,14 +340,21 @@ class RyumemConfig(BaseSettings):
         extra="ignore"
     )
 
-    def validate_api_keys(self) -> None:
+    def validate_api_keys(self, read_only: bool = False) -> None:
         """
         Validate API key requirements based on provider.
         Call this explicitly before using the config to ensure all required keys are present.
 
+        Args:
+            read_only: If True, skip API key validation since no LLM operations will be performed
+
         Raises:
             ValueError: If required API keys are missing for the configured providers
         """
+        # Skip validation in READ_ONLY mode - no LLM operations will be performed
+        if read_only:
+            return
+
         # Check LLM provider API key
         if self.llm.provider == "openai" and not self.llm.openai_api_key:
             raise ValueError(
