@@ -143,7 +143,7 @@ export default function Home() {
               <Brain className="h-8 w-8 text-primary" />
             </div>
             <div>
-              <h1 className="text-4xl font-bold tracking-tight">Ryumem Dashboard</h1>
+              <h1 className="text-4xl font-bold tracking-tight">RyuMem Dashboard</h1>
               <p className="text-muted-foreground">
                 Bi-temporal Knowledge Graph Memory System
               </p>

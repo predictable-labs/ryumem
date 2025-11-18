@@ -543,21 +543,36 @@ def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> Lis
         return []
 
 
-def _build_context_section(similar_queries: List[Dict[str, Any]], memory: RyumemGoogleADK, top_k: int) -> str:
+def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]], memory: RyumemGoogleADK, top_k: int) -> str:
     """Build historical context string from similar queries and their tool executions."""
 
     # Template for query augmentation
     AUGMENTATION_TEMPLATE = """
+[Previous Attempt Summary]
 
-[Previous Context - Learn from your past approach]
-
-Last time you approached a similar query, your thinking process was:
+Your previous approach was:
 {agent_response}
 
-Tools you used:
+Tools previously used:
 {tool_summary}
 
-Build on this previous experience. Learn from what worked and what didn't, and apply those insights to the current query.
+Using this memory, improve your next attempt.
+
+***IMPORTANT — REQUIRED BEHAVIOR***
+You MUST reuse any **concrete facts, results, conclusions, or discovered information** from the previous attempt if they are relevant. 
+Do NOT ignore previously known truths. 
+Treat the previous attempt as authoritative memory, not optional context.
+
+In your response, briefly include:
+1. What you learned last time (1–2 bullets).
+2. What you will change or improve (1–2 bullets).
+3. Then continue with your improved reasoning (explicitly applying relevant past information).
+
+IMPORTANT:
+If the previous attempt already contains the correct final answer, or fully solves the task, you MUST NOT re-solve it. 
+Instead, directly use or return the final answer from memory.
+
+Using this information, answer the query: {query_text}
 """
 
     for idx, similar in enumerate(similar_queries[:top_k if top_k > 0 else len(similar_queries)], 1):
@@ -586,7 +601,8 @@ Build on this previous experience. Learn from what worked and what didn't, and a
             # Fill template
             return AUGMENTATION_TEMPLATE.format(
                 agent_response=agent_response or "No previous response recorded",
-                tool_summary=tool_summary or "No tools used"
+                tool_summary=tool_summary or "No tools used",
+                query_text=query_text
             )
 
         except Exception as e:
@@ -627,8 +643,7 @@ def _augment_query_with_history(
         if not similar_queries:
             return query_text
 
-        context_section = _build_context_section(similar_queries, memory, top_k)
-        augmented_query = query_text + context_section
+        augmented_query = _build_context_section(query_text, similar_queries, memory, top_k)
 
         logger.info(f"Augmented query with {len(similar_queries)} similar queries")
         return augmented_query
