@@ -781,9 +781,22 @@ def _prepare_query_and_episode(
     run_id = str(uuid_module.uuid4())
 
     if existing_episode:
-        # Session already linked to an episode - reuse it
+        # Session already linked to an episode - reuse it and add new run
         query_episode_id = existing_episode.uuid
         logger.info(f"Reusing existing episode {query_episode_id} for session {session_id}")
+
+        # Create query run for this session
+        query_run = QueryRun(
+            run_id=run_id,
+            timestamp=datetime.datetime.utcnow().isoformat(),
+            query=original_query_text,
+            augmented_query=augmented_query_text if augmented_query_text != original_query_text else None,
+            agent_response="",
+            tools_used=[]
+        )
+
+        # Add run to episode metadata
+        _insert_run_information_in_episode(query_episode_id, run_id, session_id, query_run, memory)
     else:
         # Create new episode for this session
         query_episode_id = _create_query_episode(
