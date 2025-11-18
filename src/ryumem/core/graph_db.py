@@ -889,6 +889,62 @@ class RyugraphDB:
             "total": total,
         }
 
+    def get_episode_by_uuid(self, episode_uuid: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a single episode by its UUID.
+
+        Args:
+            episode_uuid: UUID of the episode
+
+        Returns:
+            Episode dictionary or None if not found
+        """
+        query = """
+        MATCH (e:Episode {uuid: $uuid})
+        RETURN
+            e.uuid AS uuid,
+            e.name AS name,
+            e.content AS content,
+            e.source AS source,
+            e.source_description AS source_description,
+            e.created_at AS created_at,
+            e.valid_at AS valid_at,
+            e.user_id AS user_id,
+            e.agent_id AS agent_id,
+            e.session_id AS session_id,
+            e.metadata AS metadata,
+            e.entity_edges AS entity_edges
+        """
+
+        result = self.execute(query, {"uuid": episode_uuid})
+        return result[0] if result else None
+
+    def update_episode_metadata(self, episode_uuid: str, metadata: Dict) -> Dict[str, Any]:
+        """
+        Update metadata for an existing episode.
+
+        Args:
+            episode_uuid: UUID of the episode
+            metadata: New metadata dictionary to set
+
+        Returns:
+            Result dictionary
+        """
+        import json
+
+        query = """
+        MATCH (e:Episode {uuid: $uuid})
+        SET e.metadata = $metadata
+        RETURN e.uuid AS uuid
+        """
+
+        params = {
+            "uuid": episode_uuid,
+            "metadata": json.dumps(metadata),
+        }
+
+        return self.execute(query, params)
+
     # ===== Community Methods =====
 
     def save_community(self, community: "CommunityNode") -> Dict[str, Any]:

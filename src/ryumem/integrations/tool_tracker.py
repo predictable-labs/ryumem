@@ -380,12 +380,22 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             current_metadata_str = result[0].get('metadata', '{}')
             current_metadata = json.loads(current_metadata_str) if isinstance(current_metadata_str, str) else current_metadata_str
 
-            # Initialize tools_used array if it doesn't exist
-            if 'tools_used' not in current_metadata:
-                current_metadata['tools_used'] = []
+            # Append tool execution to the latest run in the runs array
+            if 'runs' in current_metadata and len(current_metadata['runs']) > 0:
+                # Get the most recent run (last in array)
+                latest_run = current_metadata['runs'][-1]
 
-            # Append new tool execution
-            current_metadata['tools_used'].append(tool_execution)
+                # Initialize tools_used array in the run if it doesn't exist
+                if 'tools_used' not in latest_run:
+                    latest_run['tools_used'] = []
+
+                # Append new tool execution to the run's tools_used
+                latest_run['tools_used'].append(tool_execution)
+            else:
+                # Backward compatibility: append to top-level tools_used if no runs array
+                if 'tools_used' not in current_metadata:
+                    current_metadata['tools_used'] = []
+                current_metadata['tools_used'].append(tool_execution)
 
             # Update episode with new metadata
             query_update = """

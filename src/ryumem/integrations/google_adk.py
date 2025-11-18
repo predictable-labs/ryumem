@@ -504,6 +504,7 @@ def _augment_query_with_history(
     Returns:
         Augmented query with historical context appended
     """
+    #TODO rewrite teh entire logic.
     try:
         # Search for similar query episodes
         search_results = memory.ryumem.search(
@@ -517,21 +518,37 @@ def _augment_query_with_history(
             logger.debug("No similar query episodes found for augmentation")
             return query_text
 
-        logger.debug(f"Search returned {len(search_results.episodes)} episodes")
+        logger.info(f"🔍 Search results: {search_results}")
+
+        logger.info(f"🔍 AUGMENTATION: Search returned {len(search_results.episodes)} episodes for query: '{query_text[:50]}...'")
 
         # Filter by similarity threshold and source type (message = user queries)
         similar_queries = []
-        for episode in search_results.episodes:
-            # score = search_results.scores.get(episode.uuid, 0.0)
-            episode_similarity = episode.metadata.get("augmentation_config", {}).get("similarity_threshold", 0.0)
+        for idx, episode in enumerate(search_results.episodes):
+            # Get the actual similarity score from search results
+            # Note: Episodes may not have direct similarity scores if they were found via entity matches
+            # For exact query matches, we use similarity = 1.0
+            episode_similarity = search_results.scores.get(episode.uuid, 0.0)
+
+            # If episode has no score but content matches exactly, it's a perfect match
+            if episode_similarity == 0.0 and episode.content == query_text:
+                episode_similarity = 1.0
+                logger.info(f"🔍 Exact content match detected - setting similarity to 1.0")
+
+            logger.info(f"🔍 AUGMENTATION [{idx+1}/{len(search_results.episodes)}]: Episode {episode.uuid[:8]}")
+            logger.info(f"🔍   Content: '{episode.content[:60]}...'")
+            logger.info(f"🔍   Source: {episode.source}")
+            logger.info(f"🔍   Similarity score: {episode_similarity:.4f}")
+            logger.info(f"🔍   Required threshold: {similarity_threshold}")
+            logger.info(f"🔍   Is message type: {episode.source == EpisodeType.message}")
 
             # Only include episodes that are:
-            # 1. Above similarity threshold
+            # 1. Above similarity threshold (or exact match)
             # 2. From 'message' source (user queries, not tool executions)
-            # 3. Not the exact same query (to avoid self-reference)
+            # Note: We DO include exact query matches - this allows repeated queries
+            # to be augmented with their own previous runs' context
             if (episode_similarity >= similarity_threshold and
-                episode.source == EpisodeType.message and
-                episode.content != query_text):
+                episode.source == EpisodeType.message):
 
                 similar_queries.append({
                     "content": episode.content,
@@ -539,16 +556,14 @@ def _augment_query_with_history(
                     "uuid": episode.uuid,
                     "metadata": episode.metadata,  # Include metadata to access agent_response
                 })
-                logger.debug(f"  ✓ Added as similar query")
+                logger.info(f"🔍   ✅ INCLUDED in augmentation (passes all filters)")
             else:
                 reasons = []
                 if episode_similarity < similarity_threshold:
                     reasons.append(f"score {episode_similarity:.3f} < threshold {similarity_threshold}")
                 if episode.source != EpisodeType.message:
                     reasons.append(f"source is '{episode.source}' not 'message'")
-                if episode.content == query_text:
-                    reasons.append("exact same query")
-                logger.debug(f"  ✗ Filtered out: {', '.join(reasons)}")
+                logger.info(f"🔍   ❌ EXCLUDED from augmentation: {', '.join(reasons)}")
 
         if not similar_queries:
             logger.debug(f"No queries above threshold {similarity_threshold} after filtering")
@@ -736,7 +751,26 @@ def wrap_runner_with_tracking(
                         # Keep augmented_query_text as original query for metadata tracking
 
                 # Create episode for user query (store ORIGINAL query, not augmented)
-                # Use memory.extract_entities setting if available
+                # Create run data structure
+                import uuid as uuid_module
+                import json
+                run_id = str(uuid_module.uuid4())
+
+                current_run = {
+                    "run_id": run_id,
+                    "timestamp": __import__('datetime').datetime.utcnow().isoformat(),
+                    "original_query": original_query_text,
+                    "augmented_query": augmented_query_text if augmented_query_text else original_query_text,
+                    "augmentation_config": {
+                        "enabled": augment_queries,
+                        "similarity_threshold": similarity_threshold,
+                        "top_k_similar": top_k_similar,
+                    } if augment_queries else None,
+                    "tools_used": [],  # Will be populated by tool tracker
+                }
+
+                # Check if episode already exists (via deduplication)
+                # add_episode will return existing UUID if duplicate is found
                 query_episode_id = memory.ryumem.add_episode(
                     content=original_query_text,  # Store original for similarity matching
                     user_id=user_id,
@@ -745,17 +779,52 @@ def wrap_runner_with_tracking(
                         "session_id": session_id,
                         "integration": "google_adk",
                         "type": "user_query",
-                        "timestamp": __import__('datetime').datetime.utcnow().isoformat(),
-                        "augmented": augmented_query_text is not None and augmented_query_text != original_query_text,
-                        "augmented_query": augmented_query_text if augmented_query_text else None,
-                        "augmentation_config": {
-                            "enabled": augment_queries,
-                            "similarity_threshold": similarity_threshold,
-                            "top_k_similar": top_k_similar,
-                        } if augment_queries else None,
+                        "runs": [current_run],  # Initialize with first run
                     },
                     extract_entities=memory.extract_entities  # Use memory's default setting
                 )
+
+                # Check if this was a duplicate (existing episode) and append run if so
+                existing_episode = memory.ryumem.get_episode_by_uuid(query_episode_id)
+                logger.info(f"🔍 Checking episode {query_episode_id[:8]}: existing_episode={'found' if existing_episode else 'not found'}")
+
+                if existing_episode:
+                    # Parse existing metadata
+                    metadata_str = existing_episode.get('metadata', '{}')
+                    existing_metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                    logger.info(f"🔍 Parsed metadata for episode {query_episode_id[:8]}")
+
+                    # Check if runs array exists and has more than the one we just added
+                    # OR if the first run has a different run_id than current_run
+                    existing_runs = existing_metadata.get('runs', [])
+                    logger.info(f"🔍 Episode {query_episode_id[:8]} has {len(existing_runs)} existing runs")
+
+                    if existing_runs and len(existing_runs) > 0:
+                        logger.info(f"🔍 Current run_id: {run_id[:8]}")
+                        for i, run in enumerate(existing_runs):
+                            logger.info(f"🔍   Run {i}: {run.get('run_id', 'no-id')[:8]}")
+
+                    # If this episode has runs and the latest run_id is NOT our current run_id,
+                    # then this is a duplicate and we need to append
+                    if existing_runs and len(existing_runs) > 0:
+                        latest_run_id = existing_runs[-1].get('run_id')
+                        logger.info(f"🔍 Latest run_id in DB: {latest_run_id[:8] if latest_run_id else 'none'}, Current run_id: {run_id[:8]}")
+
+                        if latest_run_id != run_id:
+                            logger.info(f"🔍 DUPLICATE DETECTED! Appending new run to existing episode")
+                            # This is a duplicate - append the new run
+                            existing_runs.append(current_run)
+                            existing_metadata['runs'] = existing_runs
+                            logger.info(f"🔍 Updated runs array, new length: {len(existing_runs)}")
+
+                            # Update the episode metadata
+                            memory.ryumem.update_episode_metadata(query_episode_id, existing_metadata)
+                            logger.info(f"📝 Appended run {run_id[:8]} to existing episode {query_episode_id[:8]} (now has {len(existing_runs)} runs)")
+                        else:
+                            logger.info(f"🔍 NOT A DUPLICATE - latest run_id matches current run_id (this is the newly created episode)")
+
+                # Store current run_id for tool tracker to use
+                original_runner._ryumem_current_run_id = run_id
 
                 # Store in multiple places for maximum reliability:
                 # 1. Context variable (for same-context async tasks)
@@ -802,7 +871,7 @@ def wrap_runner_with_tracking(
                                 agent_response_parts.append(part.text)
                     yield event
             finally:
-                # Save agent response to query episode metadata if we captured any
+                # Save agent response to current run in query episode metadata
                 if query_episode_id and agent_response_parts:
                     try:
                         agent_response = ' '.join(agent_response_parts)
@@ -822,8 +891,13 @@ def wrap_runner_with_tracking(
                             except json.JSONDecodeError:
                                 metadata = {}
 
-                            # Add agent response to metadata
-                            metadata["agent_response"] = agent_response
+                            # Add agent response to the latest run in the runs array
+                            if "runs" in metadata and len(metadata["runs"]) > 0:
+                                # Update the most recent run (last in array)
+                                metadata["runs"][-1]["agent_response"] = agent_response
+                            else:
+                                # Backward compatibility: add to top-level if no runs array
+                                metadata["agent_response"] = agent_response
 
                             # Update episode with new metadata
                             memory.ryumem.db.execute(

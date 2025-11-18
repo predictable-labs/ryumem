@@ -290,6 +290,42 @@ class Ryumem:
 
         return episode_ids
 
+    def get_episode_by_uuid(self, episode_uuid: str) -> Optional[Dict]:
+        """
+        Get a single episode by its UUID.
+
+        Args:
+            episode_uuid: UUID of the episode
+
+        Returns:
+            Episode dictionary or None if not found
+
+        Example:
+            episode = ryumem.get_episode_by_uuid("64b0c94c-8653-434a-8c41-414053f87eba")
+            if episode:
+                print(f"Content: {episode['content']}")
+        """
+        return self.db.get_episode_by_uuid(episode_uuid)
+
+    def update_episode_metadata(self, episode_uuid: str, metadata: Dict) -> Dict:
+        """
+        Update metadata for an existing episode.
+
+        Args:
+            episode_uuid: UUID of the episode
+            metadata: New metadata dictionary to set
+
+        Returns:
+            Result dictionary
+
+        Example:
+            ryumem.update_episode_metadata(
+                episode_uuid="64b0c94c-8653-434a-8c41-414053f87eba",
+                metadata={"session_id": "1234", "runs": [...]}
+            )
+        """
+        return self.db.update_episode_metadata(episode_uuid, metadata)
+
     def search(
         self,
         query: str,

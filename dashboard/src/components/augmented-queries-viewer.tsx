@@ -39,7 +39,7 @@ import { Loader2, Eye, CheckCircle2, XCircle, Clock, Filter } from 'lucide-react
 
 export default function AugmentedQueriesViewer() {
   const [queries, setQueries] = useState<AugmentedQuery[]>([])
-  const [selectedQuery, setSelectedQuery] = useState<AugmentedQuery | null>(null)
+  const [selectedRun, setSelectedRun] = useState<{ query: AugmentedQuery; run: any } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedUser, setSelectedUser] = useState<string>('')
@@ -83,8 +83,8 @@ export default function AugmentedQueriesViewer() {
     }
   }
 
-  const handleViewDetails = (query: AugmentedQuery) => {
-    setSelectedQuery(query)
+  const handleViewDetails = (query: AugmentedQuery, run: any) => {
+    setSelectedRun({ query, run })
     setIsDetailOpen(true)
   }
 
@@ -96,20 +96,35 @@ export default function AugmentedQueriesViewer() {
     }
   }
 
-  const getAugmentationBadge = (query: AugmentedQuery) => {
-    if (!query.augmented) {
+  // Flatten queries into individual runs for display
+  const flattenedRuns = queries.flatMap(query =>
+    query.runs.map(run => ({
+      episode_id: query.episode_id,
+      user_id: query.user_id,
+      session_id: query.session_id,
+      original_query: query.original_query,
+      created_at: query.created_at,
+      run: run,
+    }))
+  )
+
+  const getRunAugmentationBadge = (run: any) => {
+    const isAugmented = run.augmented_query !== run.original_query
+    if (!isAugmented) {
       return <Badge variant="secondary">Not Augmented</Badge>
     }
     return <Badge variant="default">Augmented</Badge>
   }
 
-  const getToolsUsedSummary = (query: AugmentedQuery) => {
-    if (!query.tools_used || query.tools_used.length === 0) {
-      return <span className="text-muted-foreground text-sm">No tools used</span>
+  const getRunToolsSummary = (run: any) => {
+    const tools = run.tools_used || []
+
+    if (tools.length === 0) {
+      return <span className="text-muted-foreground text-sm">No tools</span>
     }
 
-    const successCount = query.tools_used.filter(t => t.success).length
-    const failCount = query.tools_used.length - successCount
+    const successCount = tools.filter((t: any) => t.success).length
+    const failCount = tools.length - successCount
 
     return (
       <div className="flex gap-2 items-center">
@@ -183,9 +198,9 @@ export default function AugmentedQueriesViewer() {
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
-          ) : queries.length === 0 ? (
+          ) : flattenedRuns.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              No queries found
+              No query runs found
             </div>
           ) : (
             <div className="border rounded-lg">
@@ -194,33 +209,43 @@ export default function AugmentedQueriesViewer() {
                   <TableRow>
                     <TableHead>Query</TableHead>
                     <TableHead>User ID</TableHead>
+                    <TableHead>Run ID</TableHead>
                     <TableHead>Augmented</TableHead>
                     <TableHead>Tools Used</TableHead>
-                    <TableHead>Created At</TableHead>
+                    <TableHead>Run Time</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {queries.map((query) => (
-                    <TableRow key={query.episode_id}>
+                  {flattenedRuns.map((item, idx) => (
+                    <TableRow key={`${item.episode_id}-${item.run.run_id}-${idx}`}>
                       <TableCell className="max-w-md">
                         <div className="truncate font-mono text-sm">
-                          {query.original_query}
+                          {item.original_query}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{query.user_id}</Badge>
+                        <Badge variant="outline">{item.user_id}</Badge>
                       </TableCell>
-                      <TableCell>{getAugmentationBadge(query)}</TableCell>
-                      <TableCell>{getToolsUsedSummary(query)}</TableCell>
+                      <TableCell>
+                        <div className="font-mono text-xs text-muted-foreground">
+                          {item.run.run_id.substring(0, 8)}...
+                        </div>
+                      </TableCell>
+                      <TableCell>{getRunAugmentationBadge(item.run)}</TableCell>
+                      <TableCell>{getRunToolsSummary(item.run)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {formatTimestamp(query.created_at)}
+                        {formatTimestamp(item.run.timestamp)}
                       </TableCell>
                       <TableCell>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleViewDetails(query)}
+                          onClick={() => {
+                            // Find the original query to pass to the detail view
+                            const query = queries.find(q => q.episode_id === item.episode_id)
+                            if (query) handleViewDetails(query, item.run)
+                          }}
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -244,146 +269,138 @@ export default function AugmentedQueriesViewer() {
             </DialogDescription>
           </DialogHeader>
 
-          {selectedQuery && (
+          {selectedRun && (
             <div className="space-y-6">
               {/* Query Info */}
               <div>
                 <h3 className="text-sm font-semibold mb-2">Original Query</h3>
                 <div className="p-3 bg-muted rounded-md font-mono text-sm">
-                  {selectedQuery.original_query}
+                  {selectedRun.query.original_query}
                 </div>
               </div>
-
-              {/* Augmented Query */}
-              {selectedQuery.augmented && selectedQuery.augmented_query && (
-                <div>
-                  <h3 className="text-sm font-semibold mb-2">Augmented Query (with context)</h3>
-                  <div className="p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md font-mono text-sm whitespace-pre-wrap">
-                    {selectedQuery.augmented_query}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    This is what was actually sent to the agent (original query + historical context)
-                  </p>
-                </div>
-              )}
 
               {/* Metadata */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <h3 className="text-sm font-semibold mb-2">Episode ID</h3>
                   <div className="text-sm text-muted-foreground font-mono">
-                    {selectedQuery.episode_id}
+                    {selectedRun.query.episode_id}
                   </div>
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold mb-2">User ID</h3>
-                  <Badge variant="outline">{selectedQuery.user_id}</Badge>
+                  <Badge variant="outline">{selectedRun.query.user_id}</Badge>
                 </div>
-                {selectedQuery.session_id && (
+                {selectedRun.query.session_id && (
                   <div>
                     <h3 className="text-sm font-semibold mb-2">Session ID</h3>
                     <div className="text-sm text-muted-foreground font-mono">
-                      {selectedQuery.session_id}
+                      {selectedRun.query.session_id}
                     </div>
                   </div>
                 )}
                 <div>
-                  <h3 className="text-sm font-semibold mb-2">Created At</h3>
-                  <div className="text-sm text-muted-foreground">
-                    {formatTimestamp(selectedQuery.created_at)}
+                  <h3 className="text-sm font-semibold mb-2">Run ID</h3>
+                  <div className="text-sm text-muted-foreground font-mono">
+                    {selectedRun.run.run_id}
                   </div>
                 </div>
               </div>
 
-              {/* Augmentation Config */}
-              {selectedQuery.augmented && selectedQuery.augmentation_config && (
-                <div>
-                  <h3 className="text-sm font-semibold mb-2">Augmentation Configuration</h3>
-                  <div className="p-3 bg-muted rounded-md space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Similarity Threshold:</span>
-                      <span className="font-mono">
-                        {selectedQuery.augmentation_config.similarity_threshold}
-                      </span>
+              {/* Run Details */}
+              <div>
+                <h3 className="text-sm font-semibold mb-3">Run Details</h3>
+                <Card className="border-2">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {selectedRun.run.run_id.substring(0, 8)}...
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatTimestamp(selectedRun.run.timestamp)}
+                      </div>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Top K Similar:</span>
-                      <span className="font-mono">
-                        {selectedQuery.augmentation_config.top_k_similar}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {/* Augmented Query for this run */}
+                    {selectedRun.run.augmented_query !== selectedRun.run.original_query && (
+                      <div>
+                        <h4 className="text-xs font-semibold mb-1">Augmented Query</h4>
+                        <div className="p-2 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded text-xs font-mono whitespace-pre-wrap max-h-40 overflow-y-auto">
+                          {selectedRun.run.augmented_query}
+                        </div>
+                      </div>
+                    )}
 
-              {/* Tools Used */}
-              {selectedQuery.tools_used && selectedQuery.tools_used.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold mb-2">Tools Executed</h3>
-                  <div className="space-y-2">
-                    {selectedQuery.tools_used.map((tool, idx) => (
-                      <Card key={idx}>
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-sm font-semibold">
-                                {tool.tool_name}
-                              </span>
-                              {tool.success ? (
-                                <Badge variant="outline" className="flex items-center gap-1">
-                                  <CheckCircle2 className="h-3 w-3 text-green-500" />
-                                  Success
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="flex items-center gap-1">
-                                  <XCircle className="h-3 w-3 text-red-500" />
-                                  Failed
-                                </Badge>
+                    {/* Agent Response */}
+                    {selectedRun.run.agent_response && (
+                      <div>
+                        <h4 className="text-xs font-semibold mb-1">Agent Response</h4>
+                        <div className="p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded text-xs max-h-40 overflow-y-auto">
+                          {selectedRun.run.agent_response}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tools Used in this run */}
+                    {selectedRun.run.tools_used && selectedRun.run.tools_used.length > 0 && (
+                      <div>
+                        <h4 className="text-xs font-semibold mb-2">Tools Used ({selectedRun.run.tools_used.length})</h4>
+                        <div className="space-y-2">
+                          {selectedRun.run.tools_used.map((tool: any, toolIdx: number) => (
+                            <div key={toolIdx} className="p-2 bg-muted rounded text-xs">
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-semibold">{tool.tool_name}</span>
+                                  {tool.success ? (
+                                    <Badge variant="outline" className="flex items-center gap-1 text-xs h-5">
+                                      <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                      Success
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="flex items-center gap-1 text-xs h-5">
+                                      <XCircle className="h-3 w-3 text-red-500" />
+                                      Failed
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 text-muted-foreground">
+                                  <Clock className="h-3 w-3" />
+                                  {tool.duration_ms}ms
+                                </div>
+                              </div>
+                              {tool.error && (
+                                <div className="mt-1 p-1 bg-red-50 dark:bg-red-950 rounded text-red-600 dark:text-red-400">
+                                  <strong>Error:</strong> {tool.error}
+                                </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Clock className="h-3 w-3" />
-                              {tool.duration_ms}ms
-                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Augmentation Config for this run */}
+                    {selectedRun.run.augmentation_config && (
+                      <div>
+                        <h4 className="text-xs font-semibold mb-1">Augmentation Config</h4>
+                        <div className="p-2 bg-muted rounded space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Threshold:</span>
+                            <span className="font-mono">{selectedRun.run.augmentation_config.similarity_threshold}</span>
                           </div>
-
-                          <div className="text-xs text-muted-foreground mb-2">
-                            {formatTimestamp(tool.timestamp)}
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Top K:</span>
+                            <span className="font-mono">{selectedRun.run.augmentation_config.top_k_similar}</span>
                           </div>
-
-                          {tool.error && (
-                            <div className="mt-2 p-2 bg-red-50 dark:bg-red-950 rounded text-xs text-red-600 dark:text-red-400">
-                              <strong>Error:</strong> {tool.error}
-                            </div>
-                          )}
-
-                          {tool.input && (
-                            <details className="mt-2">
-                              <summary className="text-xs font-semibold cursor-pointer">
-                                Input
-                              </summary>
-                              <pre className="mt-1 p-2 bg-muted rounded text-xs overflow-x-auto">
-                                {JSON.stringify(tool.input, null, 2)}
-                              </pre>
-                            </details>
-                          )}
-
-                          {tool.output && (
-                            <details className="mt-2">
-                              <summary className="text-xs font-semibold cursor-pointer">
-                                Output
-                              </summary>
-                              <pre className="mt-1 p-2 bg-muted rounded text-xs overflow-x-auto">
-                                {JSON.stringify(tool.output, null, 2)}
-                              </pre>
-                            </details>
-                          )}
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              )}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           )}
         </DialogContent>

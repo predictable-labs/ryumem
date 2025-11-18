@@ -166,14 +166,38 @@ export interface ToolPreference {
   last_used: string;
 }
 
+export interface QueryRun {
+  run_id: string;
+  timestamp: string;
+  original_query: string;
+  augmented_query: string;
+  augmentation_config?: {
+    enabled: boolean;
+    similarity_threshold: number;
+    top_k_similar: number;
+  };
+  tools_used: Array<{
+    tool_name: string;
+    success: boolean;
+    duration_ms: number;
+    timestamp: string;
+    input_params?: any;
+    output_summary?: any;
+    error?: string;
+  }>;
+  agent_response?: string;
+}
+
 export interface AugmentedQuery {
   episode_id: string;
   original_query: string;
-  augmented_query?: string;
   user_id: string;
   session_id?: string;
   created_at: string;
-  augmented: boolean;
+  runs: QueryRun[];
+  // Backward compatibility fields
+  augmented_query?: string;
+  augmented?: boolean;
   augmentation_config?: {
     enabled: boolean;
     similarity_threshold: number;

@@ -1195,17 +1195,30 @@ async def get_user_tool_preferences(
         raise HTTPException(status_code=500, detail=f"Error getting user tool preferences: {str(e)}")
 
 
+class QueryRun(BaseModel):
+    """Model for a single query run"""
+    run_id: str
+    timestamp: str
+    original_query: str
+    augmented_query: str
+    augmentation_config: Optional[Dict[str, Any]]
+    tools_used: List[Dict[str, Any]]
+    agent_response: Optional[str] = None
+
+
 class AugmentedQueryResponse(BaseModel):
     """Response model for augmented queries"""
     episode_id: str
     original_query: str
-    augmented_query: Optional[str]
     user_id: str
     session_id: Optional[str]
     created_at: str
-    augmented: bool
-    augmentation_config: Optional[Dict[str, Any]]
-    tools_used: Optional[List[Dict[str, Any]]]
+    runs: List[QueryRun]
+    # Backward compatibility fields
+    augmented_query: Optional[str] = None
+    augmented: bool = False
+    augmentation_config: Optional[Dict[str, Any]] = None
+    tools_used: Optional[List[Dict[str, Any]]] = None
 
 
 @app.get("/augmented-queries", response_model=List[AugmentedQueryResponse], tags=["Query Augmentation"])
@@ -1263,14 +1276,44 @@ async def get_augmented_queries(
             if session_id is not None and (isinstance(session_id, float) or str(session_id).lower() == 'nan'):
                 session_id = None
 
+            # Extract runs array from metadata
+            runs_data = metadata.get("runs", [])
+
+            # Convert runs to QueryRun models
+            runs = []
+            for run in runs_data:
+                runs.append(QueryRun(
+                    run_id=run.get("run_id", "unknown"),
+                    timestamp=run.get("timestamp", ""),
+                    original_query=run.get("original_query", ""),
+                    augmented_query=run.get("augmented_query", ""),
+                    augmentation_config=run.get("augmentation_config"),
+                    tools_used=run.get("tools_used", []),
+                    agent_response=run.get("agent_response")
+                ))
+
+            # Backward compatibility: if no runs array, create one from old metadata structure
+            if not runs:
+                runs.append(QueryRun(
+                    run_id="legacy",
+                    timestamp=metadata.get("timestamp", episode["created_at"].isoformat() if hasattr(episode["created_at"], "isoformat") else str(episode["created_at"])),
+                    original_query=episode["content"],
+                    augmented_query=metadata.get("augmented_query", episode["content"]),
+                    augmentation_config=metadata.get("augmentation_config"),
+                    tools_used=metadata.get("tools_used", []),
+                    agent_response=metadata.get("agent_response")
+                ))
+
             query_episodes.append(
                 AugmentedQueryResponse(
                     episode_id=episode["uuid"],
                     original_query=episode["content"],
-                    augmented_query=metadata.get("augmented_query"),
                     user_id=episode["user_id"],
                     session_id=session_id,
                     created_at=episode["created_at"].isoformat() if hasattr(episode["created_at"], "isoformat") else str(episode["created_at"]),
+                    runs=runs,
+                    # Backward compatibility fields
+                    augmented_query=metadata.get("augmented_query"),
                     augmented=metadata.get("augmented", False),
                     augmentation_config=metadata.get("augmentation_config"),
                     tools_used=metadata.get("tools_used", [])
