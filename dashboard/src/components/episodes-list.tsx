@@ -141,7 +141,25 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
 
   const getToolsUsed = (episode: EpisodeInfo) => {
     const metadata = parseMetadata(episode.metadata);
-    return metadata?.tools_used || [];
+    if (!metadata) return [];
+
+    // New structure: metadata.sessions[session_id][].tools_used[]
+    if (metadata.sessions) {
+      const allTools: any[] = [];
+      Object.values(metadata.sessions).forEach((runs: any) => {
+        if (Array.isArray(runs)) {
+          runs.forEach((run: any) => {
+            if (run.tools_used && Array.isArray(run.tools_used)) {
+              allTools.push(...run.tools_used);
+            }
+          });
+        }
+      });
+      return allTools;
+    }
+
+    // Old structure (backward compatibility): metadata.tools_used[]
+    return metadata.tools_used || [];
   };
 
   return (

@@ -353,6 +353,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
     def _update_episode_with_tool_execution(
         self,
         episode_id: str,
+        session_id: str,
         tool_execution: Dict[str, Any],
     ) -> None:
         """
@@ -360,10 +361,12 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
         Args:
             episode_id: UUID of the parent query episode
+            session_id: Session ID to find the correct run
             tool_execution: Dictionary containing tool execution details
         """
         try:
             import json
+            from ryumem.core.metadata_models import EpisodeMetadata, ToolExecution
 
             # Fetch current metadata
             query_fetch = """
@@ -378,40 +381,36 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             # Parse existing metadata
             current_metadata_str = result[0].get('metadata', '{}')
-            current_metadata = json.loads(current_metadata_str) if isinstance(current_metadata_str, str) else current_metadata_str
+            metadata_dict = json.loads(current_metadata_str) if isinstance(current_metadata_str, str) else current_metadata_str
 
-            # Append tool execution to the latest run in the runs array
-            if 'runs' in current_metadata and len(current_metadata['runs']) > 0:
-                # Get the most recent run (last in array)
-                latest_run = current_metadata['runs'][-1]
+            # Parse into Pydantic model
+            episode_metadata = EpisodeMetadata(**metadata_dict)
 
-                # Initialize tools_used array in the run if it doesn't exist
-                if 'tools_used' not in latest_run:
-                    latest_run['tools_used'] = []
+            # Create ToolExecution model
+            tool_exec = ToolExecution(**tool_execution)
 
-                # Append new tool execution to the run's tools_used
-                latest_run['tools_used'].append(tool_execution)
+            # Append to latest run in this session
+            latest_run = episode_metadata.get_latest_run(session_id)
+            if latest_run:
+                latest_run.tools_used.append(tool_exec)
+
+                # Update episode with new metadata
+                query_update = """
+                MATCH (e:Episode {uuid: $episode_id})
+                SET e.metadata = $metadata
+                RETURN e.uuid
+                """
+
+                self.ryumem.db.execute(query_update, {
+                    "episode_id": episode_id,
+                    "metadata": json.dumps(episode_metadata.model_dump())
+                })
+
+                logger.debug(
+                    f"Updated episode {episode_id} session {session_id[:8]} with tool: {tool_execution['tool_name']}"
+                )
             else:
-                # Backward compatibility: append to top-level tools_used if no runs array
-                if 'tools_used' not in current_metadata:
-                    current_metadata['tools_used'] = []
-                current_metadata['tools_used'].append(tool_execution)
-
-            # Update episode with new metadata
-            query_update = """
-            MATCH (e:Episode {uuid: $episode_id})
-            SET e.metadata = $metadata
-            RETURN e.uuid
-            """
-
-            self.ryumem.db.execute(query_update, {
-                "episode_id": episode_id,
-                "metadata": json.dumps(current_metadata)
-            })
-
-            logger.debug(
-                f"Updated episode {episode_id} with tool execution: {tool_execution['tool_name']}"
-            )
+                logger.warning(f"No run found for session {session_id} in episode {episode_id}")
 
         except Exception as e:
             logger.error(f"Failed to update episode with tool execution: {e}")
@@ -473,11 +472,15 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             }
 
             # Update parent episode's metadata (append to tools_used array)
+            if not session_id:
+                raise ValueError(f"session_id is required for tool tracking but was None for tool '{tool_name}'")
+
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 _thread_pool,
                 lambda: self._update_episode_with_tool_execution(
                     episode_id=parent_episode_id,
+                    session_id=session_id,
                     tool_execution=tool_execution
                 )
             )
@@ -815,10 +818,18 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             finally:
                 duration_ms = int((time.time() - start_time) * 1000)
 
-                # Extract user_id and session_id if available in tool_context
-                # Fall back to default_user_id if tool_context doesn't provide one
-                user_id = getattr(tool_context, 'user_id', None) or self.default_user_id
-                session_id = getattr(tool_context, 'session_id', None)
+                # Extract user_id and session_id from tool_context.session
+                if not hasattr(tool_context, 'session') or not tool_context.session:
+                    raise ValueError(f"tool_context.session is required but was None for tool '{tool_name}'")
+
+                session = tool_context.session
+                user_id = getattr(session, 'user_id', None)
+                session_id = getattr(session, 'id', None)
+
+                if not user_id:
+                    raise ValueError(f"tool_context.session.user_id is required but was None for tool '{tool_name}'")
+                if not session_id:
+                    raise ValueError(f"tool_context.session.id is required but was None for tool '{tool_name}'")
 
                 try:
                     # Store tracking data synchronously

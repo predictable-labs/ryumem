@@ -1278,33 +1278,37 @@ async def get_augmented_queries(
             if session_id is not None and (isinstance(session_id, float) or str(session_id).lower() == 'nan'):
                 session_id = None
 
-            # Extract runs array from metadata
-            runs_data = metadata.get("runs", [])
-
-            # Convert runs to QueryRun models
+            # Extract runs from metadata
             runs = []
-            for run in runs_data:
-                runs.append(QueryRun(
-                    run_id=run.get("run_id", "unknown"),
-                    timestamp=run.get("timestamp", ""),
-                    original_query=run.get("original_query", ""),
-                    augmented_query=run.get("augmented_query", ""),
-                    augmentation_config=run.get("augmentation_config"),
-                    tools_used=run.get("tools_used", []),
-                    agent_response=run.get("agent_response")
-                ))
 
-            # Backward compatibility: if no runs array, create one from old metadata structure
-            if not runs:
-                runs.append(QueryRun(
-                    run_id="legacy",
-                    timestamp=metadata.get("timestamp", episode["created_at"].isoformat() if hasattr(episode["created_at"], "isoformat") else str(episode["created_at"])),
-                    original_query=episode["content"],
-                    augmented_query=metadata.get("augmented_query", episode["content"]),
-                    augmentation_config=metadata.get("augmentation_config"),
-                    tools_used=metadata.get("tools_used", []),
-                    agent_response=metadata.get("agent_response")
-                ))
+            # NEW structure: metadata.sessions{session_id: [runs]}
+            if "sessions" in metadata:
+                # Flatten all runs from all sessions
+                for session_runs in metadata["sessions"].values():
+                    if isinstance(session_runs, list):
+                        for run in session_runs:
+                            runs.append(QueryRun(
+                                run_id=run.get("run_id", "unknown"),
+                                timestamp=run.get("timestamp", ""),
+                                original_query=run.get("query", ""),  # NEW: field is 'query' not 'original_query'
+                                augmented_query=run.get("query", ""),  # For display - augmentation is in query context
+                                augmentation_config=None,  # No longer stored per-run in new structure
+                                tools_used=run.get("tools_used", []),
+                                agent_response=run.get("agent_response", "")
+                            ))
+
+            # OLD structure (backward compatibility): metadata.runs[]
+            elif "runs" in metadata:
+                for run in metadata["runs"]:
+                    runs.append(QueryRun(
+                        run_id=run.get("run_id", "unknown"),
+                        timestamp=run.get("timestamp", ""),
+                        original_query=run.get("original_query", ""),
+                        augmented_query=run.get("augmented_query", ""),
+                        augmentation_config=run.get("augmentation_config"),
+                        tools_used=run.get("tools_used", []),
+                        agent_response=run.get("agent_response")
+                    ))
 
             query_episodes.append(
                 AugmentedQueryResponse(

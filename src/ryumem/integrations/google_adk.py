@@ -36,6 +36,7 @@ import logging
 import json
 
 from ryumem import EpisodeType, Ryumem
+from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
 
 logger = logging.getLogger(__name__)
 
@@ -650,7 +651,8 @@ def _extract_query_text(new_message) -> Optional[str]:
 def _insert_run_information_in_episode(
     query_episode_id: str,
     run_id: str,
-    current_run: Dict[str, Any],
+    session_id: str,
+    query_run: QueryRun,
     memory: RyumemGoogleADK
 ):
     """Check for duplicate episodes and append run if needed."""
@@ -662,18 +664,19 @@ def _insert_run_information_in_episode(
         return
 
     metadata_str = existing_episode.get('metadata', '{}')
-    existing_metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-    existing_runs = existing_metadata.get('runs', [])
+    metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
 
-    if existing_runs and len(existing_runs) > 0:
-        latest_run_id = existing_runs[-1].get('run_id')
+    # Parse into Pydantic model
+    episode_metadata = EpisodeMetadata(**metadata_dict)
 
-        if latest_run_id != run_id:
-            logger.info(f"Duplicate query detected - appending new run to episode {query_episode_id[:8]}")
-            existing_runs.append(current_run)
-            existing_metadata['runs'] = existing_runs
-            memory.ryumem.update_episode_metadata(query_episode_id, existing_metadata)
-            logger.info(f"Episode {query_episode_id[:8]} now has {len(existing_runs)} runs")
+    # Check if this session already has runs
+    if session_id in episode_metadata.sessions:
+        existing_runs = episode_metadata.sessions[session_id]
+        if existing_runs and existing_runs[-1].run_id != run_id:
+            logger.info(f"Duplicate query detected - appending run to session {session_id[:8]} in episode {query_episode_id[:8]}")
+            episode_metadata.add_query_run(session_id, query_run)
+            memory.ryumem.update_episode_metadata(query_episode_id, episode_metadata.model_dump())
+            logger.info(f"Episode {query_episode_id[:8]} session {session_id[:8]} now has {len(episode_metadata.sessions[session_id])} runs")
 
 
 def _create_query_episode(
@@ -688,34 +691,31 @@ def _create_query_episode(
     memory: RyumemGoogleADK
 ) -> str:
     """Create episode for user query with metadata."""
-    current_run = {
-        "run_id": run_id,
-        "timestamp": __import__('datetime').datetime.utcnow().isoformat(),
-        "original_query": query_text,
-        "augmented_query": augmented_query_text,
-        "augmentation_config": {
-            "enabled": augment_queries,
-            "similarity_threshold": similarity_threshold,
-            "top_k_similar": top_k_similar,
-        } if augment_queries else None,
-        "tools_used": [],
-    }
+    import datetime
+
+    # Create query run using Pydantic model
+    query_run = QueryRun(
+        run_id=run_id,
+        timestamp=datetime.datetime.utcnow().isoformat(),
+        query=query_text,
+        agent_response="",
+        tools_used=[]
+    )
+
+    # Create episode metadata with sessions map
+    episode_metadata = EpisodeMetadata(integration="google_adk")
+    episode_metadata.add_query_run(session_id, query_run)
 
     query_episode_id = memory.ryumem.add_episode(
         content=query_text,
         user_id=user_id,
         source="message",
-        metadata={
-            "session_id": session_id,
-            "integration": "google_adk",
-            "type": "user_query",
-            "runs": [current_run],
-        },
+        metadata=episode_metadata.model_dump(),
         extract_entities=memory.extract_entities
     )
 
-    _insert_run_information_in_episode(query_episode_id, run_id, current_run, memory)
-    logger.info(f"Created query episode: {query_episode_id} for user: {user_id}")
+    _insert_run_information_in_episode(query_episode_id, run_id, session_id, query_run, memory)
+    logger.info(f"Created query episode: {query_episode_id} for user: {user_id}, session: {session_id}")
 
     return query_episode_id
 
@@ -801,6 +801,7 @@ def _prepare_query_and_episode(
 
 def _save_agent_response_to_episode(
     query_episode_id: str,
+    session_id: str,
     agent_response_parts: List[str],
     memory: RyumemGoogleADK
 ):
@@ -811,6 +812,7 @@ def _save_agent_response_to_episode(
 
     Args:
         query_episode_id: The UUID of the query episode
+        session_id: The session ID to find the correct run
         agent_response_parts: List of text parts from agent response
         memory: RyumemGoogleADK instance
     """
@@ -823,33 +825,30 @@ def _save_agent_response_to_episode(
         agent_response = ' '.join(agent_response_parts)
         logger.debug(f"Captured agent response ({len(agent_response)} chars) for query {query_episode_id}")
 
-        # Get existing episode to preserve its metadata
+        # Get existing episode
         existing_episode = memory.ryumem.db.execute(
             "MATCH (e:Episode {uuid: $uuid}) RETURN e.metadata AS metadata",
             {"uuid": query_episode_id}
         )
 
         if existing_episode:
-            # Parse existing metadata
             metadata_str = existing_episode[0].get("metadata", "{}")
-            try:
-                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-            except json.JSONDecodeError:
-                metadata = {}
+            metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
 
-            # Add agent response to the latest run in the runs array
-            if "runs" in metadata and len(metadata["runs"]) > 0:
-                metadata["runs"][-1]["agent_response"] = agent_response
-            else:
-                # Backward compatibility: add to top-level if no runs array
-                metadata["agent_response"] = agent_response
+            # Parse into Pydantic model
+            episode_metadata = EpisodeMetadata(**metadata_dict)
 
-            # Update episode with new metadata
-            memory.ryumem.db.execute(
-                "MATCH (e:Episode {uuid: $uuid}) SET e.metadata = $metadata",
-                {"uuid": query_episode_id, "metadata": json.dumps(metadata)}
-            )
-            logger.info(f"✅ Saved agent response to query episode {query_episode_id}")
+            # Update agent response in latest run for this session
+            latest_run = episode_metadata.get_latest_run(session_id)
+            if latest_run:
+                latest_run.agent_response = agent_response
+
+                # Save back to database
+                memory.ryumem.db.execute(
+                    "MATCH (e:Episode {uuid: $uuid}) SET e.metadata = $metadata",
+                    {"uuid": query_episode_id, "metadata": json.dumps(episode_metadata.model_dump())}
+                )
+                logger.info(f"Saved agent response to episode {query_episode_id} session {session_id[:8]}")
     except Exception as e:
         logger.warning(f"Failed to save agent response: {e}")
 
@@ -964,7 +963,7 @@ def wrap_runner_with_tracking(
                                 agent_response_parts.append(part.text)
                     yield event
             finally:
-                _save_agent_response_to_episode(query_episode_id, agent_response_parts, memory)
+                _save_agent_response_to_episode(query_episode_id, session_id, agent_response_parts, memory)
                 _cleanup_runner_context(original_runner, query_episode_id, session_id, user_id)
 
         # Replace the run_async method
