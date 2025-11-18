@@ -161,20 +161,21 @@ class RyumemGoogleADK:
 
             # If we have a parent query episode, append to it
             if parent_episode_id:
-                try:
-                    from google.adk.tools import tool_context
-                    session_id = tool_context.get('session_id')
+                from google.adk.tools import tool_context
+                if not hasattr(tool_context, 'session') or not tool_context.session:
+                    raise ValueError("tool_context.session is required but was None for save_memory")
 
-                    if session_id:
-                        logger.info(f"Appending memory to query episode: {parent_episode_id}")
-                        self._update_episode_with_memory(parent_episode_id, session_id, content)
-                        return {
-                            "status": "success",
-                            "episode_id": parent_episode_id,
-                            "message": "Memory appended to current query episode"
-                        }
-                except (ImportError, AttributeError):
-                    logger.debug("Could not get session_id from tool_context")
+                session_id = tool_context.session.id
+                if not session_id:
+                    raise ValueError("tool_context.session.id is required but was None for save_memory")
+
+                logger.info(f"Appending memory to query episode: {parent_episode_id}")
+                self._update_episode_with_memory(parent_episode_id, session_id, content)
+                return {
+                    "status": "success",
+                    "episode_id": parent_episode_id,
+                    "message": "Memory appended to current query episode"
+                }
 
             # Fallback: Create new episode
             effective_extract_entities = extract_entities if extract_entities is not None else self.extract_entities
