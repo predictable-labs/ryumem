@@ -657,6 +657,206 @@ def _augment_query_with_history(
         return query_text
 
 
+def _prepare_query_and_episode(
+    new_message,
+    user_id: str,
+    session_id: str,
+    memory: RyumemGoogleADK,
+    augment_queries: bool,
+    similarity_threshold: float,
+    top_k_similar: int,
+    original_runner
+):
+    """
+    Helper function to extract query text, augment it, and create an episode.
+
+    This is shared between sync and async wrappers to avoid code duplication.
+
+    Args:
+        new_message: The incoming message content
+        user_id: User identifier
+        session_id: Session identifier
+        memory: RyumemGoogleADK instance
+        augment_queries: Whether to augment with historical context
+        similarity_threshold: Minimum similarity for augmentation
+        top_k_similar: Number of similar queries to use
+        original_runner: The runner instance for storing context
+
+    Returns:
+        Tuple of (original_query_text, augmented_message, query_episode_id, run_id)
+        Returns (None, new_message, None, None) if no query text found
+    """
+    import uuid as uuid_module
+    import json
+    from google.genai import types
+
+    # Extract query text from new_message
+    if not new_message or not hasattr(new_message, 'parts'):
+        return None, new_message, None, None
+
+    query_text = ' '.join([
+        p.text for p in new_message.parts
+        if hasattr(p, 'text') and p.text
+    ])
+
+    if not query_text:
+        return None, new_message, None, None
+
+    original_query_text = query_text
+    augmented_query_text = original_query_text
+    augmented_message = new_message
+
+    # Augment query with historical context if enabled
+    if augment_queries:
+        augmented_query_text = _augment_query_with_history(
+            query_text=query_text,
+            memory=memory,
+            user_id=user_id,
+            similarity_threshold=similarity_threshold,
+            top_k=top_k_similar,
+        )
+
+        # Check if query was actually augmented
+        if augmented_query_text != original_query_text:
+            logger.info(f"Query augmented with historical context (added {len(augmented_query_text) - len(original_query_text)} chars)")
+
+            # Update message with augmented query
+            augmented_message = types.Content(
+                role='user',
+                parts=[types.Part(text=augmented_query_text)]
+            )
+        else:
+            logger.debug(f"No augmentation occurred - no similar queries found above threshold")
+
+    # Create episode for user query (store ORIGINAL query, not augmented)
+    run_id = str(uuid_module.uuid4())
+
+    current_run = {
+        "run_id": run_id,
+        "timestamp": __import__('datetime').datetime.utcnow().isoformat(),
+        "original_query": original_query_text,
+        "augmented_query": augmented_query_text,
+        "augmentation_config": {
+            "enabled": augment_queries,
+            "similarity_threshold": similarity_threshold,
+            "top_k_similar": top_k_similar,
+        } if augment_queries else None,
+        "tools_used": [],  # Will be populated by tool tracker
+    }
+
+    # Check if episode already exists (via deduplication)
+    query_episode_id = memory.ryumem.add_episode(
+        content=original_query_text,  # Store original for similarity matching
+        user_id=user_id,
+        source="message",
+        metadata={
+            "session_id": session_id,
+            "integration": "google_adk",
+            "type": "user_query",
+            "runs": [current_run],
+        },
+        extract_entities=memory.extract_entities
+    )
+
+    # Check if this was a duplicate and append run if so
+    existing_episode = memory.ryumem.get_episode_by_uuid(query_episode_id)
+    logger.info(f"🔍 Checking episode {query_episode_id[:8]}: existing_episode={'found' if existing_episode else 'not found'}")
+
+    if existing_episode:
+        metadata_str = existing_episode.get('metadata', '{}')
+        existing_metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+        logger.info(f"🔍 Parsed metadata for episode {query_episode_id[:8]}")
+
+        existing_runs = existing_metadata.get('runs', [])
+        logger.info(f"🔍 Episode {query_episode_id[:8]} has {len(existing_runs)} existing runs")
+
+        if existing_runs and len(existing_runs) > 0:
+            logger.info(f"🔍 Current run_id: {run_id[:8]}")
+            for i, run in enumerate(existing_runs):
+                logger.info(f"🔍   Run {i}: {run.get('run_id', 'no-id')[:8]}")
+
+            latest_run_id = existing_runs[-1].get('run_id')
+            logger.info(f"🔍 Latest run_id in DB: {latest_run_id[:8] if latest_run_id else 'none'}, Current run_id: {run_id[:8]}")
+
+            if latest_run_id != run_id:
+                logger.info(f"🔍 DUPLICATE DETECTED! Appending new run to existing episode")
+                existing_runs.append(current_run)
+                existing_metadata['runs'] = existing_runs
+                logger.info(f"🔍 Updated runs array, new length: {len(existing_runs)}")
+
+                memory.ryumem.update_episode_metadata(query_episode_id, existing_metadata)
+                logger.info(f"📝 Appended run {run_id[:8]} to existing episode {query_episode_id[:8]} (now has {len(existing_runs)} runs)")
+            else:
+                logger.info(f"🔍 NOT A DUPLICATE - latest run_id matches current run_id (this is the newly created episode)")
+
+    # Store current run_id for tool tracker
+    original_runner._ryumem_current_run_id = run_id
+
+    # Store on runner instance for reliable access from tools
+    original_runner._ryumem_query_episode = query_episode_id
+    original_runner._ryumem_session_id = session_id
+    original_runner._ryumem_user_id = user_id
+
+    logger.info(f"📝 Created query episode: {query_episode_id} for user: {user_id}")
+
+    return original_query_text, augmented_message, query_episode_id, run_id
+
+
+def _save_agent_response_to_episode(
+    query_episode_id: str,
+    agent_response_parts: List[str],
+    memory: RyumemGoogleADK
+):
+    """
+    Helper function to save agent response to episode metadata.
+
+    Shared between sync and async wrappers.
+
+    Args:
+        query_episode_id: The UUID of the query episode
+        agent_response_parts: List of text parts from agent response
+        memory: RyumemGoogleADK instance
+    """
+    if not query_episode_id or not agent_response_parts:
+        return
+
+    import json
+
+    try:
+        agent_response = ' '.join(agent_response_parts)
+        logger.debug(f"Captured agent response ({len(agent_response)} chars) for query {query_episode_id}")
+
+        # Get existing episode to preserve its metadata
+        existing_episode = memory.ryumem.db.execute(
+            "MATCH (e:Episode {uuid: $uuid}) RETURN e.metadata AS metadata",
+            {"uuid": query_episode_id}
+        )
+
+        if existing_episode:
+            # Parse existing metadata
+            metadata_str = existing_episode[0].get("metadata", "{}")
+            try:
+                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+            except json.JSONDecodeError:
+                metadata = {}
+
+            # Add agent response to the latest run in the runs array
+            if "runs" in metadata and len(metadata["runs"]) > 0:
+                metadata["runs"][-1]["agent_response"] = agent_response
+            else:
+                # Backward compatibility: add to top-level if no runs array
+                metadata["agent_response"] = agent_response
+
+            # Update episode with new metadata
+            memory.ryumem.db.execute(
+                "MATCH (e:Episode {uuid: $uuid}) SET e.metadata = $metadata",
+                {"uuid": query_episode_id, "metadata": json.dumps(metadata)}
+            )
+            logger.info(f"✅ Saved agent response to query episode {query_episode_id}")
+    except Exception as e:
+        logger.warning(f"Failed to save agent response: {e}")
+
+
 def wrap_runner_with_tracking(
     original_runner,
     memory: RyumemGoogleADK,
@@ -669,7 +869,7 @@ def wrap_runner_with_tracking(
     Wrap a Google ADK Runner to automatically track user queries as episodes
     and optionally augment queries with historical context.
 
-    This wrapper intercepts runner.run() calls to:
+    This wrapper intercepts both runner.run() and runner.run_async() calls to:
     1. Augment incoming queries with similar past queries and their tool usage (if enabled)
     2. Create episodes for user queries before they're processed by the agent
     3. Link tool executions to these query episodes for hierarchical tracking
@@ -683,7 +883,7 @@ def wrap_runner_with_tracking(
         top_k_similar: Number of similar queries to consider for augmentation (default: 5, -1 for all)
 
     Returns:
-        Wrapped runner with query tracking and augmentation enabled
+        Wrapped runner with query tracking and augmentation enabled for both sync and async methods
 
     Example:
         ```python
@@ -698,171 +898,56 @@ def wrap_runner_with_tracking(
             top_k_similar=5            # Use top 5 similar queries
         )
 
-        # Use runner normally - augmentation happens automatically
+        # Use runner normally - works with both sync and async
         runner.run(user_id="user123", session_id="session456", new_message=content)
+        # OR
+        await runner.run_async(user_id="user123", session_id="session456", new_message=content)
         ```
     """
     if not track_queries:
         return original_runner
 
     from .tool_tracker import set_current_query_episode, clear_current_query_episode
-    from google.genai import types
 
-    # Store reference to original run method
+    # Store reference to original methods
     original_run = original_runner.run
 
     def wrapped_run(*, user_id, session_id, new_message, **kwargs):
         """Wrapped run method that augments queries and tracks them as episodes."""
-        query_episode_id = None
-        original_query_text = None
-        augmented_query_text = None
+        # Prepare query and episode using shared helper
+        original_query_text, augmented_message, query_episode_id, run_id = _prepare_query_and_episode(
+            new_message=new_message,
+            user_id=user_id,
+            session_id=session_id,
+            memory=memory,
+            augment_queries=augment_queries,
+            similarity_threshold=similarity_threshold,
+            top_k_similar=top_k_similar,
+            original_runner=original_runner
+        )
 
-        # Extract query text from new_message
-        if new_message and hasattr(new_message, 'parts'):
-            query_text = ' '.join([
-                p.text for p in new_message.parts
-                if hasattr(p, 'text') and p.text
-            ])
-
-            if query_text:
-                original_query_text = query_text
-
-                # Augment query with historical context if enabled
-                if augment_queries:
-                    augmented_query_text = _augment_query_with_history(
-                        query_text=query_text,
-                        memory=memory,
-                        user_id=user_id,
-                        similarity_threshold=similarity_threshold,
-                        top_k=top_k_similar,
-                    )
-
-                    # Check if query was actually augmented
-                    if augmented_query_text != original_query_text:
-                        logger.info(f"Query augmented with historical context (added {len(augmented_query_text) - len(original_query_text)} chars)")
-
-                        # Update new_message with augmented query
-                        new_message = types.Content(
-                            role='user',
-                            parts=[types.Part(text=augmented_query_text)]
-                        )
-                    else:
-                        logger.debug(f"No augmentation occurred - no similar queries found above threshold")
-                        # Keep augmented_query_text as original query for metadata tracking
-
-                # Create episode for user query (store ORIGINAL query, not augmented)
-                # Create run data structure
-                import uuid as uuid_module
-                import json
-                run_id = str(uuid_module.uuid4())
-
-                current_run = {
-                    "run_id": run_id,
-                    "timestamp": __import__('datetime').datetime.utcnow().isoformat(),
-                    "original_query": original_query_text,
-                    "augmented_query": augmented_query_text if augmented_query_text else original_query_text,
-                    "augmentation_config": {
-                        "enabled": augment_queries,
-                        "similarity_threshold": similarity_threshold,
-                        "top_k_similar": top_k_similar,
-                    } if augment_queries else None,
-                    "tools_used": [],  # Will be populated by tool tracker
-                }
-
-                # Check if episode already exists (via deduplication)
-                # add_episode will return existing UUID if duplicate is found
-                query_episode_id = memory.ryumem.add_episode(
-                    content=original_query_text,  # Store original for similarity matching
-                    user_id=user_id,
-                    source="message",
-                    metadata={
-                        "session_id": session_id,
-                        "integration": "google_adk",
-                        "type": "user_query",
-                        "runs": [current_run],  # Initialize with first run
-                    },
-                    extract_entities=memory.extract_entities  # Use memory's default setting
-                )
-
-                # Check if this was a duplicate (existing episode) and append run if so
-                existing_episode = memory.ryumem.get_episode_by_uuid(query_episode_id)
-                logger.info(f"🔍 Checking episode {query_episode_id[:8]}: existing_episode={'found' if existing_episode else 'not found'}")
-
-                if existing_episode:
-                    # Parse existing metadata
-                    metadata_str = existing_episode.get('metadata', '{}')
-                    existing_metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-                    logger.info(f"🔍 Parsed metadata for episode {query_episode_id[:8]}")
-
-                    # Check if runs array exists and has more than the one we just added
-                    # OR if the first run has a different run_id than current_run
-                    existing_runs = existing_metadata.get('runs', [])
-                    logger.info(f"🔍 Episode {query_episode_id[:8]} has {len(existing_runs)} existing runs")
-
-                    if existing_runs and len(existing_runs) > 0:
-                        logger.info(f"🔍 Current run_id: {run_id[:8]}")
-                        for i, run in enumerate(existing_runs):
-                            logger.info(f"🔍   Run {i}: {run.get('run_id', 'no-id')[:8]}")
-
-                    # If this episode has runs and the latest run_id is NOT our current run_id,
-                    # then this is a duplicate and we need to append
-                    if existing_runs and len(existing_runs) > 0:
-                        latest_run_id = existing_runs[-1].get('run_id')
-                        logger.info(f"🔍 Latest run_id in DB: {latest_run_id[:8] if latest_run_id else 'none'}, Current run_id: {run_id[:8]}")
-
-                        if latest_run_id != run_id:
-                            logger.info(f"🔍 DUPLICATE DETECTED! Appending new run to existing episode")
-                            # This is a duplicate - append the new run
-                            existing_runs.append(current_run)
-                            existing_metadata['runs'] = existing_runs
-                            logger.info(f"🔍 Updated runs array, new length: {len(existing_runs)}")
-
-                            # Update the episode metadata
-                            memory.ryumem.update_episode_metadata(query_episode_id, existing_metadata)
-                            logger.info(f"📝 Appended run {run_id[:8]} to existing episode {query_episode_id[:8]} (now has {len(existing_runs)} runs)")
-                        else:
-                            logger.info(f"🔍 NOT A DUPLICATE - latest run_id matches current run_id (this is the newly created episode)")
-
-                # Store current run_id for tool tracker to use
-                original_runner._ryumem_current_run_id = run_id
-
-                # Store in multiple places for maximum reliability:
-                # 1. Context variable (for same-context async tasks)
-                # 2. Session map (for cross-context/thread scenarios)
-                # 3. Runner instance (always accessible, Google ADK propagates this)
-                set_current_query_episode(query_episode_id, session_id=session_id, user_id=user_id)
-
-                # Store on runner instance for reliable access from tools
-                # This works because ADK passes the runner context through to tools
-                original_runner._ryumem_query_episode = query_episode_id
-                original_runner._ryumem_session_id = session_id
-                original_runner._ryumem_user_id = user_id
-
-                logger.info(f"📝 Created query episode: {query_episode_id} for user: {user_id}")
+        # Set context if we have an episode
+        if query_episode_id:
+            set_current_query_episode(query_episode_id, session_id=session_id, user_id=user_id)
 
         # Run original_run() inside a copied context to ensure contextvars propagate
-        # to any new async tasks spawned by Google ADK
         import contextvars
         ctx = contextvars.copy_context()
 
-        # Execute original_run within the copied context
-        # This ensures that any tasks created by ADK inherit the contextvar values
         event_generator = ctx.run(
             lambda: original_run(
                 user_id=user_id,
                 session_id=session_id,
-                new_message=new_message,
+                new_message=augmented_message,
                 **kwargs
             )
         )
 
-        # Wrap the generator to capture response and clear context AFTER all events are consumed
+        # Wrap the generator to capture response and clear context
         def context_aware_generator():
             """Generator wrapper that captures response and clears context after all events are yielded."""
             agent_response_parts = []
             try:
-                # Yield all events from the original generator
-                # Tool executions happen during this iteration - context is still set!
                 for event in event_generator:
                     # Capture agent text responses
                     if hasattr(event, 'content') and hasattr(event.content, 'parts'):
@@ -871,45 +956,10 @@ def wrap_runner_with_tracking(
                                 agent_response_parts.append(part.text)
                     yield event
             finally:
-                # Save agent response to current run in query episode metadata
-                if query_episode_id and agent_response_parts:
-                    try:
-                        agent_response = ' '.join(agent_response_parts)
-                        logger.debug(f"Captured agent response ({len(agent_response)} chars) for query {query_episode_id}")
+                # Save agent response using shared helper
+                _save_agent_response_to_episode(query_episode_id, agent_response_parts, memory)
 
-                        # Get existing episode to preserve its metadata
-                        existing_episode = memory.ryumem.db.execute(
-                            "MATCH (e:Episode {uuid: $uuid}) RETURN e.metadata AS metadata",
-                            {"uuid": query_episode_id}
-                        )
-
-                        if existing_episode:
-                            # Parse existing metadata
-                            metadata_str = existing_episode[0].get("metadata", "{}")
-                            try:
-                                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-                            except json.JSONDecodeError:
-                                metadata = {}
-
-                            # Add agent response to the latest run in the runs array
-                            if "runs" in metadata and len(metadata["runs"]) > 0:
-                                # Update the most recent run (last in array)
-                                metadata["runs"][-1]["agent_response"] = agent_response
-                            else:
-                                # Backward compatibility: add to top-level if no runs array
-                                metadata["agent_response"] = agent_response
-
-                            # Update episode with new metadata
-                            memory.ryumem.db.execute(
-                                "MATCH (e:Episode {uuid: $uuid}) SET e.metadata = $metadata",
-                                {"uuid": query_episode_id, "metadata": json.dumps(metadata)}
-                            )
-                            logger.info(f"✅ Saved agent response to query episode {query_episode_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to save agent response: {e}")
-
-                # Clear context AFTER all events have been consumed
-                # This ensures tool executions can access the parent query episode
+                # Clear context
                 if query_episode_id:
                     logger.debug(f"Clearing query episode context: {query_episode_id}")
                     clear_current_query_episode(session_id=session_id, user_id=user_id)
@@ -921,11 +971,71 @@ def wrap_runner_with_tracking(
                     if hasattr(original_runner, '_ryumem_user_id'):
                         delattr(original_runner, '_ryumem_user_id')
 
-        # Return the wrapped generator
         return context_aware_generator()
 
     # Replace the run method
     original_runner.run = wrapped_run
+
+    # Wrap run_async if it exists
+    if hasattr(original_runner, 'run_async'):
+        original_run_async = original_runner.run_async
+
+        async def wrapped_run_async(*, user_id, session_id, new_message, **kwargs):
+            """Wrapped run_async method that augments queries and tracks them as episodes - returns async generator."""
+            # Prepare query and episode using shared helper
+            original_query_text, augmented_message, query_episode_id, run_id = _prepare_query_and_episode(
+                new_message=new_message,
+                user_id=user_id,
+                session_id=session_id,
+                memory=memory,
+                augment_queries=augment_queries,
+                similarity_threshold=similarity_threshold,
+                top_k_similar=top_k_similar,
+                original_runner=original_runner
+            )
+
+            # Set context if we have an episode
+            # Context variables automatically propagate in async functions
+            if query_episode_id:
+                set_current_query_episode(query_episode_id, session_id=session_id, user_id=user_id)
+
+            # Call original run_async - it returns an async generator directly
+            event_stream = original_run_async(
+                user_id=user_id,
+                session_id=session_id,
+                new_message=augmented_message,
+                **kwargs
+            )
+
+            # Yield events from the async generator while capturing responses
+            agent_response_parts = []
+            try:
+                async for event in event_stream:
+                    # Capture agent text responses
+                    if hasattr(event, 'content') and hasattr(event.content, 'parts'):
+                        for part in event.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                agent_response_parts.append(part.text)
+                    yield event
+            finally:
+                # Save agent response using shared helper
+                _save_agent_response_to_episode(query_episode_id, agent_response_parts, memory)
+
+                # Clear context
+                if query_episode_id:
+                    logger.debug(f"Clearing query episode context: {query_episode_id}")
+                    clear_current_query_episode(session_id=session_id, user_id=user_id)
+                    # Also clear from runner instance
+                    if hasattr(original_runner, '_ryumem_query_episode'):
+                        delattr(original_runner, '_ryumem_query_episode')
+                    if hasattr(original_runner, '_ryumem_session_id'):
+                        delattr(original_runner, '_ryumem_session_id')
+                    if hasattr(original_runner, '_ryumem_user_id'):
+                        delattr(original_runner, '_ryumem_user_id')
+
+        # Replace the run_async method
+        original_runner.run_async = wrapped_run_async
+        logger.info("✓ Wrapped run_async method for async support")
 
     # Store runner reference in memory object so tool tracker can access it
     if hasattr(memory, 'tracker'):
