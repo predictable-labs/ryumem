@@ -33,6 +33,7 @@ Example:
 
 from typing import Optional, Dict, Any, List
 import logging
+import json
 
 from ryumem import EpisodeType, Ryumem
 
@@ -504,8 +505,6 @@ def _augment_query_with_history(
         Augmented query with historical context appended
     """
     try:
-        import json
-
         # Search for similar query episodes
         search_results = memory.ryumem.search(
             query=query_text,
@@ -538,6 +537,7 @@ def _augment_query_with_history(
                     "content": episode.content,
                     "score": episode_similarity,
                     "uuid": episode.uuid,
+                    "metadata": episode.metadata,  # Include metadata to access agent_response
                 })
                 logger.debug(f"  ✓ Added as similar query")
             else:
@@ -563,9 +563,31 @@ def _augment_query_with_history(
             # Extract query content and score
             query_content = similar["content"]
             query_uuid = similar["uuid"]
+            query_metadata = similar.get("metadata")
             similarity_score = similar["score"]
 
             context_parts.append(f"\n{idx}. Similar Query (similarity: {similarity_score:.2f}): \"{query_content}\"")
+
+            # Parse metadata to get agent response
+            try:
+                if query_metadata:
+                    # Metadata is already a dict from Episode model, but could be string from direct DB query
+                    metadata = json.loads(query_metadata) if isinstance(query_metadata, str) else query_metadata
+                    agent_response = metadata.get("agent_response")
+
+                    logger.debug(f"   Metadata keys for query {query_uuid}: {list(metadata.keys())}")
+
+                    if agent_response:
+                        # Include the agent's response (truncated if too long)
+                        response_preview = agent_response[:300] + "..." if len(agent_response) > 300 else agent_response
+                        context_parts.append(f"   Agent Response: {response_preview}")
+                        logger.debug(f"   ✓ Added agent response ({len(agent_response)} chars)")
+                    else:
+                        logger.debug(f"   ✗ No agent_response field in metadata (available: {list(metadata.keys())})")
+                else:
+                    logger.debug(f"   ✗ No metadata found for query {query_uuid}")
+            except Exception as e:
+                logger.warning(f"Failed to parse query metadata: {e}")
 
             # Search for tool execution episodes linked to this query via UUID
             # Use Cypher query to find TRIGGERED relationships
@@ -765,14 +787,53 @@ def wrap_runner_with_tracking(
             )
         )
 
-        # Wrap the generator to clear context AFTER all events are consumed
+        # Wrap the generator to capture response and clear context AFTER all events are consumed
         def context_aware_generator():
-            """Generator wrapper that clears context after all events are yielded."""
+            """Generator wrapper that captures response and clears context after all events are yielded."""
+            agent_response_parts = []
             try:
                 # Yield all events from the original generator
                 # Tool executions happen during this iteration - context is still set!
-                yield from event_generator
+                for event in event_generator:
+                    # Capture agent text responses
+                    if hasattr(event, 'content') and hasattr(event.content, 'parts'):
+                        for part in event.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                agent_response_parts.append(part.text)
+                    yield event
             finally:
+                # Save agent response to query episode metadata if we captured any
+                if query_episode_id and agent_response_parts:
+                    try:
+                        agent_response = ' '.join(agent_response_parts)
+                        logger.debug(f"Captured agent response ({len(agent_response)} chars) for query {query_episode_id}")
+
+                        # Get existing episode to preserve its metadata
+                        existing_episode = memory.ryumem.db.execute(
+                            "MATCH (e:Episode {uuid: $uuid}) RETURN e.metadata AS metadata",
+                            {"uuid": query_episode_id}
+                        )
+
+                        if existing_episode:
+                            # Parse existing metadata
+                            metadata_str = existing_episode[0].get("metadata", "{}")
+                            try:
+                                metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                            except json.JSONDecodeError:
+                                metadata = {}
+
+                            # Add agent response to metadata
+                            metadata["agent_response"] = agent_response
+
+                            # Update episode with new metadata
+                            memory.ryumem.db.execute(
+                                "MATCH (e:Episode {uuid: $uuid}) SET e.metadata = $metadata",
+                                {"uuid": query_episode_id, "metadata": json.dumps(metadata)}
+                            )
+                            logger.info(f"✅ Saved agent response to query episode {query_episode_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to save agent response: {e}")
+
                 # Clear context AFTER all events have been consumed
                 # This ensures tool executions can access the parent query episode
                 if query_episode_id:

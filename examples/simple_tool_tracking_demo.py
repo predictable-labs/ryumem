@@ -164,7 +164,8 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     )
 
     queries = [
-        "What's the weather in Paris?",
+        # "What's the weather in Paris?",
+        "What's the weather in London?",
         # "That sounds nice!",
         # "How about Paris?",
         # Add similar query to test augmentation
