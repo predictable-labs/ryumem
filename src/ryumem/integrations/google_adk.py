@@ -545,51 +545,82 @@ def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> Lis
 
 def _build_context_section(similar_queries: List[Dict[str, Any]], memory: RyumemGoogleADK, top_k: int) -> str:
     """Build historical context string from similar queries and their tool executions."""
-    context_parts = ["\n\n[Historical Context from Similar Queries:"]
+    context_parts = ["\n\n[Historical Context - What Worked Last Time:"]
 
     for idx, similar in enumerate(similar_queries[:top_k if top_k > 0 else len(similar_queries)], 1):
         query_content = similar["content"]
-        query_uuid = similar["uuid"]
         query_metadata = similar.get("metadata")
         similarity_score = similar["score"]
 
-        context_parts.append(f"\n{idx}. Similar Query (similarity: {similarity_score:.2f}): \"{query_content}\"")
+        context_parts.append(f"\n{idx}. Similar query (score: {similarity_score:.2f}): \"{query_content}\"")
 
-        # Add agent response if available
+        # Parse metadata to get agent response and tools
         try:
-            if query_metadata:
-                metadata = json.loads(query_metadata) if isinstance(query_metadata, str) else query_metadata
-                agent_response = metadata.get("agent_response")
+            if not query_metadata:
+                continue
 
+            metadata_dict = json.loads(query_metadata) if isinstance(query_metadata, str) else query_metadata
+            episode_metadata = EpisodeMetadata(**metadata_dict)
+
+            # Get agent response from all runs
+            agent_response = None
+            for runs in episode_metadata.sessions.values():
+                for run in runs:
+                    if run.agent_response:
+                        agent_response = run.agent_response
+                        break
                 if agent_response:
-                    response_preview = agent_response[:300] + "..." if len(agent_response) > 300 else agent_response
-                    context_parts.append(f"   Agent Response: {response_preview}")
+                    break
+
+            # Show what worked
+            if agent_response:
+                response_preview = agent_response[:200] + "..." if len(agent_response) > 200 else agent_response
+                context_parts.append(f"   What worked: {response_preview}")
+
+            # Get tool usage summary
+            all_tools = episode_metadata.get_all_tools_used()
+            if all_tools:
+                tool_summary = _summarize_tool_usage(all_tools)
+                if tool_summary:
+                    context_parts.append(f"   Tools: {tool_summary}")
+
         except Exception as e:
             logger.warning(f"Failed to parse query metadata: {e}")
 
-        # Add tool executions
-        tool_results = _get_linked_tool_executions(query_uuid, memory)
-        if tool_results:
-            context_parts.append("   Tools Used:")
-            for tool_result in tool_results:
-                try:
-                    metadata = json.loads(tool_result['metadata']) if isinstance(tool_result['metadata'], str) else tool_result['metadata']
-                    tool_name = metadata.get('tool_name', 'unknown')
-                    task_type = metadata.get('task_type', 'unknown')
-                    success = metadata.get('success', False)
-                    duration_ms = metadata.get('duration_ms', 0)
-                    input_params = metadata.get('input_params', {})
-                    output_summary = metadata.get('output_summary', 'N/A')
-
-                    status = "✓ Success" if success else "✗ Failed"
-                    context_parts.append(f"   • {tool_name}({', '.join([f'{k}={v}' for k, v in input_params.items()])})")
-                    context_parts.append(f"     {status} ({duration_ms}ms) | Task: {task_type}")
-                    context_parts.append(f"     Output: {output_summary[:100]}...")
-                except Exception as e:
-                    logger.warning(f"Failed to parse tool metadata: {e}")
-
     context_parts.append("]\n")
     return ''.join(context_parts)
+
+
+def _summarize_tool_usage(tools: List[ToolExecution]) -> str:
+    """Create concise tool usage summary."""
+    from collections import defaultdict
+
+    tool_stats = defaultdict(lambda: {'count': 0, 'success': 0, 'empty': 0})
+
+    for tool in tools:
+        name = tool.tool_name
+        tool_stats[name]['count'] += 1
+        if tool.success:
+            tool_stats[name]['success'] += 1
+        # Check if output was empty/null
+        if not tool.output_summary or tool.output_summary.strip() in ['', 'None', 'null', 'N/A']:
+            tool_stats[name]['empty'] += 1
+
+    summaries = []
+    for name, stats in tool_stats.items():
+        count = stats['count']
+        success_rate = int((stats['success'] / count) * 100) if count > 0 else 0
+
+        parts = [f"{name}({count}x"]
+        if success_rate < 100:
+            parts.append(f", {success_rate}% success")
+        if stats['empty'] > 0:
+            parts.append(f", {stats['empty']} empty")
+        parts.append(")")
+
+        summaries.append(''.join(parts))
+
+    return ', '.join(summaries)
 
 
 def _augment_query_with_history(
