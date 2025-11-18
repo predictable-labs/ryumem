@@ -156,18 +156,19 @@ class RyumemGoogleADK:
         logger.info(f"Saving memory for user '{effective_user_id}': {content[:50]}...")
 
         try:
-            # Try to get current query episode
-            parent_episode_id = get_current_query_episode(session_id=None, user_id=effective_user_id)
+            # Get episode ID and session ID from runner (set by wrap_runner_with_tracking)
+            parent_episode_id = None
+            session_id = None
 
-            # If we have a parent query episode, append to it
+            if hasattr(self, 'tracker') and hasattr(self.tracker, '_runner'):
+                runner = self.tracker._runner
+                parent_episode_id = getattr(runner, '_ryumem_query_episode', None)
+                session_id = getattr(runner, '_ryumem_session_id', None)
+
+            # If we have a parent query episode, must have session_id
             if parent_episode_id:
-                from google.adk.tools import tool_context
-                if not hasattr(tool_context, 'session') or not tool_context.session:
-                    raise ValueError("tool_context.session is required but was None for save_memory")
-
-                session_id = tool_context.session.id
                 if not session_id:
-                    raise ValueError("tool_context.session.id is required but was None for save_memory")
+                    raise ValueError("session_id is required but was None for save_memory")
 
                 logger.info(f"Appending memory to query episode: {parent_episode_id}")
                 self._update_episode_with_memory(parent_episode_id, session_id, content)
