@@ -179,19 +179,21 @@ class EpisodeMetadata(BaseModel):
 
         summaries = []
         for name, data in tool_data.items():
-            parts = [f"{name}: "]
+            parts = [f"{name}"]
 
             if data['worked']:
-                parts.append(f"worked with [{', '.join(data['worked'])}]")
+                parts.append(f" with [{', '.join(data['worked'])}]")
             if data['failed']:
                 if data['worked']:
-                    parts.append("; ")
-                parts.append(f"failed with [{', '.join(data['failed'])}]")
+                    parts.append("; failed")
+                parts.append(f" with [{', '.join(data['failed'])}]")
             if data['empty']:
                 if data['worked'] or data['failed']:
-                    parts.append("; ")
-                parts.append(f"empty for [{', '.join(data['empty'])}]")
+                    parts.append("; returned empty")
+                else:
+                    parts.append(f" returned empty")
+                parts.append(f" for [{', '.join(data['empty'])}]")
 
             summaries.append(''.join(parts))
 
-        return '; '.join(summaries)
+        return ', '.join(summaries)

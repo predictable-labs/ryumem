@@ -545,12 +545,24 @@ def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> Lis
 
 def _build_context_section(similar_queries: List[Dict[str, Any]], memory: RyumemGoogleADK, top_k: int) -> str:
     """Build historical context string from similar queries and their tool executions."""
-    context_parts = ["\n\n[CRITICAL INSTRUCTION: You attempted this query before and it FAILED. DO NOT repeat the same approach. You MUST try a completely different strategy.\n\nPrevious failed attempts:"]
+
+    # Template for query augmentation
+    AUGMENTATION_TEMPLATE = """
+
+[Previous Context - Learn from your past approach]
+
+Last time you approached a similar query, your thinking process was:
+{agent_response}
+
+Tools you used:
+{tool_summary}
+
+Build on this previous experience. Learn from what worked and what didn't, and apply those insights to the current query.
+"""
 
     for idx, similar in enumerate(similar_queries[:top_k if top_k > 0 else len(similar_queries)], 1):
         query_metadata = similar.get("metadata")
 
-        # Parse metadata to get tools only (skip verbose response)
         try:
             if not query_metadata:
                 continue
@@ -558,16 +570,30 @@ def _build_context_section(similar_queries: List[Dict[str, Any]], memory: Ryumem
             metadata_dict = json.loads(query_metadata) if isinstance(query_metadata, str) else query_metadata
             episode_metadata = EpisodeMetadata(**metadata_dict)
 
-            # Get tool usage summary
+            # Get agent response
+            agent_response = None
+            for runs in episode_metadata.sessions.values():
+                for run in runs:
+                    if run.agent_response:
+                        agent_response = run.agent_response
+                        break
+                if agent_response:
+                    break
+
+            # Get tool summary
             tool_summary = episode_metadata.get_tool_usage_summary()
-            if tool_summary:
-                context_parts.append(f"\n- Failed with: {tool_summary}")
+
+            # Fill template
+            return AUGMENTATION_TEMPLATE.format(
+                agent_response=agent_response or "No previous response recorded",
+                tool_summary=tool_summary or "No tools used"
+            )
 
         except Exception as e:
             logger.warning(f"Failed to parse query metadata: {e}")
+            continue
 
-    context_parts.append("\n\nREQUIRED: Try a DIFFERENT approach than above. Think of what you did NOT try yet.]\n")
-    return ''.join(context_parts)
+    return ""
 
 
 def _augment_query_with_history(
