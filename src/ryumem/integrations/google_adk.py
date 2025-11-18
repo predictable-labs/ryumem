@@ -676,6 +676,12 @@ def _insert_run_information_in_episode(
             episode_metadata.add_query_run(session_id, query_run)
             memory.ryumem.update_episode_metadata(query_episode_id, episode_metadata.model_dump())
             logger.info(f"Episode {query_episode_id[:8]} session {session_id[:8]} now has {len(episode_metadata.sessions[session_id])} runs")
+    else:
+        # New session - add it to the episode
+        logger.info(f"Linking new session {session_id[:8]} to existing episode {query_episode_id[:8]}")
+        episode_metadata.add_query_run(session_id, query_run)
+        memory.ryumem.update_episode_metadata(query_episode_id, episode_metadata.model_dump())
+        logger.info(f"Episode {query_episode_id[:8]} now has session {session_id[:8]} with 1 run")
 
 
 def _create_query_episode(
