@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ryumem"
+version = "0.1.0"
+description = "Bi-temporal knowledge graph memory system inspired by Zep, using ryugraph"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Ryumem Team"}
+]
+keywords = ["knowledge graph", "memory", "rag", "llm", "temporal", "graph database"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "ryugraph>=0.1.0",  # Graph database (kuzu renamed)
+    "openai>=1.0.0",     # OpenAI API client
+    "pydantic>=2.0.0",   # Data validation
+    "numpy>=1.24.0",     # Array operations
+    "python-dotenv>=1.0.0",  # Environment variable management
+    "networkx>=3.0",     # Graph algorithms for community detection
+    "scipy>=1.10.0",     # Scientific computing
+    "tenacity>=8.0.0",   # Retry logic
+    "rank-bm25>=0.2.2",  # BM25 keyword search
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ryumem/ryumem"
+Documentation = "https://ryumem.readthedocs.io"
+Repository = "https://github.com/ryumem/ryumem"
+"Bug Tracker" = "https://github.com/ryumem/ryumem/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=ryumem --cov-report=term-missing"
