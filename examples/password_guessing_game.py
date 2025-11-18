@@ -60,11 +60,12 @@ MODEL_ID = "gemini-2.0-flash-exp"
 
 # Game state
 CORRECT_PASSWORD = None
-ATTEMPTS_REMAINING = 10
+TOTAL_ATTEMPTS=3
+ATTEMPTS_REMAINING = TOTAL_ATTEMPTS
 GUESS_HISTORY = []
 
 
-def validate_password_guess(guess: str, password: str = None) -> Dict:
+def validate_password_guess(guess: str, password: str) -> Dict:
     """
     Validates a password guess and returns feedback.
 
@@ -81,10 +82,6 @@ def validate_password_guess(guess: str, password: str = None) -> Dict:
             - message: str - feedback message
     """
     global ATTEMPTS_REMAINING, GUESS_HISTORY, CORRECT_PASSWORD
-
-    # Use provided password or global
-    if password is None:
-        password = CORRECT_PASSWORD
 
     # Validate format
     if not guess or len(guess) != 4:
@@ -233,10 +230,8 @@ async def run_game(password: str, use_async: bool = False):
         use_async: If True, uses run_async() instead of run() for execution
     """
     global CORRECT_PASSWORD, ATTEMPTS_REMAINING, GUESS_HISTORY
-
-    # Initialize game with provided password
-    CORRECT_PASSWORD = password.upper()
-    ATTEMPTS_REMAINING = 10
+    CORRECT_PASSWORD = password
+    ATTEMPTS_REMAINING = TOTAL_ATTEMPTS
     GUESS_HISTORY = []
 
     print("=" * 80)
@@ -246,7 +241,7 @@ async def run_game(password: str, use_async: bool = False):
     print("GAME RULES:")
     print("  • Guess the 4-character password")
     print("  • Each character can be: A, B, C, or D")
-    print("  • You have 10 attempts")
+    print("  • You have {ATTEMPTS_REMAINING} attempts")
     print("  • You'll get feedback on how many characters are in the correct position")
     print()
     print("WHY THIS TESTS AUGMENTATION:")
@@ -351,16 +346,7 @@ If the user wants a hint, use get_hint.""",
 
     # Game conversation flow
     queries = [
-        "Let's start! Try AAAA first to see how many A's are in the password.",
-        "Now try BBBB to check for B's.",
-        "Try CCCC next.",
-        "Based on the results so far, make your best strategic guess.",
-        "Keep going with your strategy.",
-        "Try another guess based on what you've learned.",
-        "You're getting close! Make another educated guess.",
-        "Use the patterns you've seen to narrow it down further.",
-        "What's your next best guess?",
-        "Final guess - what do you think the password is?"
+        "Try to find the password"
     ]
 
     game_won = False
@@ -370,7 +356,7 @@ If the user wants a hint, use get_hint.""",
             break
 
         print(f"\n{'='*80}")
-        print(f"Attempt {11 - ATTEMPTS_REMAINING}/{10}")
+        print(f"Attempt {TOTAL_ATTEMPTS - ATTEMPTS_REMAINING}/{TOTAL_ATTEMPTS}")
         print(f"👤 User: {query}")
         print(f"{'='*80}")
 
