@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
     "ryugraph>=0.1.0",  # Graph database (kuzu renamed)
     "openai>=1.0.0",     # OpenAI API client
+    "litellm>=1.0.0",    # Unified LLM API for 100+ providers
     "pydantic>=2.0.0",   # Data validation
     "pydantic-settings>=2.0.0",  # Settings management with env support
     "numpy>=1.24.0",     # Array operations

@@ -18,6 +18,7 @@ from ryumem.utils.embeddings import EmbeddingClient
 from ryumem.utils.llm import LLMClient
 from ryumem.utils.llm_ollama import OllamaClient
 from ryumem.utils.llm_gemini import GeminiClient
+from ryumem.utils.llm_litellm import LiteLLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,14 @@ class Ryumem:
             self.embedding_client = None
         else:
             # Initialize LLM client based on provider
-            if config.llm.provider == "ollama":
+            if config.llm.provider == "litellm":
+                logger.info(f"Using LiteLLM for LLM inference: {config.llm.model}")
+                self.llm_client = LiteLLMClient(
+                    model=config.llm.model,
+                    max_retries=config.llm.max_retries,
+                    timeout=config.llm.timeout_seconds,
+                )
+            elif config.llm.provider == "ollama":
                 logger.info(f"Using Ollama for LLM inference: {config.llm.model}")
                 self.llm_client = OllamaClient(
                     model=config.llm.model,
@@ -127,7 +135,14 @@ class Ryumem:
                 )
 
             # Initialize embedding client based on provider
-            if config.embedding.provider == "gemini":
+            if config.embedding.provider == "litellm":
+                logger.info(f"Using LiteLLM for embeddings: {config.embedding.model}")
+                self.embedding_client = LiteLLMClient(
+                    model=config.embedding.model,
+                    max_retries=config.llm.max_retries,
+                    timeout=config.embedding.timeout_seconds,
+                )
+            elif config.embedding.provider == "gemini":
                 if not config.llm.gemini_api_key:
                     raise ValueError("gemini_api_key is required when embedding_provider='gemini'")
                 logger.info(f"Using Gemini for embeddings: {config.embedding.model}")

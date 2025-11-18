@@ -137,6 +137,82 @@ ryumem.add_episode(
 
 See [examples/ollama_usage.py](examples/ollama_usage.py) for a complete example.
 
+### Using LiteLLM (100+ LLM Providers)
+
+For maximum flexibility, use LiteLLM to access 100+ LLM providers through a unified interface. LiteLLM automatically detects the provider from the model name and uses the appropriate API key.
+
+```python
+from ryumem import Ryumem
+from ryumem.core.config import RyumemConfig
+
+# Example 1: Anthropic Claude
+# LiteLLM auto-detects Anthropic from model name
+# Uses ANTHROPIC_API_KEY from environment
+config = RyumemConfig()
+config.llm.provider = "litellm"
+config.llm.model = "claude-3-5-sonnet-20241022"
+# Embeddings auto-fallback to OpenAI or Gemini (if API keys available)
+
+ryumem = Ryumem(config=config)
+
+# Example 2: OpenAI via LiteLLM
+config.llm.model = "gpt-4o-mini"
+# Embeddings auto-select to "text-embedding-3-large"
+
+# Example 3: Google Gemini via LiteLLM
+config.llm.model = "gemini/gemini-2.0-flash-exp"
+# Embeddings auto-select to "text-embedding-004"
+
+# Example 4: AWS Bedrock
+config.llm.model = "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
+# Requires AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME
+
+# Example 5: Mixed providers (manual override)
+config.llm.provider = "litellm"
+config.llm.model = "claude-3-5-sonnet-20241022"
+config.embedding.provider = "openai"  # Explicit override
+config.embedding.model = "text-embedding-3-large"
+config.embedding.dimensions = 3072
+```
+
+**Supported LiteLLM Providers:**
+- **OpenAI** - `gpt-4o`, `gpt-4o-mini`, etc. (requires `OPENAI_API_KEY`)
+- **Anthropic** - `claude-3-5-sonnet-20241022`, etc. (requires `ANTHROPIC_API_KEY`)
+- **Google Gemini** - `gemini/gemini-2.0-flash-exp`, etc. (requires `GOOGLE_API_KEY`)
+- **AWS Bedrock** - `bedrock/anthropic.claude-*`, etc. (requires AWS credentials)
+- **Cohere** - `command-r-plus`, etc. (requires `COHERE_API_KEY`)
+- **Azure OpenAI** - Requires `AZURE_API_KEY`, `AZURE_API_BASE`, `AZURE_API_VERSION`
+- **100+ more** - See [LiteLLM docs](https://docs.litellm.ai/docs/providers)
+
+**Automatic Embedding Selection:**
+
+Ryumem automatically selects the appropriate embedding model based on your LLM choice:
+- OpenAI models → `text-embedding-3-large`
+- Gemini models → `text-embedding-004`
+- Anthropic/Claude → Falls back to OpenAI or Gemini embeddings (whichever API key is available)
+- Cohere models → `embed-english-v3.0`
+
+You can always override the automatic selection by explicitly setting the embedding provider and model in the config.
+
+**Environment Variables:**
+
+```bash
+# Set the LLM provider
+export RYUMEM_LLM_PROVIDER=litellm
+export RYUMEM_LLM_MODEL=claude-3-5-sonnet-20241022
+
+# API keys (LiteLLM auto-detects based on model name)
+export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-...          # For embeddings fallback
+export GOOGLE_API_KEY=...             # Or use Gemini for embeddings
+
+# Optional: Explicit embedding configuration
+export RYUMEM_EMBEDDING_PROVIDER=openai
+export RYUMEM_EMBEDDING_MODEL=text-embedding-3-large
+```
+
+See [examples/litellm_usage.py](examples/litellm_usage.py) for complete examples with multiple providers.
+
 ### Continuing with the API
 
 ```python

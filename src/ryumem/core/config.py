@@ -2,10 +2,13 @@
 Configuration management for Ryumem using pydantic-settings
 """
 
+import logging
 from typing import Literal, Optional
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseConfig(BaseSettings):
@@ -26,9 +29,9 @@ class DatabaseConfig(BaseSettings):
 class LLMConfig(BaseSettings):
     """LLM provider configuration"""
 
-    provider: Literal["openai", "ollama", "gemini"] = Field(
+    provider: Literal["openai", "ollama", "gemini", "litellm"] = Field(
         default="openai",
-        description="LLM provider: 'openai', 'ollama', or 'gemini'"
+        description="LLM provider: 'openai', 'ollama', 'gemini', or 'litellm'"
     )
     model: str = Field(
         default="gpt-4o-mini",
@@ -122,16 +125,16 @@ class LLMConfig(BaseSettings):
 class EmbeddingConfig(BaseSettings):
     """Embedding configuration"""
 
-    provider: Literal["openai", "gemini"] = Field(
-        default="openai",
-        description="Embedding provider: 'openai' or 'gemini'"
+    provider: Literal["openai", "gemini", "litellm"] = Field(
+        default="gemini",
+        description="Embedding provider: 'openai', 'gemini', or 'litellm'"
     )
     model: str = Field(
-        default="text-embedding-3-large",
+        default="text-embedding-004",
         description="Embedding model to use"
     )
     dimensions: int = Field(
-        default=3072,
+        default=768,
         description="Embedding vector dimensions (text-embedding-3-large=3072, text-embedding-004=768)"
     )
     batch_size: int = Field(
@@ -153,28 +156,26 @@ class EmbeddingConfig(BaseSettings):
     @field_validator("model")
     @classmethod
     def validate_embedding_model(cls, v: str) -> str:
-        """Validate embedding model name"""
-        valid_models = [
-            "text-embedding-3-large",
-            "text-embedding-3-small",
-            "text-embedding-ada-002",
-            "text-embedding-004",  # Google's embedding model
-        ]
-        if v not in valid_models:
-            raise ValueError(f"Embedding model must be one of {valid_models}")
+        """Validate embedding model name based on provider"""
+        # LiteLLM supports many models, so we allow any model name
+        # Will be validated at runtime by the provider
         return v
 
     @model_validator(mode='after')
     def validate_dimensions(self) -> 'EmbeddingConfig':
         """Validate embedding dimensions match the model"""
+        # Skip validation for LiteLLM - it supports many models with different dimensions
+        if self.provider == "litellm":
+            return self
+
         expected_dims = {
             "text-embedding-3-large": 3072,
             "text-embedding-3-small": 1536,
             "text-embedding-ada-002": 1536,
             "text-embedding-004": 768,
         }
-        expected = expected_dims.get(self.model, 3072)
-        if self.dimensions != expected:
+        expected = expected_dims.get(self.model)
+        if expected and self.dimensions != expected:
             raise ValueError(
                 f"Embedding dimensions {self.dimensions} don't match expected {expected} for {self.model}"
             )
@@ -356,12 +357,17 @@ class RyumemConfig(BaseSettings):
             return
 
         # Check LLM provider API key
-        if self.llm.provider == "openai" and not self.llm.openai_api_key:
+        if self.llm.provider == "litellm":
+            # LiteLLM auto-detects keys - just log info
+            logger.info(f"Using LiteLLM with model: {self.llm.model}")
+            logger.info("Ensure appropriate API key is set (e.g., OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY)")
+            return
+        elif self.llm.provider == "openai" and not self.llm.openai_api_key:
             raise ValueError(
                 "OPENAI_API_KEY is required when using llm provider='openai'. "
                 "Set it with: export OPENAI_API_KEY=your-key"
             )
-        if self.llm.provider == "gemini" and not self.llm.gemini_api_key:
+        elif self.llm.provider == "gemini" and not self.llm.gemini_api_key:
             raise ValueError(
                 "GOOGLE_API_KEY is required when using llm provider='gemini'. "
                 "Set it with: export GOOGLE_API_KEY=your-key"
