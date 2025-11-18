@@ -71,7 +71,6 @@ class RyugraphDB:
                 valid_at TIMESTAMP,
                 user_id STRING,
                 agent_id STRING,
-                session_id STRING,
                 metadata STRING,
                 entity_edges STRING[]
             );
@@ -239,7 +238,6 @@ class RyugraphDB:
             e.valid_at = $valid_at,
             e.user_id = $user_id,
             e.agent_id = $agent_id,
-            e.session_id = $session_id,
             e.metadata = $metadata,
             e.entity_edges = $entity_edges
         ON MATCH SET
@@ -259,7 +257,6 @@ class RyugraphDB:
             "valid_at": episode.valid_at,
             "user_id": episode.user_id,
             "agent_id": episode.agent_id,
-            "session_id": episode.session_id,
             "metadata": json.dumps(episode.metadata),
             "entity_edges": episode.entity_edges,
         }
@@ -473,6 +470,65 @@ class RyugraphDB:
         results = self.execute(query, params)
         return results[0] if results else None
 
+    def get_episode_by_session_id(self, session_id: str) -> Optional[EpisodeNode]:
+        """
+        Find an episode that contains the given session_id in its metadata.sessions.
+
+        Args:
+            session_id: Session ID to search for
+
+        Returns:
+            EpisodeNode if found, None otherwise
+        """
+        import json
+
+        query = """
+        MATCH (e:Episode)
+        WHERE e.metadata IS NOT NULL
+        RETURN
+            e.uuid AS uuid,
+            e.name AS name,
+            e.content AS content,
+            e.content_embedding AS content_embedding,
+            e.source AS source,
+            e.source_description AS source_description,
+            e.created_at AS created_at,
+            e.valid_at AS valid_at,
+            e.user_id AS user_id,
+            e.agent_id AS agent_id,
+            e.metadata AS metadata,
+            e.entity_edges AS entity_edges
+        """
+
+        results = self.execute(query)
+
+        # Filter in Python since Kùzu may not support JSON path queries
+        for row in results:
+            try:
+                metadata = json.loads(row['metadata']) if row['metadata'] else {}
+                sessions = metadata.get('sessions', {})
+                if session_id in sessions:
+                    # Convert to EpisodeNode
+                    from ryumem.core.models import EpisodeNode, EpisodeType
+                    return EpisodeNode(
+                        uuid=row['uuid'],
+                        name=row['name'],
+                        content=row['content'],
+                        content_embedding=row.get('content_embedding'),
+                        source=EpisodeType(row['source']),
+                        source_description=row['source_description'],
+                        created_at=row['created_at'],
+                        valid_at=row['valid_at'],
+                        user_id=row['user_id'],
+                        agent_id=row['agent_id'],
+                        metadata=metadata,
+                        entity_edges=row['entity_edges'] or [],
+                    )
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+        return None
+
     def search_similar_entities(
         self,
         embedding: List[float],
@@ -553,7 +609,6 @@ class RyugraphDB:
             ep.valid_at AS valid_at,
             ep.user_id AS user_id,
             ep.agent_id AS agent_id,
-            ep.session_id AS session_id,
             ep.metadata AS metadata,
             similarity
         ORDER BY similarity DESC
@@ -748,23 +803,27 @@ class RyugraphDB:
         Args:
             user_id: User ID to filter by (required)
             limit: Maximum number of episodes to return
-            session_id: Optional session ID filter
+            session_id: Optional session ID filter (searches in metadata.sessions)
 
         Returns:
             List of recent episodes
         """
-        conditions = ["e.user_id = $user_id"]
-        params = {"user_id": user_id, "limit": limit}
-
         if session_id:
-            conditions.append("e.session_id = $session_id")
-            params["session_id"] = session_id
+            # Use new method to find episode by session_id in metadata
+            episode = self.get_episode_by_session_id(session_id)
+            if episode and episode.user_id == user_id:
+                return [{
+                    "uuid": episode.uuid,
+                    "name": episode.name,
+                    "content": episode.content,
+                    "created_at": episode.created_at,
+                }]
+            return []
 
-        where_clause = " AND ".join(conditions)
-
-        query = f"""
+        # No session filter - get recent episodes by user_id
+        query = """
         MATCH (e:Episode)
-        WHERE {where_clause}
+        WHERE e.user_id = $user_id
         RETURN
             e.uuid AS uuid,
             e.name AS name,
@@ -774,6 +833,7 @@ class RyugraphDB:
         LIMIT $limit
         """
 
+        params = {"user_id": user_id, "limit": limit}
         return self.execute(query, params)
 
     def get_episode_entities(
@@ -875,7 +935,6 @@ class RyugraphDB:
             e.created_at AS created_at,
             e.valid_at AS valid_at,
             e.user_id AS user_id,
-            e.session_id AS session_id,
             e.metadata AS metadata
         ORDER BY e.created_at {order_clause}
         SKIP $offset
@@ -911,7 +970,6 @@ class RyugraphDB:
             e.valid_at AS valid_at,
             e.user_id AS user_id,
             e.agent_id AS agent_id,
-            e.session_id AS session_id,
             e.metadata AS metadata,
             e.entity_edges AS entity_edges
         """

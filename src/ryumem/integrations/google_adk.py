@@ -732,19 +732,27 @@ def _prepare_query_and_episode(
     else:
         augmented_query_text = original_query_text
 
-    # Create episode for user query
+    # Check if session already has an episode
+    existing_episode = memory.ryumem.db.get_episode_by_session_id(session_id)
     run_id = str(uuid_module.uuid4())
-    query_episode_id = _create_query_episode(
-        query_text=original_query_text,
-        user_id=user_id,
-        session_id=session_id,
-        run_id=run_id,
-        augmented_query_text=augmented_query_text,
-        augment_queries=augment_queries,
-        similarity_threshold=similarity_threshold,
-        top_k_similar=top_k_similar,
-        memory=memory
-    )
+
+    if existing_episode:
+        # Session already linked to an episode - reuse it
+        query_episode_id = existing_episode.uuid
+        logger.info(f"Reusing existing episode {query_episode_id} for session {session_id}")
+    else:
+        # Create new episode for this session
+        query_episode_id = _create_query_episode(
+            query_text=original_query_text,
+            user_id=user_id,
+            session_id=session_id,
+            run_id=run_id,
+            augmented_query_text=augmented_query_text,
+            augment_queries=augment_queries,
+            similarity_threshold=similarity_threshold,
+            top_k_similar=top_k_similar,
+            memory=memory
+        )
 
     # Store context on runner instance for tool tracker
     original_runner._ryumem_current_run_id = run_id
