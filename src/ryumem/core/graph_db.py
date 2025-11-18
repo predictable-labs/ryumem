@@ -510,6 +510,16 @@ class RyugraphDB:
                 if session_id in sessions:
                     # Convert to EpisodeNode
                     from ryumem.core.models import EpisodeNode, EpisodeType
+                    import math
+
+                    # Helper to clean nan/None values
+                    def clean_value(val):
+                        if val is None:
+                            return None
+                        if isinstance(val, float) and math.isnan(val):
+                            return None
+                        return val
+
                     return EpisodeNode(
                         uuid=row['uuid'],
                         name=row['name'],
@@ -519,8 +529,8 @@ class RyugraphDB:
                         source_description=row['source_description'],
                         created_at=row['created_at'],
                         valid_at=row['valid_at'],
-                        user_id=row['user_id'],
-                        agent_id=row['agent_id'],
+                        user_id=clean_value(row['user_id']),
+                        agent_id=clean_value(row['agent_id']),
                         metadata=metadata,
                         entity_edges=row['entity_edges'] or [],
                     )
