@@ -58,7 +58,6 @@ class EpisodeNode(BaseModel):
     # Multi-tenancy fields
     user_id: str | None = Field(default=None, description='User ID for multi-tenancy')
     agent_id: str | None = Field(default=None, description='Agent ID for multi-tenancy')
-    session_id: str | None = Field(default=None, description='Session ID for multi-tenancy')
 
     # Metadata
     metadata: dict[str, Any] = Field(default_factory=dict, description='Additional metadata')

@@ -148,19 +148,42 @@ class RyumemGoogleADK:
         Returns:
             Dict with status and episode_id
         """
+        from .tool_tracker import get_current_query_episode
+
         # Use provided user_id or fall back to instance default
         effective_user_id = user_id or self.user_id
 
-        # Use provided extract_entities or fall back to instance default
-        effective_extract_entities = extract_entities if extract_entities is not None else self.extract_entities
-
-        logger.info(f"Saving memory for user '{effective_user_id}': {content[:50]}... (extract_entities={effective_extract_entities if effective_extract_entities is not None else 'config default'})")
+        logger.info(f"Saving memory for user '{effective_user_id}': {content[:50]}...")
 
         try:
-            # Validate source type
+            # Get episode ID and session ID from runner (set by wrap_runner_with_tracking)
+            parent_episode_id = None
+            session_id = None
+
+            if hasattr(self, 'tracker') and hasattr(self.tracker, '_runner'):
+                runner = self.tracker._runner
+                parent_episode_id = getattr(runner, '_ryumem_query_episode', None)
+                session_id = getattr(runner, '_ryumem_session_id', None)
+
+            # If we have a parent query episode, must have session_id
+            if parent_episode_id:
+                if not session_id:
+                    raise ValueError("session_id is required but was None for save_memory")
+
+                logger.info(f"Appending memory to query episode: {parent_episode_id}")
+                self._update_episode_with_memory(parent_episode_id, session_id, content)
+                return {
+                    "status": "success",
+                    "episode_id": parent_episode_id,
+                    "message": "Memory appended to current query episode"
+                }
+
+            # Fallback: Create new episode
+            effective_extract_entities = extract_entities if extract_entities is not None else self.extract_entities
+
             valid_sources = ["text", "message", "json"]
             if source not in valid_sources:
-                source = "text"  # Default to text if invalid
+                source = "text"
 
             episode_id = self.ryumem.add_episode(
                 content=content,
@@ -181,6 +204,27 @@ class RyumemGoogleADK:
                 "status": "error",
                 "message": str(e)
             }
+
+    def _update_episode_with_memory(self, episode_id: str, session_id: str, content: str) -> None:
+        """Update episode metadata to append saved memory."""
+        episode = self.ryumem.db.get_episode_by_uuid(episode_id)
+        if not episode:
+            raise ValueError(f"Episode {episode_id} not found")
+
+        metadata_dict = json.loads(episode['metadata']) if isinstance(episode['metadata'], str) else episode['metadata']
+        episode_metadata = EpisodeMetadata(**metadata_dict)
+
+        latest_run = episode_metadata.get_latest_run(session_id)
+        if not latest_run:
+            raise ValueError(f"No run found for session {session_id} in episode {episode_id}")
+
+        if latest_run.llm_saved_memory:
+            latest_run.llm_saved_memory += "\n" + content
+        else:
+            latest_run.llm_saved_memory = content
+
+        self.ryumem.db.update_episode_metadata(episode_id, episode_metadata.model_dump())
+        logger.debug(f"Appended memory to episode {episode_id} session {session_id[:8]}")
 
     def get_entity_context(self, entity_name: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -499,53 +543,73 @@ def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> Lis
         return []
 
 
-def _build_context_section(similar_queries: List[Dict[str, Any]], memory: RyumemGoogleADK, top_k: int) -> str:
+def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]], memory: RyumemGoogleADK, top_k: int) -> str:
     """Build historical context string from similar queries and their tool executions."""
-    context_parts = ["\n\n[Historical Context from Similar Queries:"]
+
+    # Template for query augmentation
+    AUGMENTATION_TEMPLATE = """
+[Previous Attempt Summary]
+
+Your previous approach was:
+{agent_response}
+
+Tools previously used:
+{tool_summary}
+
+Using this memory, improve your next attempt.
+
+***IMPORTANT — REQUIRED BEHAVIOR***
+You MUST reuse any **concrete facts, results, conclusions, or discovered information** from the previous attempt if they are relevant. 
+Do NOT ignore previously known truths. 
+Treat the previous attempt as authoritative memory, not optional context.
+
+In your response, briefly include:
+1. What you learned last time (1–2 bullets).
+2. What you will change or improve (1–2 bullets).
+3. Then continue with your improved reasoning (explicitly applying relevant past information).
+
+IMPORTANT:
+If the previous attempt already contains the correct final answer, or fully solves the task, you MUST NOT re-solve it. 
+Instead, directly use or return the final answer from memory.
+
+Using this information, answer the query: {query_text}
+"""
 
     for idx, similar in enumerate(similar_queries[:top_k if top_k > 0 else len(similar_queries)], 1):
-        query_content = similar["content"]
-        query_uuid = similar["uuid"]
         query_metadata = similar.get("metadata")
-        similarity_score = similar["score"]
 
-        context_parts.append(f"\n{idx}. Similar Query (similarity: {similarity_score:.2f}): \"{query_content}\"")
-
-        # Add agent response if available
         try:
-            if query_metadata:
-                metadata = json.loads(query_metadata) if isinstance(query_metadata, str) else query_metadata
-                agent_response = metadata.get("agent_response")
+            if not query_metadata:
+                continue
 
+            metadata_dict = json.loads(query_metadata) if isinstance(query_metadata, str) else query_metadata
+            episode_metadata = EpisodeMetadata(**metadata_dict)
+
+            # Get agent response
+            agent_response = None
+            for runs in episode_metadata.sessions.values():
+                for run in runs:
+                    if run.agent_response:
+                        agent_response = run.agent_response
+                        break
                 if agent_response:
-                    response_preview = agent_response[:300] + "..." if len(agent_response) > 300 else agent_response
-                    context_parts.append(f"   Agent Response: {response_preview}")
+                    break
+
+            # Get tool summary
+            tool_summary = episode_metadata.get_tool_usage_summary()
+
+            # Fill template
+            return AUGMENTATION_TEMPLATE.format(
+                agent_response=agent_response or "No previous response recorded",
+                tool_summary=tool_summary or "No tools used",
+                query_text=query_text
+            )
+
         except Exception as e:
             logger.warning(f"Failed to parse query metadata: {e}")
+            continue
 
-        # Add tool executions
-        tool_results = _get_linked_tool_executions(query_uuid, memory)
-        if tool_results:
-            context_parts.append("   Tools Used:")
-            for tool_result in tool_results:
-                try:
-                    metadata = json.loads(tool_result['metadata']) if isinstance(tool_result['metadata'], str) else tool_result['metadata']
-                    tool_name = metadata.get('tool_name', 'unknown')
-                    task_type = metadata.get('task_type', 'unknown')
-                    success = metadata.get('success', False)
-                    duration_ms = metadata.get('duration_ms', 0)
-                    input_params = metadata.get('input_params', {})
-                    output_summary = metadata.get('output_summary', 'N/A')
-
-                    status = "✓ Success" if success else "✗ Failed"
-                    context_parts.append(f"   • {tool_name}({', '.join([f'{k}={v}' for k, v in input_params.items()])})")
-                    context_parts.append(f"     {status} ({duration_ms}ms) | Task: {task_type}")
-                    context_parts.append(f"     Output: {output_summary[:100]}...")
-                except Exception as e:
-                    logger.warning(f"Failed to parse tool metadata: {e}")
-
-    context_parts.append("]\n")
-    return ''.join(context_parts)
+    return ""
 
 
 def _augment_query_with_history(
@@ -579,8 +643,7 @@ def _augment_query_with_history(
         if not similar_queries:
             return query_text
 
-        context_section = _build_context_section(similar_queries, memory, top_k)
-        augmented_query = query_text + context_section
+        augmented_query = _build_context_section(query_text, similar_queries, memory, top_k)
 
         logger.info(f"Augmented query with {len(similar_queries)} similar queries")
         return augmented_query
@@ -632,6 +695,12 @@ def _insert_run_information_in_episode(
             episode_metadata.add_query_run(session_id, query_run)
             memory.ryumem.update_episode_metadata(query_episode_id, episode_metadata.model_dump())
             logger.info(f"Episode {query_episode_id[:8]} session {session_id[:8]} now has {len(episode_metadata.sessions[session_id])} runs")
+    else:
+        # New session - add it to the episode
+        logger.info(f"Linking new session {session_id[:8]} to existing episode {query_episode_id[:8]}")
+        episode_metadata.add_query_run(session_id, query_run)
+        memory.ryumem.update_episode_metadata(query_episode_id, episode_metadata.model_dump())
+        logger.info(f"Episode {query_episode_id[:8]} now has session {session_id[:8]} with 1 run")
 
 
 def _create_query_episode(
@@ -651,6 +720,7 @@ def _create_query_episode(
     # Create query run using Pydantic model
     query_run = QueryRun(
         run_id=run_id,
+        user_id=user_id,
         timestamp=datetime.datetime.utcnow().isoformat(),
         query=query_text,
         augmented_query=augmented_query_text if augmented_query_text != query_text else None,
@@ -722,29 +792,54 @@ def _prepare_query_and_episode(
             query_text, memory, user_id, similarity_threshold, top_k_similar
         )
 
-        # Update message if query was augmented
+        # Update message if context was added (query text might be same but context added)
         if augmented_query_text != original_query_text:
             logger.info(f"Query augmented (+{len(augmented_query_text) - len(original_query_text)} chars)")
             augmented_message = types.Content(
                 role='user',
                 parts=[types.Part(text=augmented_query_text)]
             )
+        else:
+            # Query text unchanged, but make sure to use it in message anyway
+            augmented_query_text = original_query_text
     else:
         augmented_query_text = original_query_text
 
-    # Create episode for user query
+    # Check if session already has an episode
+    existing_episode = memory.ryumem.db.get_episode_by_session_id(session_id)
     run_id = str(uuid_module.uuid4())
-    query_episode_id = _create_query_episode(
-        query_text=original_query_text,
-        user_id=user_id,
-        session_id=session_id,
-        run_id=run_id,
-        augmented_query_text=augmented_query_text,
-        augment_queries=augment_queries,
-        similarity_threshold=similarity_threshold,
-        top_k_similar=top_k_similar,
-        memory=memory
-    )
+
+    if existing_episode:
+        # Session already linked to an episode - reuse it and add new run
+        query_episode_id = existing_episode.uuid
+        logger.info(f"Reusing existing episode {query_episode_id} for session {session_id}")
+
+        # Create query run for this session
+        query_run = QueryRun(
+            run_id=run_id,
+            user_id=user_id,
+            timestamp=datetime.datetime.utcnow().isoformat(),
+            query=original_query_text,
+            augmented_query=augmented_query_text if augmented_query_text != original_query_text else None,
+            agent_response="",
+            tools_used=[]
+        )
+
+        # Add run to episode metadata
+        _insert_run_information_in_episode(query_episode_id, run_id, session_id, query_run, memory)
+    else:
+        # Create new episode for this session
+        query_episode_id = _create_query_episode(
+            query_text=original_query_text,
+            user_id=user_id,
+            session_id=session_id,
+            run_id=run_id,
+            augmented_query_text=augmented_query_text,
+            augment_queries=augment_queries,
+            similarity_threshold=similarity_threshold,
+            top_k_similar=top_k_similar,
+            memory=memory
+        )
 
     # Store context on runner instance for tool tracker
     original_runner._ryumem_current_run_id = run_id
@@ -901,6 +996,11 @@ def wrap_runner_with_tracking(
                 set_current_query_episode(query_episode_id, session_id=session_id, user_id=user_id)
 
             # Call original run_async - it returns an async generator directly
+            # Log what we're actually sending to the agent
+            if hasattr(augmented_message, 'parts') and augmented_message.parts:
+                msg_text = ''.join([p.text for p in augmented_message.parts if hasattr(p, 'text')])
+                logger.info(f"Sending to agent: {msg_text[:300]}...")
+
             event_stream = original_run_async(
                 user_id=user_id,
                 session_id=session_id,

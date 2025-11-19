@@ -74,7 +74,6 @@ def dump_database(db_path: str, output_file: str) -> None:
         e.valid_at AS valid_at,
         e.user_id AS user_id,
         e.agent_id AS agent_id,
-        e.session_id AS session_id,
         e.metadata AS metadata,
         e.entity_edges AS entity_edges
     """

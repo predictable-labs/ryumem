@@ -281,11 +281,6 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                           User: {episode.user_id}
                         </Badge>
                       )}
-                      {episode.session_id && (
-                        <Badge variant="outline" className="text-xs">
-                          Session: {episode.session_id.slice(0, 8)}...
-                        </Badge>
-                      )}
                     </div>
                   </div>
                   <Badge className={`${getSourceColor(episode.source)} shrink-0`}>
@@ -323,9 +318,6 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                             className="p-3 rounded-md bg-muted/30 border border-muted text-xs space-y-2"
                           >
                             <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
-                                {run.session_id?.slice(0, 8)}
-                              </Badge>
                               <span className="text-muted-foreground">
                                 {formatDate(run.timestamp)}
                               </span>

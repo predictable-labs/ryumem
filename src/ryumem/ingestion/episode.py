@@ -162,7 +162,6 @@ class EpisodeIngestion:
             valid_at=start_time,
             user_id=user_id,
             agent_id=agent_id,
-            session_id=session_id,
             metadata=metadata or {},
         )
 

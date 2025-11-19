@@ -6,8 +6,8 @@ import { Toaster } from "@/components/ui/toaster";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Ryumem Dashboard",
-  description: "Dashboard for Ryumem - Knowledge Graph Memory System",
+  title: "RyuMem Dashboard",
+  description: "Dashboard for RyuMem - Knowledge Graph Memory System",
 };
 
 export default function RootLayout({
