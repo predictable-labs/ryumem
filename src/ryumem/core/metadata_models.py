@@ -24,6 +24,7 @@ class QueryRun(BaseModel):
     """A single query execution/run."""
 
     run_id: str
+    user_id: str
     timestamp: str
     query: str
     augmented_query: Optional[str] = None  # Query with historical context added

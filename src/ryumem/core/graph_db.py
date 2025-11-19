@@ -1177,19 +1177,32 @@ class RyugraphDB:
     def get_all_users(self) -> List[str]:
         """
         Get all distinct user IDs in the database.
+        Queries both Entity and Episode nodes to ensure complete user coverage.
 
         Returns:
             List of user_id strings
         """
-        query = """
+        user_ids = set()
+
+        # Get users from entities
+        entity_query = """
         MATCH (e:Entity)
         WHERE e.user_id IS NOT NULL
         RETURN DISTINCT e.user_id AS user_id
-        ORDER BY user_id
         """
+        entity_results = self.execute(entity_query, {})
+        user_ids.update([r["user_id"] for r in entity_results if r.get("user_id")])
 
-        results = self.execute(query, {})
-        return [r["user_id"] for r in results if r.get("user_id")]
+        # Get users from episodes (captures users with queries but no entities yet)
+        episode_query = """
+        MATCH (ep:Episode)
+        WHERE ep.user_id IS NOT NULL
+        RETURN DISTINCT ep.user_id AS user_id
+        """
+        episode_results = self.execute(episode_query, {})
+        user_ids.update([r["user_id"] for r in episode_results if r.get("user_id")])
+
+        return sorted(list(user_ids))
 
     def get_community_by_uuid(self, community_uuid: str) -> Optional[Dict[str, Any]]:
         """

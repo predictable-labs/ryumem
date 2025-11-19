@@ -720,6 +720,7 @@ def _create_query_episode(
     # Create query run using Pydantic model
     query_run = QueryRun(
         run_id=run_id,
+        user_id=user_id,
         timestamp=datetime.datetime.utcnow().isoformat(),
         query=query_text,
         augmented_query=augmented_query_text if augmented_query_text != query_text else None,
@@ -816,6 +817,7 @@ def _prepare_query_and_episode(
         # Create query run for this session
         query_run = QueryRun(
             run_id=run_id,
+            user_id=user_id,
             timestamp=datetime.datetime.utcnow().isoformat(),
             query=original_query_text,
             augmented_query=augmented_query_text if augmented_query_text != original_query_text else None,
