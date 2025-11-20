@@ -38,6 +38,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# Global config loaded from database at startup
+_app_config: Optional[RyumemConfig] = None
+
+
 # Dependency injection for per-request Ryumem instances
 def get_ryumem():
     """
@@ -49,8 +53,11 @@ def get_ryumem():
     - READ_ONLY mode is maintained for safe concurrent access
     - No persistent connections that could leak resources
     """
-    # Load config from environment
-    config = RyumemConfig()
+    # Use global config from database, fallback to environment
+    if _app_config is not None:
+        config = _app_config
+    else:
+        config = RyumemConfig()
 
     # Override read_only to ensure server always uses READ_ONLY mode
     config.database.read_only = True
@@ -65,7 +72,12 @@ def get_write_ryumem():
     """
     Create a new Ryumem instance for WRITE operations.
     """
-    config = RyumemConfig()
+    # Use global config from database, fallback to environment
+    if _app_config is not None:
+        config = _app_config
+    else:
+        config = RyumemConfig()
+
     config.database.read_only = False
     with Ryumem(config=config) as ryumem:
         yield ryumem
@@ -75,20 +87,51 @@ def get_write_ryumem():
 async def lifespan(app: FastAPI):
     """Server startup/shutdown lifecycle"""
     logger.info("Starting Ryumem server...")
-    
-    # Initialize DB if needed (write mode)
+
+    # Initialize DB and migrate config if needed (write mode)
     try:
-        config = RyumemConfig()
-        config.database.read_only = False
-        # Just instantiating Ryumem should trigger DB init/migration if needed
-        with Ryumem(config=config) as ryumem:
-            logger.info(f"Database initialized at {config.database.db_path}")
+        # First, create a temporary config from environment to initialize the database
+        # NOTE: Database path (db_path) and read_only mode ALWAYS come from environment variables
+        # They cannot be stored in the database (circular dependency: need path to open database)
+        # Set via: RYUMEM_DB_PATH and RYUMEM_DATABASE_READ_ONLY
+        temp_config = RyumemConfig()
+        # Use safe temporary providers - don't require API keys for database initialization
+        # Real provider settings will be loaded from database after migration
+        temp_config.llm.provider = "ollama"
+        temp_config.llm.model = "llama3.2:3b"
+        temp_config.embedding.provider = "ollama"  # Ollama supports embeddings via /api/embeddings endpoint
+        temp_config.embedding.model = "nomic-embed-text"  # Default Ollama embedding model
+        temp_config.database.read_only = False
+
+        with Ryumem(config=temp_config) as ryumem:
+            logger.info(f"Database initialized at {temp_config.database.db_path}")
+            logger.info(f"  (Database location is set via RYUMEM_DB_PATH environment variable)")
+
+            # Check if configuration migration is needed
+            from ryumem_server.core.config_service import ConfigService
+            config_service = ConfigService(ryumem.db)
+
+            # Migrate from .env if database is empty
+            migrated, skipped = config_service.migrate_from_env()
+            if migrated > 0:
+                logger.info(f"✓ Configuration migrated: {migrated} settings moved to database")
+                logger.info("  Database is now the source of truth for configuration")
+            elif skipped > 0:
+                logger.info(f"  Configuration already in database ({skipped} settings)")
+
+            # Now load config from database for the app
+            global _app_config
+            _app_config = RyumemConfig.from_database(ryumem.db)
+            logger.info("  Loaded configuration from database")
+
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
-        # Continue, but requests might fail if DB is truly broken
+        # Fall back to environment-based config
+        _app_config = RyumemConfig()
+        logger.warning("  Falling back to environment-based configuration")
 
     logger.info("Using per-request database connections")
-    
+
     yield
 
     logger.info("Shutting down Ryumem server...")
@@ -1565,6 +1608,292 @@ async def get_augmented_queries(
     except Exception as e:
         logger.error(f"Error getting augmented queries: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error getting augmented queries: {str(e)}")
+
+
+# ===== Settings Management Endpoints =====
+
+class UpdateConfigRequest(BaseModel):
+    """Request model for updating configuration"""
+    updates: Dict[str, Any] = Field(..., description="Dictionary of key-value pairs to update")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "updates": {
+                    "llm.provider": "gemini",
+                    "llm.model": "gemini-2.0-flash-exp",
+                    "embedding.provider": "gemini"
+                }
+            }
+        }
+
+
+class ConfigValueResponse(BaseModel):
+    """Response model for configuration values"""
+    key: str
+    value: Any
+    category: str
+    data_type: str
+    is_sensitive: bool
+    updated_at: str
+    description: str
+
+
+class SettingsResponse(BaseModel):
+    """Response model for settings"""
+    settings: Dict[str, List[ConfigValueResponse]]
+    total: int
+
+
+@app.get(
+    "/api/settings",
+    response_model=SettingsResponse,
+    tags=["Settings"],
+    summary="Get all system configuration settings"
+)
+async def get_all_settings(
+    mask_sensitive: bool = True,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get all system configuration settings grouped by category.
+
+    Args:
+        mask_sensitive: Whether to mask sensitive values (API keys) in response
+
+    Returns:
+        Dictionary of settings grouped by category
+    """
+    try:
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(ryumem.db)
+        grouped_configs = service.get_all_configs_grouped(mask_sensitive=mask_sensitive)
+
+        # Convert to response model
+        settings_dict = {}
+        total = 0
+        for category, configs in grouped_configs.items():
+            settings_dict[category] = [
+                ConfigValueResponse(
+                    key=cfg["key"],
+                    value=cfg["value"],
+                    category=cfg["category"],
+                    data_type=cfg["data_type"],
+                    is_sensitive=cfg["is_sensitive"],
+                    updated_at=cfg["updated_at"].isoformat() if hasattr(cfg["updated_at"], "isoformat") else str(cfg["updated_at"]),
+                    description=cfg["description"]
+                )
+                for cfg in configs
+            ]
+            total += len(configs)
+
+        return SettingsResponse(settings=settings_dict, total=total)
+
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting settings: {str(e)}")
+
+
+@app.get(
+    "/api/settings/{category}",
+    response_model=List[ConfigValueResponse],
+    tags=["Settings"],
+    summary="Get settings for a specific category"
+)
+async def get_settings_by_category(
+    category: str,
+    mask_sensitive: bool = True,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get configuration settings for a specific category.
+
+    Args:
+        category: Configuration category (e.g., 'llm', 'embedding', 'api_keys')
+        mask_sensitive: Whether to mask sensitive values
+
+    Returns:
+        List of configuration values for the category
+    """
+    try:
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(ryumem.db)
+        configs = service.db.get_configs_by_category(category)
+
+        if not configs:
+            raise HTTPException(status_code=404, detail=f"Category not found: {category}")
+
+        # Mask sensitive values if requested
+        # Show first 4 and last 6 characters for API keys
+        for cfg in configs:
+            if mask_sensitive and cfg["is_sensitive"] and cfg["value"]:
+                value_str = cfg["value"]
+                if len(value_str) > 10:  # Need at least 11 chars to show 4 + 6
+                    cfg["value"] = value_str[:4] + "***" + value_str[-6:]
+                else:
+                    cfg["value"] = "***"
+
+        return [
+            ConfigValueResponse(
+                key=cfg["key"],
+                value=cfg["value"],
+                category=cfg["category"],
+                data_type=cfg["data_type"],
+                is_sensitive=cfg["is_sensitive"],
+                updated_at=cfg["updated_at"].isoformat() if hasattr(cfg["updated_at"], "isoformat") else str(cfg["updated_at"]),
+                description=cfg["description"]
+            )
+            for cfg in configs
+        ]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting settings for category {category}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting settings: {str(e)}")
+
+
+@app.put(
+    "/api/settings",
+    tags=["Settings"],
+    summary="Update multiple configuration settings"
+)
+async def update_settings(
+    request: UpdateConfigRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Update multiple configuration settings.
+
+    Args:
+        request: Dictionary of key-value pairs to update
+
+    Returns:
+        Summary of update results
+    """
+    try:
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(ryumem.db)
+
+        # Validate all configs before updating
+        validation_errors = []
+        for key, value in request.updates.items():
+            is_valid, error_msg = service.validate_config_value(key, value)
+            if not is_valid:
+                validation_errors.append(f"{key}: {error_msg}")
+
+        if validation_errors:
+            raise HTTPException(
+                status_code=400,
+                detail={"message": "Validation failed", "errors": validation_errors}
+            )
+
+        # Update configs
+        success_count, failed_keys = service.update_multiple_configs(request.updates)
+
+        # Reload global config
+        global _app_config
+        _app_config = RyumemConfig.from_database(ryumem.db)
+
+        return {
+            "message": f"Updated {success_count} configuration(s)",
+            "success_count": success_count,
+            "failed_keys": failed_keys,
+            "updated_keys": [k for k in request.updates.keys() if k not in failed_keys]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error updating settings: {str(e)}")
+
+
+@app.post(
+    "/api/settings/validate",
+    tags=["Settings"],
+    summary="Validate configuration values without saving"
+)
+async def validate_settings(
+    request: UpdateConfigRequest,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Validate configuration values without saving them.
+
+    Args:
+        request: Dictionary of key-value pairs to validate
+
+    Returns:
+        Validation results for each key
+    """
+    try:
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(ryumem.db)
+
+        results = {}
+        for key, value in request.updates.items():
+            is_valid, error_msg = service.validate_config_value(key, value)
+            results[key] = {
+                "valid": is_valid,
+                "error": error_msg if not is_valid else None
+            }
+
+        all_valid = all(r["valid"] for r in results.values())
+
+        return {
+            "valid": all_valid,
+            "results": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error validating settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error validating settings: {str(e)}")
+
+
+@app.post(
+    "/api/settings/reset-defaults",
+    tags=["Settings"],
+    summary="Reset all settings to default values"
+)
+async def reset_to_defaults(
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Reset all configuration settings to their default values.
+
+    Returns:
+        Summary of reset operation
+    """
+    try:
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(ryumem.db)
+
+        # Get default configs
+        default_configs = service.get_default_configs()
+
+        # Update all configs to defaults
+        updates = {cfg["key"]: cfg["value"] for cfg in default_configs}
+        success_count, failed_keys = service.update_multiple_configs(updates)
+
+        # Reload global config
+        global _app_config
+        _app_config = RyumemConfig.from_database(ryumem.db)
+
+        return {
+            "message": f"Reset {success_count} configuration(s) to defaults",
+            "success_count": success_count,
+            "failed_keys": failed_keys
+        }
+
+    except Exception as e:
+        logger.error(f"Error resetting settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error resetting settings: {str(e)}")
 
 
 if __name__ == "__main__":

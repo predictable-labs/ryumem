@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User, History } from "lucide-react";
+import Link from "next/link";
+import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User, History, Cog } from "lucide-react";
 import { EpisodesList } from "@/components/episodes-list";
 import { EpisodeFormModal } from "@/components/episode-form-modal";
 import { ChatInterface } from "@/components/chat-interface";
@@ -154,36 +155,45 @@ export default function Home() {
         {/* User Selector */}
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <User className="h-5 w-5 text-muted-foreground" />
-              <div className="flex-1">
-                <Label htmlFor="user-select" className="text-sm font-medium">
-                  Select User
-                </Label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Choose a user to filter episodes, entities, and graph data
-                </p>
-                {isLoadingUsers ? (
-                  <div className="text-sm text-muted-foreground">Loading users...</div>
-                ) : users.length > 0 ? (
-                  <Select value={userId} onValueChange={setUserId}>
-                    <SelectTrigger id="user-select" className="w-full max-w-md">
-                      <SelectValue placeholder="Select a user" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {users.map((user) => (
-                        <SelectItem key={user} value={user}>
-                          {user}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="text-sm text-muted-foreground">
-                    No users found. Add some episodes first.
-                  </div>
-                )}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4 flex-1">
+                <User className="h-5 w-5 text-muted-foreground" />
+                <div className="flex-1">
+                  <Label htmlFor="user-select" className="text-sm font-medium">
+                    Select User
+                  </Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Choose a user to filter episodes, entities, and graph data
+                  </p>
+                  {isLoadingUsers ? (
+                    <div className="text-sm text-muted-foreground">Loading users...</div>
+                  ) : users.length > 0 ? (
+                    <Select value={userId} onValueChange={setUserId}>
+                      <SelectTrigger id="user-select" className="w-full max-w-md">
+                        <SelectValue placeholder="Select a user" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {users.map((user) => (
+                          <SelectItem key={user} value={user}>
+                            {user}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      No users found. Add some episodes first.
+                    </div>
+                  )}
+                </div>
               </div>
+              <Link
+                href="/settings"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+              >
+                <Cog className="h-4 w-4" />
+                System Settings
+              </Link>
             </div>
           </CardContent>
         </Card>
