@@ -76,7 +76,7 @@ class RyumemGoogleADK:
 
         logger.info(f"Initialized RyumemGoogleADK for customer: {ryumem_customer_id}, default_user: {user_id or 'dynamic'}, extract_entities: {extract_entities if extract_entities is not None else 'config default'}")
 
-    def search_memory(self, query: str, user_id: Optional[str] = None, limit: int = 5) -> Dict[str, Any]:
+    def search_memory(self, query: str, session_id: str, user_id: Optional[str] = None, limit: int = 5) -> Dict[str, Any]:
         """
         Auto-generated search function for retrieving memories.
 
@@ -84,6 +84,7 @@ class RyumemGoogleADK:
 
         Args:
             query: Natural language query to search memories
+            session_id: Session identifier (required)
             user_id: User identifier (optional - uses instance default if not provided)
             limit: Maximum number of memories to return
 
@@ -93,12 +94,13 @@ class RyumemGoogleADK:
         # Use provided user_id or fall back to instance default
         effective_user_id = user_id or self.user_id
 
-        logger.info(f"Searching memory for user '{effective_user_id}': {query}")
+        logger.info(f"Searching memory for user '{effective_user_id}' session '{session_id}': {query}")
 
         try:
             results = self.ryumem.search(
                 query=query,
                 user_id=effective_user_id,
+                session_id=session_id,
                 strategy="hybrid",
                 limit=limit
             )
@@ -133,7 +135,7 @@ class RyumemGoogleADK:
                 "message": str(e)
             }
 
-    def save_memory(self, content: str, user_id: Optional[str] = None, source: str = "text", extract_entities: Optional[bool] = None) -> Dict[str, Any]:
+    def save_memory(self, content: str, session_id: str, user_id: Optional[str] = None, source: str = "text", extract_entities: Optional[bool] = None) -> Dict[str, Any]:
         """
         Auto-generated save function for persisting memories.
 
@@ -141,6 +143,7 @@ class RyumemGoogleADK:
 
         Args:
             content: Information to save to memory
+            session_id: Session identifier (required)
             user_id: User identifier (optional - uses instance default if not provided)
             source: Episode type - must be "text", "message", or "json"
             extract_entities: Override config/instance setting for entity extraction (None uses instance/config default)
@@ -148,35 +151,33 @@ class RyumemGoogleADK:
         Returns:
             Dict with status and episode_id
         """
-        from .tool_tracker import get_current_query_episode
-
         # Use provided user_id or fall back to instance default
         effective_user_id = user_id or self.user_id
 
-        logger.info(f"Saving memory for user '{effective_user_id}': {content[:50]}...")
+        logger.info(f"Saving memory for user '{effective_user_id}' session '{session_id}': {content[:50]}...")
 
         try:
-            # Get episode ID and session ID from runner (set by wrap_runner_with_tracking)
-            parent_episode_id = None
-            session_id = None
+            # Fallback: Create new episode
+            effective_extract_entities = extract_entities if extract_entities is not None else self.extract_entities
 
-            if hasattr(self, 'tracker') and hasattr(self.tracker, '_runner'):
-                runner = self.tracker._runner
-                parent_episode_id = getattr(runner, '_ryumem_query_episode', None)
-                session_id = getattr(runner, '_ryumem_session_id', None)
+            valid_sources = ["text", "message", "json"]
+            if source not in valid_sources:
+                source = "text"
 
-            # If we have a parent query episode, must have session_id
-            if parent_episode_id:
-                if not session_id:
-                    raise ValueError("session_id is required but was None for save_memory")
-
-                logger.info(f"Appending memory to query episode: {parent_episode_id}")
-                self._update_episode_with_memory(parent_episode_id, session_id, content)
-                return {
-                    "status": "success",
-                    "episode_id": parent_episode_id,
-                    "message": "Memory appended to current query episode"
-                }
+            episode_id = self.ryumem.add_episode(
+                content=content,
+                user_id=effective_user_id,
+                session_id=session_id,
+                source=source,
+                metadata={"integration": "google_adk"},
+                extract_entities=effective_extract_entities
+            )
+            logger.info(f"Saved memory for user '{effective_user_id}' with episode_id: {episode_id}")
+            return {
+                "status": "success",
+                "episode_id": episode_id,
+                "message": "Memory saved successfully"
+            }
 
             # Fallback: Create new episode
             effective_extract_entities = extract_entities if extract_entities is not None else self.extract_entities
@@ -226,12 +227,13 @@ class RyumemGoogleADK:
         self.ryumem.db.update_episode_metadata(episode_id, episode_metadata.model_dump())
         logger.debug(f"Appended memory to episode {episode_id} session {session_id[:8]}")
 
-    def get_entity_context(self, entity_name: str, user_id: Optional[str] = None) -> Dict[str, Any]:
+    def get_entity_context(self, entity_name: str, session_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Auto-generated function to get full context about an entity.
 
         Args:
             entity_name: Name of the entity to look up
+            session_id: Session identifier (required)
             user_id: User identifier (optional - uses instance default if not provided)
 
         Returns:
@@ -245,7 +247,8 @@ class RyumemGoogleADK:
         try:
             context = self.ryumem.get_entity_context(
                 entity_name=entity_name,
-                user_id=effective_user_id
+                user_id=effective_user_id,
+                session_id=session_id
             )
 
             if context:
@@ -905,18 +908,7 @@ def _save_agent_response_to_episode(
         logger.warning(f"Failed to save agent response: {e}")
 
 
-def _cleanup_runner_context(original_runner, query_episode_id: str, session_id: str, user_id: str):
-    """Clear query episode context from runner and context vars."""
-    from .tool_tracker import clear_current_query_episode
 
-    if query_episode_id:
-        logger.debug(f"Clearing query episode context: {query_episode_id}")
-        clear_current_query_episode(session_id=session_id, user_id=user_id)
-
-        # Clear from runner instance
-        for attr in ['_ryumem_query_episode', '_ryumem_session_id', '_ryumem_user_id']:
-            if hasattr(original_runner, attr):
-                delattr(original_runner, attr)
 
 
 def wrap_runner_with_tracking(
@@ -969,8 +961,6 @@ def wrap_runner_with_tracking(
     if not track_queries:
         return original_runner
 
-    from .tool_tracker import set_current_query_episode
-
     # NOTE: Google ADK's Runner.run() internally calls run_async() in a thread.
     # We only need to wrap run_async() - wrapping both would cause double execution.
     # Wrap run_async if it exists
@@ -990,11 +980,6 @@ def wrap_runner_with_tracking(
                 top_k_similar=top_k_similar,
                 original_runner=original_runner
             )
-
-            # Set context if we have an episode
-            # Context variables automatically propagate in async functions
-            if query_episode_id:
-                set_current_query_episode(query_episode_id, session_id=session_id, user_id=user_id)
 
             # Call original run_async - it returns an async generator directly
             # Log what we're actually sending to the agent
@@ -1021,7 +1006,6 @@ def wrap_runner_with_tracking(
                     yield event
             finally:
                 _save_agent_response_to_episode(query_episode_id, session_id, agent_response_parts, memory)
-                _cleanup_runner_context(original_runner, query_episode_id, session_id, user_id)
 
         # Replace the run_async method
         original_runner.run_async = wrapped_run_async
