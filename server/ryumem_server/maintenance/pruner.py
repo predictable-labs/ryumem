@@ -14,7 +14,7 @@ from typing import Dict, List
 
 import numpy as np
 
-from ryumem.core.graph_db import RyugraphDB
+from ryumem_server.core.graph_db import RyugraphDB
 
 logger = logging.getLogger(__name__)
 

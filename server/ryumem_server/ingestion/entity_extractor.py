@@ -10,11 +10,11 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
-from ryumem.core.graph_db import RyugraphDB
-from ryumem.core.models import EntityNode
-from ryumem.utils.cache import entity_extraction_cache, summary_cache
-from ryumem.utils.embeddings import EmbeddingClient
-from ryumem.utils.llm import LLMClient
+from ryumem_server.core.graph_db import RyugraphDB
+from ryumem_server.core.models import EntityNode
+from ryumem_server.utils.cache import entity_extraction_cache, summary_cache
+from ryumem_server.utils.embeddings import EmbeddingClient
+from ryumem_server.utils.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 

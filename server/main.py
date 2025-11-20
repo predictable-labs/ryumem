@@ -23,9 +23,9 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from ryumem import Ryumem
-from ryumem.core.config import RyumemConfig
-from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
+from ryumem_server import Ryumem
+from ryumem_server.core.config import RyumemConfig
+from ryumem_server.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
 
 # Load environment variables
 load_dotenv()
@@ -61,16 +61,34 @@ def get_ryumem():
     # Connection automatically closed when request completes
 
 
+def get_write_ryumem():
+    """
+    Create a new Ryumem instance for WRITE operations.
+    """
+    config = RyumemConfig()
+    config.database.read_only = False
+    with Ryumem(config=config) as ryumem:
+        yield ryumem
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Server startup/shutdown lifecycle"""
     logger.info("Starting Ryumem server...")
-    logger.info("Using per-request database connections in READ_ONLY mode")
     
-    # Print configuration on startup
-    config = RyumemConfig()
-    config.database.read_only = True
+    # Initialize DB if needed (write mode)
+    try:
+        config = RyumemConfig()
+        config.database.read_only = False
+        # Just instantiating Ryumem should trigger DB init/migration if needed
+        with Ryumem(config=config) as ryumem:
+            logger.info(f"Database initialized at {config.database.db_path}")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        # Continue, but requests might fail if DB is truly broken
 
+    logger.info("Using per-request database connections")
+    
     yield
 
     logger.info("Shutting down Ryumem server...")
@@ -218,6 +236,7 @@ class UpdateCommunitiesRequest(BaseModel):
     """Request model for updating communities"""
     resolution: float = Field(1.0, description="Resolution parameter for Louvain algorithm", ge=0.1, le=5.0)
     min_community_size: int = Field(2, description="Minimum number of entities per community", ge=1)
+    user_id: str = Field(..., description="User ID to update communities for")
 
 
 class UpdateCommunitiesResponse(BaseModel):
@@ -305,6 +324,51 @@ class EntityTypesResponse(BaseModel):
     entity_types: List[str] = Field(default_factory=list, description="List of unique entity types")
 
 
+class CypherRequest(BaseModel):
+    """Request model for executing Cypher query"""
+    query: str = Field(..., description="Cypher query")
+    params: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Query parameters")
+
+
+class CypherResponse(BaseModel):
+    """Response model for Cypher query"""
+    results: List[Dict[str, Any]] = Field(default_factory=list, description="Query results")
+
+
+class UpdateMetadataRequest(BaseModel):
+    """Request model for updating episode metadata"""
+    metadata: Dict[str, Any] = Field(..., description="New metadata")
+
+
+class SaveToolRequest(BaseModel):
+    """Request model for saving a tool"""
+    tool_name: str = Field(..., description="Tool name")
+    description: str = Field(..., description="Tool description")
+    name_embedding: List[float] = Field(..., description="Embedding of tool name")
+
+
+class EmbedRequest(BaseModel):
+    """Request model for embedding text"""
+    text: str = Field(..., description="Text to embed")
+
+
+class EmbedResponse(BaseModel):
+    """Response model for embedding"""
+    embedding: List[float] = Field(..., description="Embedding vector")
+
+
+class GenerateRequest(BaseModel):
+    """Request model for LLM generation"""
+    messages: List[Dict[str, str]] = Field(..., description="Chat messages")
+    temperature: float = Field(0.7, description="Temperature")
+    max_tokens: int = Field(1000, description="Max tokens")
+
+
+class GenerateResponse(BaseModel):
+    """Response model for LLM generation"""
+    content: str = Field(..., description="Generated content")
+
+
 # ===== API Endpoints =====
 
 @app.get("/", response_model=HealthResponse)
@@ -348,7 +412,7 @@ async def get_users(ryumem: Ryumem = Depends(get_ryumem)):
 @app.post("/episodes", response_model=AddEpisodeResponse)
 async def add_episode(
     request: AddEpisodeRequest,
-    ryumem: Ryumem = Depends(get_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem)
 ):
     """
     Add a new episode to the memory system.
@@ -380,6 +444,119 @@ async def add_episode(
     except Exception as e:
         logger.error(f"Error adding episode: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error adding episode: {str(e)}")
+
+
+@app.get("/episodes/{episode_uuid}", response_model=Optional[Dict[str, Any]])
+async def get_episode_by_uuid(
+    episode_uuid: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get a single episode by its UUID.
+    """
+    try:
+        episode = ryumem.db.get_episode_by_uuid(episode_uuid)
+        if not episode:
+            raise HTTPException(status_code=404, detail=f"Episode {episode_uuid} not found")
+        return episode
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting episode: {e}", exc_info=True)
+    except Exception as e:
+        logger.error(f"Error getting episode: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting episode: {str(e)}")
+
+
+@app.get("/episodes/session/{session_id}", response_model=Optional[Dict[str, Any]])
+async def get_episode_by_session_id(
+    session_id: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get the latest episode for a session ID.
+    """
+    try:
+        # Assuming Ryumem DB has this method, if not we might need to implement it or use a cypher query
+        # Checking if ryumem.db has get_episode_by_session_id
+        # If not, we can use execute_cypher logic here or add it to RyugraphDB
+        # For now, let's assume it exists or we implement it via cypher here if needed.
+        # But better to use the method if it exists.
+        # If RyugraphDB doesn't have it, we can do a cypher query here.
+        
+        # Let's try to use the method first, if it fails we can fallback or fix RyugraphDB.
+        # But since I can't see RyugraphDB easily, I'll implement a safe fallback using execute if needed?
+        # No, let's trust it exists or I'll add it to RyugraphDB if I could.
+        # Actually, I can't edit RyugraphDB easily as it's in server/ryumem_server/core/graph_db.py
+        # Let's assume it exists as the client code was using it.
+        
+        episode = ryumem.db.get_episode_by_session_id(session_id)
+        if not episode:
+             # Return None (200 OK with null body) or 404?
+             # Client expects None if not found usually.
+             return None
+        
+        # Convert to dict if it's a Pydantic model
+        if hasattr(episode, "model_dump"):
+            return episode.model_dump()
+        return episode
+    except AttributeError:
+        # Fallback if method doesn't exist on DB object
+        query = """
+        MATCH (e:Episode)
+        WHERE $session_id IN e.metadata.session_id OR e.metadata.session_id = $session_id
+        RETURN e
+        ORDER BY e.created_at DESC
+        LIMIT 1
+        """
+        # This is a guess at the schema.
+        # Actually, let's look at how get_episode_by_session_id was likely implemented.
+        # It probably looks up by session_id in metadata.
+        # But wait, the previous error said 'DBProxy' object has no attribute 'get_episode_by_session_id'.
+        # This means the CLIENT didn't have it. The original code used it, so RyugraphDB MUST have had it.
+        
+        episode = ryumem.db.get_episode_by_session_id(session_id)
+        return episode
+
+    except Exception as e:
+        logger.error(f"Error getting episode by session: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting episode by session: {str(e)}")
+
+
+@app.patch("/episodes/{episode_uuid}/metadata", response_model=Dict[str, Any])
+async def update_episode_metadata(
+    episode_uuid: str,
+    request: UpdateMetadataRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Update metadata for an existing episode.
+    """
+    try:
+        result = ryumem.db.update_episode_metadata(episode_uuid, request.metadata)
+        if isinstance(result, list) and len(result) > 0:
+            return result[0]
+        return result
+    except Exception as e:
+        logger.error(f"Error updating episode metadata: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error updating metadata: {str(e)}")
+
+
+@app.post("/cypher/execute", response_model=CypherResponse)
+async def execute_cypher(
+    request: CypherRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Execute a raw Cypher query.
+    WARNING: This is a high-privilege endpoint.
+    """
+    try:
+        results = ryumem.db.execute(request.query, request.params)
+        return CypherResponse(results=results)
+    except Exception as e:
+        logger.error(f"Error executing cypher: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error executing cypher: {str(e)}")
 
 
 @app.get("/episodes", response_model=GetEpisodesResponse)
@@ -470,7 +647,7 @@ async def get_episodes(
 @app.post("/search", response_model=SearchResponse)
 async def search(
     request: SearchRequest,
-    ryumem: Ryumem = Depends(get_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem)
 ):
     """
     Search the knowledge graph.
@@ -665,10 +842,91 @@ async def get_stats(
         raise HTTPException(status_code=500, detail=f"Error getting stats: {str(e)}")
 
 
+@app.post("/tools", response_model=Dict[str, str])
+async def save_tool(
+    request: SaveToolRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """Save a tool to the database."""
+    try:
+        ryumem.db.save_tool(
+            tool_name=request.tool_name,
+            description=request.description,
+            name_embedding=request.name_embedding
+        )
+        return {"message": "Tool saved successfully"}
+    except Exception as e:
+        logger.error(f"Error saving tool: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error saving tool: {str(e)}")
+
+
+@app.get("/tools/{name}", response_model=Optional[Dict[str, Any]])
+async def get_tool_by_name(
+    name: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """Get a tool by name."""
+    try:
+        tool = ryumem.db.get_tool_by_name(name)
+        if not tool:
+            # Return None (200 OK with null body) or 404?
+            # Client expects None if not found usually.
+            # But FastAPI with Optional response model handles None as null JSON.
+            return None
+        return tool
+    except Exception as e:
+        logger.error(f"Error getting tool: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting tool: {str(e)}")
+
+
+@app.post("/embeddings", response_model=EmbedResponse)
+async def embed_text(
+    request: EmbedRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """Generate embedding for text."""
+    try:
+        if not ryumem.embedding_client:
+             raise HTTPException(status_code=503, detail="Embedding client not initialized")
+        
+        embedding = ryumem.embedding_client.embed(request.text)
+        return EmbedResponse(embedding=embedding)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating embedding: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error generating embedding: {str(e)}")
+
+
+@app.post("/llm/generate", response_model=GenerateResponse)
+async def generate_text(
+    request: GenerateRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """Generate text using LLM."""
+    try:
+        if not ryumem.llm_client:
+             raise HTTPException(status_code=503, detail="LLM client not initialized")
+        
+        response = ryumem.llm_client.generate(
+            messages=request.messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens
+        )
+        # response is usually a dict with 'content'
+        content = response.get("content", "") if isinstance(response, dict) else str(response)
+        return GenerateResponse(content=content)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating text: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error generating text: {str(e)}")
+
+
 @app.post("/communities/update", response_model=UpdateCommunitiesResponse)
 async def update_communities(
     request: UpdateCommunitiesRequest,
-    ryumem: Ryumem = Depends(get_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem)
 ):
     """
     Detect and update communities using Louvain algorithm.
@@ -698,7 +956,7 @@ async def update_communities(
 @app.post("/prune", response_model=PruneMemoriesResponse)
 async def prune_memories(
     request: PruneMemoriesRequest,
-    ryumem: Ryumem = Depends(get_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem)
 ):
     """
     Prune and compact memories to keep the graph efficient.

@@ -7,9 +7,9 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import ryu as ryugraph
+import ryugraph
 
-from ryumem.core.models import (
+from ryumem_server.core.models import (
     CommunityEdge,
     CommunityNode,
     EntityEdge,
@@ -509,7 +509,7 @@ class RyugraphDB:
                 sessions = metadata.get('sessions', {})
                 if session_id in sessions:
                     # Convert to EpisodeNode
-                    from ryumem.core.models import EpisodeNode, EpisodeType
+                    from ryumem_server.core.models import EpisodeNode, EpisodeType
                     import math
 
                     # Helper to clean nan/None values

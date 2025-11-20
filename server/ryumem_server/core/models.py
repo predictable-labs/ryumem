@@ -77,14 +77,6 @@ class EpisodeNode(BaseModel):
             }
         }
 
-    def get(self, key: str, default: Any = None) -> Any:
-        """Support dictionary-style .get() access."""
-        return getattr(self, key, default)
-
-    def __getitem__(self, key: str) -> Any:
-        """Support dictionary-style [] access."""
-        return getattr(self, key)
-
 
 class EntityNode(BaseModel):
     """

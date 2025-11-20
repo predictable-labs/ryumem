@@ -776,6 +776,7 @@ def _prepare_query_and_episode(
         Returns (None, new_message, None, None) if no query text found
     """
     import uuid as uuid_module
+    import datetime
     from google.genai import types
 
     # Extract query text

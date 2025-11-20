@@ -9,15 +9,15 @@ from datetime import datetime
 from typing import Dict, List, Optional, TYPE_CHECKING
 from uuid import uuid4
 
-from ryumem.core.graph_db import RyugraphDB
-from ryumem.core.models import EpisodeNode, EpisodeType, EpisodicEdge
-from ryumem.ingestion.entity_extractor import EntityExtractor
-from ryumem.ingestion.relation_extractor import RelationExtractor
-from ryumem.utils.embeddings import EmbeddingClient
-from ryumem.utils.llm import LLMClient
+from ryumem_server.core.graph_db import RyugraphDB
+from ryumem_server.core.models import EpisodeNode, EpisodeType, EpisodicEdge
+from ryumem_server.ingestion.entity_extractor import EntityExtractor
+from ryumem_server.ingestion.relation_extractor import RelationExtractor
+from ryumem_server.utils.embeddings import EmbeddingClient
+from ryumem_server.utils.llm import LLMClient
 
 if TYPE_CHECKING:
-    from ryumem.retrieval.bm25 import BM25Index
+    from ryumem_server.retrieval.bm25 import BM25Index
 
 logger = logging.getLogger(__name__)
 

@@ -10,10 +10,10 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from ryumem.core.graph_db import RyugraphDB
-from ryumem.core.models import EntityEdge, EntityNode, EpisodeNode, EpisodeType, SearchConfig, SearchResult
-from ryumem.retrieval.bm25 import BM25Index
-from ryumem.utils.embeddings import EmbeddingClient
+from ryumem_server.core.graph_db import RyugraphDB
+from ryumem_server.core.models import EntityEdge, EntityNode, EpisodeNode, EpisodeType, SearchConfig, SearchResult
+from ryumem_server.retrieval.bm25 import BM25Index
+from ryumem_server.utils.embeddings import EmbeddingClient
 
 logger = logging.getLogger(__name__)
 

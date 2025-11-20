@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Tuple
 
 from rank_bm25 import BM25Okapi
 
-from ryumem.core.models import EntityEdge, EntityNode
+from ryumem_server.core.models import EntityEdge, EntityNode
 
 logger = logging.getLogger(__name__)
 

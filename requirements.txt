@@ -40,3 +40,5 @@ google-genai>=0.2.0
 pandas
 
 litellm
+
+google-adk

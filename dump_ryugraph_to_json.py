@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-import ryu as ryugraph
+import ryugraph
 
 
 def serialize_value(value: Any) -> Any:
