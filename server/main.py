@@ -149,10 +149,10 @@ class EpisodeInfo(BaseModel):
     content: str
     source: str
     source_description: str
-    created_at: str
-    valid_at: str
+    created_at: datetime
+    valid_at: datetime
     user_id: Optional[str] = None
-    metadata: Optional[str] = None
+    metadata: Optional[dict] = None
 
 
 class GetEpisodesResponse(BaseModel):
@@ -210,6 +210,7 @@ class SearchResponse(BaseModel):
     """Response model for search"""
     entities: List[EntityInfo] = Field(default_factory=list, description="List of entities found")
     edges: List[EdgeInfo] = Field(default_factory=list, description="List of relationships found")
+    episodes: List[EpisodeInfo] = Field(default_factory=list, description="List of episodes found")
     query: str = Field(..., description="Original query")
     strategy: str = Field(..., description="Search strategy used")
     count: int = Field(..., description="Total number of results")
@@ -667,6 +668,20 @@ async def search(
             min_rrf_score=request.min_rrf_score,
             min_bm25_score=request.min_bm25_score,
         )
+
+        episodes = []
+        for episode in results.episodes:
+            episodes.append(EpisodeInfo(
+                uuid=episode.uuid,
+                name=episode.name,
+                content=episode.content,
+                source=episode.source,
+                source_description=episode.source_description,
+                created_at=episode.created_at,
+                valid_at=episode.valid_at,
+                user_id=episode.user_id or None,
+                metadata=episode.metadata or None
+            ))
         
         # Convert entities to response format
         entities = []
@@ -711,7 +726,8 @@ async def search(
             edges=edges,
             query=request.query,
             strategy=request.strategy,
-            count=len(entities) + len(edges)
+            count=len(entities) + len(edges),
+            episodes=episodes
         )
     except Exception as e:
         logger.error(f"Error searching: {e}", exc_info=True)

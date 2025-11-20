@@ -217,7 +217,7 @@ class Ryumem:
             "min_rrf_score": min_rrf_score,
             "min_bm25_score": min_bm25_score,
         }
-        
+
         response = self._post("/search", json=payload)
         
         # Reconstruct SearchResult object
@@ -251,7 +251,8 @@ class Ryumem:
         return SearchResult(
             entities=entities,
             edges=edges,
-            scores=scores
+            scores=scores,
+            episodes=response.get("episodes")
         )
 
     def get_entity_context(
