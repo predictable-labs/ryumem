@@ -282,29 +282,32 @@ Ryumem now implements the **complete** Combined Conceptual Architecture from the
 
 ### Environment Variables
 
-Create a `.env` file:
+Ryumem uses environment variables for configuration. You can set these in your shell or use a `.env` file in your working directory.
+
+**For Examples:**
+Check `examples/.env.example` for a template when running scripts in the `examples/` directory.
+
+**For Server:**
+Check `server/.env.example` for a template when running the API server.
+
+**Common Variables:**
 
 ```bash
 # OpenAI API Key (required for embeddings, and for LLM if using OpenAI)
 OPENAI_API_KEY=sk-...
 
 # LLM Provider (optional, default: openai)
-RYUMEM_LLM_PROVIDER=openai  # or "ollama" for local inference
+RYUMEM_LLM_PROVIDER=openai  # or "ollama", "gemini", "litellm"
 
 # Ollama settings (when using llm_provider="ollama")
-RYUMEM_OLLAMA_BASE_URL=http://localhost:11434
-RYUMEM_LLM_MODEL=llama3.2:3b  # Ollama model name
+RYUMEM_LLM_OLLAMA_BASE_URL=http://localhost:11434
+RYUMEM_LLM_MODEL=llama3.2:3b
 
 # OpenAI settings (when using llm_provider="openai")
-RYUMEM_LLM_MODEL=gpt-4  # OpenAI model name
+RYUMEM_LLM_MODEL=gpt-4o
 
-# Other optional settings (with defaults)
+# Database Path
 RYUMEM_DB_PATH=./data/memory.db
-RYUMEM_EMBEDDING_MODEL=text-embedding-3-large
-RYUMEM_EMBEDDING_DIMENSIONS=3072
-RYUMEM_ENTITY_SIMILARITY_THRESHOLD=0.7
-RYUMEM_RELATIONSHIP_SIMILARITY_THRESHOLD=0.8
-RYUMEM_MAX_CONTEXT_EPISODES=5
 ```
 
 ### Programmatic Configuration

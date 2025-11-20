@@ -115,7 +115,7 @@ class Ryumem:
 
     def __init__(
         self,
-        server_url: str = "http://localhost:8000",
+        server_url: Optional[str] = None,
         config: Optional[RyumemConfig] = None,
         api_key: Optional[str] = None,
     ):
@@ -123,10 +123,14 @@ class Ryumem:
         Initialize Ryumem client.
 
         Args:
-            server_url: URL of the Ryumem server
+            server_url: URL of the Ryumem server. If None, checks RYUMEM_API_URL env var, defaults to http://localhost:8000
             config: Optional RyumemConfig (mostly unused in client mode, but kept for compat)
             api_key: Optional API key for authentication
         """
+        import os
+        if server_url is None:
+            server_url = os.getenv("RYUMEM_API_URL", "http://localhost:8000")
+
         self.base_url = server_url.rstrip('/')
         self.api_key = api_key
         self.config = config or RyumemConfig()

@@ -30,7 +30,7 @@ pip install -e .
 
 ```bash
 # Copy the template environment file
-cp env.template .env
+cp .env.example .env
 
 # Edit .env and set your database path
 nano .env
