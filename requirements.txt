@@ -2,7 +2,7 @@
 # Generated from pyproject.toml
 
 # Graph database (kuzu renamed)
-ryugraph>=25.9.0
+ryugraph>=25.9.1
 
 # OpenAI API client
 openai>=1.0.0
