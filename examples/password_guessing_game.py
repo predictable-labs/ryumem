@@ -193,23 +193,10 @@ def get_hint() -> Dict:
     Returns:
         dict: Contains a hint message
     """
-    if len(GUESS_HISTORY) == 0:
-        return {
-            "hint": "Start with a systematic approach. Try 'AAAA' to see how many A's are in the password."
-        }
-
-    if len(GUESS_HISTORY) == 1:
-        return {
-            "hint": "Try 'BBBB' next to see how many B's are in the password. Compare with your previous result."
-        }
-
-    if len(GUESS_HISTORY) == 2:
-        return {
-            "hint": "Now try 'CCCC' to check for C's. This will help you understand the character distribution."
-        }
 
     # Generic hints for later attempts
     hints = [
+        "Start with a systematic approach. Try 'AAAA' to see how many A's are in the password."
         "Look for patterns in your previous guesses. Which positions gave you more correct characters?",
         "Try swapping characters between positions based on your previous results.",
         "Consider combinations that eliminate what you've already ruled out.",
@@ -308,8 +295,6 @@ If the user wants a hint, use get_hint.""",
     # ⭐ Add memory + tool tracking + query augmentation
     memory = add_memory_to_agent(
         password_agent,
-        user_id=USER_ID,
-        ryumem_customer_id="password_game",
     )
 
     print("✓ Memory and tool tracking enabled")

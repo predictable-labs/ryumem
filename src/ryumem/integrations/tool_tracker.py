@@ -45,7 +45,6 @@ class ToolTracker:
 
     Args:
         ryumem: Ryumem instance for storing tool usage data
-        ryumem_customer_id: Customer/company identifier
         default_user_id: Default user ID to use when tool context doesn't provide one
         classification_model: LLM model to use for task classification
         summarize_large_outputs: Automatically summarize outputs >max_output_length
@@ -60,7 +59,6 @@ class ToolTracker:
     def __init__(
         self,
         ryumem: Ryumem,
-        ryumem_customer_id: str,
         default_user_id: Optional[str] = None,
         classification_model: str = "gpt-4o-mini",
         summarize_large_outputs: bool = True,
@@ -73,7 +71,6 @@ class ToolTracker:
         llm_tool_description: bool = False,
     ):
         self.ryumem = ryumem
-        self.ryumem_customer_id = ryumem_customer_id
         self.default_user_id = default_user_id
         self.classification_model = classification_model
         self.summarize_large_outputs = summarize_large_outputs
@@ -90,7 +87,7 @@ class ToolTracker:
         self._background_tasks = set()    # Track background tasks
 
         logger.info(
-            f"Initialized ToolTracker for customer: {ryumem_customer_id}, "
+            f"Initialized ToolTracker "
             f"sampling: {sampling_rate*100}%"
         )
 
@@ -332,6 +329,9 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             output_summary = self._summarize_output(output) if success else None
 
             episode = self.ryumem.db.get_episode_by_session_id(session_id)
+            if episode is None:
+                logger.error("Failed to find episode related to session {session_id} to store tool execution")
+                return
 
             # Build tool execution record
             tool_execution = {
@@ -466,110 +466,56 @@ Make it user-friendly and avoid technical jargon. Just return the description te
         _tool_name = tool_name or func.__name__
         _tool_description = tool_description or func.__doc__ or ""
 
-        # Check if function is async
-        is_async = inspect.iscoroutinefunction(func)
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            start_time = time.time()
+            success = True
+            error = None
+            output = None
 
-        if is_async:
-            @functools.wraps(func)
-            async def async_wrapper(*args, **kwargs):
-                start_time = time.time()
-                success = True
-                error = None
-                output = None
+            try:
+                output = func(*args, **kwargs)
+                return output
+            except Exception as e:
+                success = False
+                error = str(e)
+                raise
+            finally:
+                duration_ms = int((time.time() - start_time) * 1000)
 
+                # Extract user_id and session_id from kwargs if available
+                user_id = kwargs.get('user_id')
+                session_id = kwargs.get('session_id')
+
+                # Build input params
+                input_params = {
+                    k: v for k, v in kwargs.items()
+                    if k not in ['user_id', 'session_id']
+                }
+
+                # Track execution
                 try:
-                    output = await func(*args, **kwargs)
-                    return output
-                except Exception as e:
-                    success = False
-                    error = str(e)
-                    raise
-                finally:
-                    duration_ms = int((time.time() - start_time) * 1000)
+                    self.track_execution(
+                        tool_name=_tool_name,
+                        tool_description=_tool_description,
+                        input_params=input_params,
+                        output=output,
+                        success=success,
+                        error=error,
+                        duration_ms=duration_ms,
+                        user_id=user_id,
+                        session_id=session_id,
+                    )
+                except Exception as track_error:
+                    logger.error(f"Tracking failed for {_tool_name}: {track_error}")
+                    if not self.fail_open:
+                        raise
 
-                    # Extract user_id and session_id from kwargs if available
-                    user_id = kwargs.get('user_id')
-                    session_id = kwargs.get('session_id')
-
-                    # Build input params (exclude internal params)
-                    input_params = {
-                        k: v for k, v in kwargs.items()
-                        if k not in ['user_id', 'session_id']
-                    }
-
-                    # Track execution (fire and forget)
-                    try:
-                        self.track_execution(
-                            tool_name=_tool_name,
-                            tool_description=_tool_description,
-                            input_params=input_params,
-                            output=output,
-                            success=success,
-                            error=error,
-                            duration_ms=duration_ms,
-                            user_id=user_id,
-                            session_id=session_id,
-                        )
-                    except Exception as track_error:
-                        logger.error(f"Tracking failed for {_tool_name}: {track_error}")
-                        if not self.fail_open:
-                            raise
-
-            return async_wrapper
-
-        else:
-            @functools.wraps(func)
-            def sync_wrapper(*args, **kwargs):
-                start_time = time.time()
-                success = True
-                error = None
-                output = None
-
-                try:
-                    output = func(*args, **kwargs)
-                    return output
-                except Exception as e:
-                    success = False
-                    error = str(e)
-                    raise
-                finally:
-                    duration_ms = int((time.time() - start_time) * 1000)
-
-                    # Extract user_id and session_id from kwargs if available
-                    user_id = kwargs.get('user_id')
-                    session_id = kwargs.get('session_id')
-
-                    # Build input params
-                    input_params = {
-                        k: v for k, v in kwargs.items()
-                        if k not in ['user_id', 'session_id']
-                    }
-
-                    # Track execution
-                    try:
-                        self.track_execution(
-                            tool_name=_tool_name,
-                            tool_description=_tool_description,
-                            input_params=input_params,
-                            output=output,
-                            success=success,
-                            error=error,
-                            duration_ms=duration_ms,
-                            user_id=user_id,
-                            session_id=session_id,
-                        )
-                    except Exception as track_error:
-                        logger.error(f"Tracking failed for {_tool_name}: {track_error}")
-                        if not self.fail_open:
-                            raise
-
-            return sync_wrapper
+        return sync_wrapper
 
     def wrap_agent_tools(
         self,
         agent,
-        include_tools: Optional[List[str]] = None,
-        exclude_tools: Optional[List[str]] = None,
     ) -> int:
         """
         Wrap all tools in a Google ADK agent for automatic tracking.
@@ -590,11 +536,6 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             logger.warning("Agent has no tools to track")
             return 0
 
-        # Build exclusion list
-        excluded = set()
-        if exclude_tools:
-            excluded.update(exclude_tools)
-
         # Try to import FunctionTool (may not be available)
         try:
             from google.adk.tools import FunctionTool
@@ -611,21 +552,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             # Get the actual function to inspect
             func = tool.func if is_function_tool else tool
-
-            # Get tool name
             tool_name = getattr(func, '__name__', f'tool_{i}')
-
-            # Check blacklist
-            if tool_name in excluded:
-                logger.debug(f"Skipping blacklisted tool: {tool_name}")
-                continue
-
-            # Check whitelist if provided
-            if include_tools and tool_name not in include_tools:
-                logger.debug(f"Skipping non-whitelisted tool: {tool_name}")
-                continue
-
-            # Get tool description
             tool_description = getattr(func, '__doc__', None)
 
             # Update the agent's tool list based on type
@@ -646,11 +573,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             wrapped_count += 1
 
-        logger.info(
-            f"Tool tracking enabled: {wrapped_count} tools wrapped, "
-            f"{len(excluded)} excluded (Ryumem memory tools)"
-        )
-
+        logger.info(f"Tool tracking enabled: {wrapped_count} tools wrapped.")
         return wrapped_count
 
     def _wrap_run_async(
@@ -730,9 +653,6 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 def enable_tool_tracking(
     agent,
     ryumem: Ryumem,
-    ryumem_customer_id: Optional[str] = None,
-    include_tools: Optional[List[str]] = None,
-    exclude_tools: Optional[List[str]] = None,
     **tracker_kwargs
 ) -> ToolTracker:
     """
@@ -746,29 +666,10 @@ def enable_tool_tracking(
     Args:
         agent: Google ADK Agent instance
         ryumem: Ryumem instance for storage
-        ryumem_customer_id: Optional customer ID (uses ryumem's default if not provided)
-        include_tools: Optional whitelist of tool names to track
-        exclude_tools: Optional additional tools to exclude (beyond Ryumem tools)
         **tracker_kwargs: Additional arguments for ToolTracker
 
     Returns:
         ToolTracker instance for advanced usage
-
-    Example (DEPRECATED):
-        ```python
-        from google import genai
-        from ryumem.integrations import add_memory_to_agent, enable_tool_tracking
-
-        agent = genai.Agent(name="assistant", model="gemini-2.0-flash")
-        memory = add_memory_to_agent(agent, ryumem_customer_id="my_company")
-
-        # Old way (still works but deprecated)
-        tracker = enable_tool_tracking(
-            agent,
-            ryumem=memory.ryumem,
-            sampling_rate=0.1
-        )
-        ```
 
     Recommended (NEW):
         ```python
@@ -777,29 +678,21 @@ def enable_tool_tracking(
         # New simpler way - one function call!
         memory = add_memory_to_agent(
             agent,
-            ryumem_customer_id="my_company",
             track_tools=True,
             sampling_rate=0.1
         )
         ```
     """
-    # Determine customer ID
-    if ryumem_customer_id is None:
-        # Try to get from ryumem config or use default
-        ryumem_customer_id = "default_customer"
 
     # Create tracker
     tracker = ToolTracker(
         ryumem=ryumem,
-        ryumem_customer_id=ryumem_customer_id,
         **tracker_kwargs
     )
 
     # Use the new wrap_agent_tools method
     tracker.wrap_agent_tools(
         agent,
-        include_tools=include_tools,
-        exclude_tools=exclude_tools
     )
 
     return tracker

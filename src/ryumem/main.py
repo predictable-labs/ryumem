@@ -116,7 +116,6 @@ class Ryumem:
     def __init__(
         self,
         server_url: Optional[str] = None,
-        config: Optional[RyumemConfig] = None,
         api_key: Optional[str] = None,
     ):
         """
@@ -124,7 +123,6 @@ class Ryumem:
 
         Args:
             server_url: URL of the Ryumem server. If None, checks RYUMEM_API_URL env var, defaults to http://localhost:8000
-            config: Optional RyumemConfig (mostly unused in client mode, but kept for compat)
             api_key: Optional API key for authentication
         """
         import os
@@ -133,7 +131,6 @@ class Ryumem:
 
         self.base_url = server_url.rstrip('/')
         self.api_key = api_key
-        self.config = config or RyumemConfig()
         
         # Initialize proxies
         self.db = DBProxy(self)
