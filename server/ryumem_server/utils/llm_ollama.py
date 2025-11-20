@@ -551,6 +551,100 @@ Detect contradictions as JSON:"""
             logger.error(f"Error detecting contradictions with Ollama: {e}")
             return []
 
+    def embed(self, text: str) -> List[float]:
+        """
+        Generate embedding for a single text using Ollama.
+
+        Args:
+            text: Input text to embed
+
+        Returns:
+            Embedding vector as list of floats
+        """
+        # Clean text
+        text = text.replace("\n", " ").strip()
+        if not text:
+            # If empty, use a placeholder to get the correct dimensionality
+            # or return a warning. For now, embed a space.
+            text = " "
+
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/embeddings",
+                json={
+                    "model": self.model,
+                    "prompt": text,
+                    "options": {
+                        "temperature": 0.0,  # Deterministic embeddings
+                    }
+                },
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            if "embedding" not in result:
+                raise ValueError(f"No embedding found in Ollama response: {result}")
+                
+            return result["embedding"]
+
+        except Exception as e:
+            logger.error(f"Error generating embedding with Ollama: {e}")
+            raise
+
+    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        """
+        Generate embeddings for multiple texts.
+        
+        Args:
+            texts: List of texts to embed
+            
+        Returns:
+            List of embedding vectors
+        """
+        if not texts:
+            return []
+            
+        embeddings = []
+        for text in texts:
+            try:
+                embeddings.append(self.embed(text))
+            except Exception as e:
+                logger.error(f"Error embedding text in batch: {e}")
+                # We should probably raise or return None, but let's raise to be safe
+                raise
+        
+        return embeddings
+
+    def cosine_similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
+        """
+        Calculate cosine similarity between two embeddings.
+
+        Args:
+            embedding1: First embedding vector
+            embedding2: Second embedding vector
+
+        Returns:
+            Cosine similarity score (0.0-1.0)
+        """
+        import numpy as np
+
+        # Convert to numpy arrays
+        vec1 = np.array(embedding1)
+        vec2 = np.array(embedding2)
+
+        # Calculate cosine similarity
+        dot_product = np.dot(vec1, vec2)
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+
+        similarity = dot_product / (norm1 * norm2)
+
+        return float(similarity)
+
     def __repr__(self) -> str:
         """String representation."""
         return f"OllamaClient(model='{self.model}', base_url='{self.base_url}')"

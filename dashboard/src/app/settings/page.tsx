@@ -302,6 +302,10 @@ export default function SettingsPage() {
                   return null;
                 }
 
+                if (cfg.key === 'embedding.ollama_base_url' && localSettings['embedding.provider'] !== 'ollama') {
+                  return null;
+                }
+
                 return (
                   <div key={cfg.key}>
                     <label className="block text-sm font-medium text-gray-700">
