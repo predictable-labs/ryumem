@@ -204,7 +204,7 @@ class RyumemAPI {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
-    
+
     const response = await fetch(url, {
       ...options,
       headers: {
@@ -214,8 +214,8 @@ class RyumemAPI {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(error.detail || `HTTP ${response.status}: ${response.statusText}`);
+      const error = await response.json();
+      throw new Error(`${error.detail.message}: ${error.detail.errors.join(',')}` || `HTTP ${response.status}: ${response.statusText}`);
     }
 
     return response.json();
@@ -432,6 +432,83 @@ class RyumemAPI {
     });
     return this.request(`/augmented-queries?${params}`);
   }
+
+  // ============================================================================
+  // Settings Management
+  // ============================================================================
+
+  async getSettings(maskSensitive: boolean = true): Promise<SettingsResponse> {
+    const params = new URLSearchParams({
+      mask_sensitive: maskSensitive.toString(),
+    });
+    return this.request(`/api/settings?${params}`);
+  }
+
+  async getSettingsByCategory(
+    category: string,
+    maskSensitive: boolean = true
+  ): Promise<ConfigValue[]> {
+    const params = new URLSearchParams({
+      mask_sensitive: maskSensitive.toString(),
+    });
+    return this.request(`/api/settings/${encodeURIComponent(category)}?${params}`);
+  }
+
+  async updateSettings(updates: Record<string, any>): Promise<UpdateSettingsResponse> {
+    return this.request('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ updates }),
+    });
+  }
+
+  async validateSettings(updates: Record<string, any>): Promise<ValidateSettingsResponse> {
+    return this.request('/api/settings/validate', {
+      method: 'POST',
+      body: JSON.stringify({ updates }),
+    });
+  }
+
+  async resetSettingsToDefaults(): Promise<ResetSettingsResponse> {
+    return this.request('/api/settings/reset-defaults', {
+      method: 'POST',
+    });
+  }
+}
+
+export interface ConfigValue {
+  key: string;
+  value: any;
+  category: string;
+  data_type: string;
+  is_sensitive: boolean;
+  updated_at: string;
+  description: string;
+}
+
+export interface SettingsResponse {
+  settings: Record<string, ConfigValue[]>;
+  total: number;
+}
+
+export interface UpdateSettingsResponse {
+  message: string;
+  success_count: number;
+  failed_keys: string[];
+  updated_keys: string[];
+}
+
+export interface ValidateSettingsResponse {
+  valid: boolean;
+  results: Record<string, {
+    valid: boolean;
+    error?: string;
+  }>;
+}
+
+export interface ResetSettingsResponse {
+  message: string;
+  success_count: number;
+  failed_keys: string[];
 }
 
 export const api = new RyumemAPI();

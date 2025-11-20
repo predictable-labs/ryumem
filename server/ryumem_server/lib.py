@@ -135,7 +135,14 @@ class Ryumem:
                 )
 
             # Initialize embedding client based on provider
-            if config.embedding.provider == "litellm":
+            if config.embedding.provider == "ollama":
+                logger.info(f"Using Ollama for embeddings: {config.embedding.model}")
+                self.embedding_client = OllamaClient(
+                    model=config.embedding.model,
+                    base_url=config.embedding.ollama_base_url,
+                    timeout=config.embedding.timeout_seconds,
+                )
+            elif config.embedding.provider == "litellm":
                 logger.info(f"Using LiteLLM for embeddings: {config.embedding.model}")
                 self.embedding_client = LiteLLMClient(
                     model=config.embedding.model,

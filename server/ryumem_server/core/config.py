@@ -30,11 +30,11 @@ class LLMConfig(BaseSettings):
     """LLM provider configuration"""
 
     provider: Literal["openai", "ollama", "gemini", "litellm"] = Field(
-        default="openai",
+        default="ollama",
         description="LLM provider: 'openai', 'ollama', 'gemini', or 'litellm'"
     )
     model: str = Field(
-        default="gpt-4o-mini",
+        default="llama3.2:3b",
         description="LLM model to use (e.g., 'gpt-4o-mini' for OpenAI, 'llama3.2:3b' for Ollama, 'gemini-2.0-flash-exp' for Gemini)"
     )
 
@@ -125,17 +125,24 @@ class LLMConfig(BaseSettings):
 class EmbeddingConfig(BaseSettings):
     """Embedding configuration"""
 
-    provider: Literal["openai", "gemini", "litellm"] = Field(
-        default="gemini",
-        description="Embedding provider: 'openai', 'gemini', or 'litellm'"
+    provider: Literal["openai", "gemini", "ollama", "litellm"] = Field(
+        default="ollama",
+        description="Embedding provider: 'openai', 'gemini', 'ollama', or 'litellm'"
     )
     model: str = Field(
-        default="text-embedding-004",
-        description="Embedding model to use"
+        default="nomic-embed-text",
+        description="Embedding model to use (e.g., 'nomic-embed-text' for Ollama)"
     )
+
+    # Ollama settings
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama server URL for embeddings"
+    )
+
     dimensions: int = Field(
         default=768,
-        description="Embedding vector dimensions (text-embedding-3-large=3072, text-embedding-004=768)"
+        description="Embedding vector dimensions (text-embedding-3-large=3072, text-embedding-004=768, nomic-embed-text=768)"
     )
     batch_size: int = Field(
         default=100,
@@ -425,26 +432,44 @@ class RyumemConfig(BaseSettings):
     def validate_provider_compatibility(self) -> 'RyumemConfig':
         """Validate provider and model compatibility"""
         # Auto-configure embedding provider based on LLM provider if not explicitly set
-        # This is determined by checking if embedding provider is still at default value
-        if self.llm.provider == "gemini" and self.embedding.provider == "openai":
-            # User likely only set LLM provider to gemini, auto-switch embedding too
-            self.embedding.provider = "gemini"
-            self.embedding.model = "text-embedding-004"
-            self.embedding.dimensions = 768
-        elif self.llm.provider == "openai" and self.embedding.provider == "openai":
-            # Both using openai is fine, this is the default
-            pass
+        # This is determined by checking if embedding provider is still at default value (ollama)
+        # if self.llm.provider == "gemini" and self.embedding.provider == "ollama":
+        #     # User likely only set LLM provider to gemini, auto-switch embedding too
+        #     self.embedding.provider = "gemini"
+        #     self.embedding.model = "text-embedding-004"
+        #     self.embedding.dimensions = 768
+        # elif self.llm.provider == "openai" and self.embedding.provider == "ollama":
+        #     # User set LLM to openai, auto-switch embedding too
+        #     self.embedding.provider = "openai"
+        #     self.embedding.model = "text-embedding-3-large"
+        #     self.embedding.dimensions = 3072
 
-        # Validate embedding model matches provider
-        openai_models = ["text-embedding-3-large", "text-embedding-3-small", "text-embedding-ada-002"]
-        gemini_models = ["text-embedding-004"]
+        # # Validate embedding model matches provider
+        # openai_models = ["text-embedding-3-large", "text-embedding-3-small", "text-embedding-ada-002"]
+        # gemini_models = ["text-embedding-004"]
 
-        if self.embedding.provider == "openai" and self.embedding.model not in openai_models:
-            raise ValueError(f"Embedding model '{self.embedding.model}' is not compatible with provider 'openai'")
-        if self.embedding.provider == "gemini" and self.embedding.model not in gemini_models:
-            raise ValueError(f"Embedding model '{self.embedding.model}' is not compatible with provider 'gemini'")
+        # if self.embedding.provider == "openai" and self.embedding.model not in openai_models:
+        #     raise ValueError(f"Embedding model '{self.embedding.model}' is not compatible with provider 'openai'")
+        # if self.embedding.provider == "gemini" and self.embedding.model not in gemini_models:
+        #     raise ValueError(f"Embedding model '{self.embedding.model}' is not compatible with provider 'gemini'")
 
         return self
+
+    @classmethod
+    def from_database(cls, db: 'RyugraphDB') -> 'RyumemConfig':
+        """
+        Load configuration from database using ConfigService.
+
+        Args:
+            db: Database connection
+
+        Returns:
+            RyumemConfig instance populated from database
+        """
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(db)
+        return service.load_config_from_database()
 
     def to_dict(self) -> dict:
         """Convert config to dictionary"""

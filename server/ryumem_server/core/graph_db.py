@@ -108,6 +108,21 @@ class RyugraphDB:
             """
         )
 
+        # SystemConfig nodes for storing application configuration
+        self.execute(
+            """
+            CREATE NODE TABLE IF NOT EXISTS SystemConfig(
+                key STRING PRIMARY KEY,
+                value STRING,
+                category STRING,
+                data_type STRING,
+                is_sensitive BOOLEAN,
+                updated_at TIMESTAMP,
+                description STRING
+            );
+            """
+        )
+
         # Entity nodes
         self.execute(
             f"""
@@ -1379,6 +1394,147 @@ class RyugraphDB:
         """
 
         return self.execute(query)
+
+    # ===== SystemConfig Methods =====
+
+    def save_config(
+        self,
+        key: str,
+        value: str,
+        category: str,
+        data_type: str,
+        is_sensitive: bool = False,
+        description: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Save or update a system configuration value.
+
+        Args:
+            key: Configuration key (e.g., 'llm.provider')
+            value: Configuration value (stored as string, JSON for complex types)
+            category: Configuration category (e.g., 'llm', 'embedding', 'api_keys')
+            data_type: Data type ('string', 'int', 'float', 'bool', 'list')
+            is_sensitive: Whether this is sensitive data (for UI masking)
+            description: Human-readable description
+
+        Returns:
+            Result dictionary
+        """
+        from datetime import datetime, timezone
+
+        query = """
+        MERGE (c:SystemConfig {key: $key})
+        SET
+            c.value = $value,
+            c.category = $category,
+            c.data_type = $data_type,
+            c.is_sensitive = $is_sensitive,
+            c.updated_at = $updated_at,
+            c.description = $description
+        RETURN c.key AS key
+        """
+
+        params = {
+            "key": key,
+            "value": value,
+            "category": category,
+            "data_type": data_type,
+            "is_sensitive": is_sensitive,
+            "updated_at": datetime.now(timezone.utc),
+            "description": description,
+        }
+
+        return self.execute(query, params)
+
+    def get_config(self, key: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a system configuration value by key.
+
+        Args:
+            key: Configuration key
+
+        Returns:
+            Config dictionary or None
+        """
+        query = """
+        MATCH (c:SystemConfig {key: $key})
+        RETURN
+            c.key AS key,
+            c.value AS value,
+            c.category AS category,
+            c.data_type AS data_type,
+            c.is_sensitive AS is_sensitive,
+            c.updated_at AS updated_at,
+            c.description AS description
+        """
+
+        result = self.execute(query, {"key": key})
+        return result[0] if result else None
+
+    def get_all_configs(self) -> List[Dict[str, Any]]:
+        """
+        Get all system configuration values.
+
+        Returns:
+            List of config dictionaries
+        """
+        query = """
+        MATCH (c:SystemConfig)
+        RETURN
+            c.key AS key,
+            c.value AS value,
+            c.category AS category,
+            c.data_type AS data_type,
+            c.is_sensitive AS is_sensitive,
+            c.updated_at AS updated_at,
+            c.description AS description
+        ORDER BY c.category, c.key
+        """
+
+        return self.execute(query)
+
+    def get_configs_by_category(self, category: str) -> List[Dict[str, Any]]:
+        """
+        Get all configuration values for a specific category.
+
+        Args:
+            category: Configuration category
+
+        Returns:
+            List of config dictionaries
+        """
+        query = """
+        MATCH (c:SystemConfig {category: $category})
+        RETURN
+            c.key AS key,
+            c.value AS value,
+            c.category AS category,
+            c.data_type AS data_type,
+            c.is_sensitive AS is_sensitive,
+            c.updated_at AS updated_at,
+            c.description AS description
+        ORDER BY c.key
+        """
+
+        return self.execute(query, {"category": category})
+
+    def delete_config(self, key: str) -> Dict[str, Any]:
+        """
+        Delete a system configuration value.
+
+        Args:
+            key: Configuration key
+
+        Returns:
+            Result dictionary
+        """
+        query = """
+        MATCH (c:SystemConfig {key: $key})
+        DELETE c
+        RETURN $key AS deleted_key
+        """
+
+        return self.execute(query, {"key": key})
 
     def close(self) -> None:
         """Close the database connection"""
