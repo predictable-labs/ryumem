@@ -80,6 +80,7 @@ class ToolTracker:
         self.exclude_params = exclude_params or ["password", "api_key", "secret", "token"]
         self.sampling_rate = sampling_rate
         self.fail_open = fail_open
+        self.llm_tool_description = llm_tool_description
         self._execution_count = 0
 
         # Background task management

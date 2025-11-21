@@ -1343,7 +1343,7 @@ class AgentInstructionResponse(BaseModel):
 @app.post("/agent-instructions", response_model=AgentInstructionResponse, tags=["Agent Instructions"])
 async def create_agent_instruction(
     request: AgentInstructionRequest,
-    ryumem: Ryumem = Depends(get_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem)
 ):
     """
     Create a new custom agent instruction.
@@ -1351,10 +1351,9 @@ async def create_agent_instruction(
     The instruction will be stored in the database and can be retrieved
     by agents to customize their behavior.
 
-    Note: This endpoint will fail in READ_ONLY mode.
+    Note: This endpoint requires write access to the database.
     """
     try:
-        logger.warning("Server is in read-only mode - agent instruction creation may fail")
 
         # Save the instruction
         instruction_id = ryumem.save_agent_instruction(
@@ -1362,7 +1361,6 @@ async def create_agent_instruction(
             agent_type=request.agent_type,
             instruction_type=request.instruction_type,
             description=request.description,
-            user_id=request.user_id,
             original_user_request=request.original_user_request
         )
 

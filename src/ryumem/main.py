@@ -333,3 +333,90 @@ class Ryumem:
         }
         response = self._post("/prune", json=payload)
         return response
+
+    def save_agent_instruction(
+        self,
+        instruction_text: str,
+        original_user_request: Optional[str] = None,
+        agent_type: str = "google_adk",
+        instruction_type: str = "agent_instruction",
+        description: str = "",
+    ) -> str:
+        """
+        Save an agent instruction to the database.
+
+        Args:
+            instruction_text: The converted/final instruction text to add to agent prompt
+            original_user_request: Original request from user before conversion (used as lookup key)
+            agent_type: Type of agent (e.g., "google_adk", "custom_agent")
+            instruction_type: Type of instruction (e.g., "tool_tracking", "memory_guidance", "agent_instruction")
+            description: User-friendly description of what this instruction does
+
+        Returns:
+            UUID of the created instruction
+        """
+        payload = {
+            "instruction_text": instruction_text,
+            "agent_type": agent_type,
+            "instruction_type": instruction_type,
+            "description": description,
+            "original_user_request": original_user_request
+        }
+        response = self._post("/agent-instructions", json=payload)
+        return response["instruction_id"]
+
+    def get_instruction_by_text(
+        self,
+        instruction_text: str,
+        agent_type: str,
+        instruction_type: str,
+    ) -> Optional[str]:
+        """
+        Get instruction text by key (stored in original_user_request field).
+
+        Args:
+            instruction_text: The key to search for (stored in original_user_request)
+            agent_type: Type of agent (e.g., "google_adk")
+            instruction_type: Type of instruction (e.g., "memory_usage", "agent_instruction")
+
+        Returns:
+            The instruction text if found, None otherwise
+        """
+        try:
+            params = {
+                "instruction_text": instruction_text,
+                "agent_type": agent_type,
+                "instruction_type": instruction_type
+            }
+            response = self._get("/agent-instructions/by-text", params=params)
+            return response.get("instruction_text")
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
+
+    def list_agent_instructions(
+        self,
+        agent_type: Optional[str] = None,
+        instruction_type: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict]:
+        """
+        List all agent instructions with optional filters.
+
+        Args:
+            agent_type: Optional filter by agent type
+            instruction_type: Optional filter by instruction type
+            limit: Maximum number of instructions to return
+
+        Returns:
+            List of instruction dictionaries ordered by creation date (newest first)
+        """
+        params = {"limit": limit}
+        if agent_type:
+            params["agent_type"] = agent_type
+        if instruction_type:
+            params["instruction_type"] = instruction_type
+
+        response = self._get("/agent-instructions", params=params)
+        return response
