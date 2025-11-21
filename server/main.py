@@ -661,19 +661,37 @@ async def get_episodes(
                     return None
             return val
 
+        # Helper to parse metadata JSON string to dict
+        def parse_metadata(metadata):
+            if metadata is None:
+                return None
+            if isinstance(metadata, dict):
+                return metadata
+            if isinstance(metadata, str):
+                try:
+                    return json.loads(metadata)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"Failed to parse metadata JSON: {metadata}")
+                    return {}
+            return {}
+
         episodes = []
         for ep in result["episodes"]:
-            episodes.append(EpisodeInfo(
-                uuid=ep["uuid"],
-                name=ep["name"],
-                content=ep["content"],
-                source=ep["source"],
-                source_description=ep["source_description"],
-                created_at=ep["created_at"].isoformat() if isinstance(ep["created_at"], datetime) else str(ep["created_at"]),
-                valid_at=ep["valid_at"].isoformat() if isinstance(ep["valid_at"], datetime) else str(ep["valid_at"]),
-                user_id=clean_value(ep.get("user_id")),
-                metadata=clean_value(ep.get("metadata")),
-            ))
+            try:
+                episodes.append(EpisodeInfo(
+                    uuid=ep["uuid"],
+                    name=ep["name"],
+                    content=ep["content"],
+                    source=ep["source"],
+                    source_description=ep["source_description"],
+                    created_at=ep["created_at"].isoformat() if isinstance(ep["created_at"], datetime) else str(ep["created_at"]),
+                    valid_at=ep["valid_at"].isoformat() if isinstance(ep["valid_at"], datetime) else str(ep["valid_at"]),
+                    user_id=clean_value(ep.get("user_id")),
+                    metadata=parse_metadata(ep.get("metadata")),
+                ))
+            except Exception as e:
+                logger.warning(f"Failed to convert episode {ep.get('uuid', 'unknown')} to EpisodeInfo: {e}, skipping")
+                continue
 
         return GetEpisodesResponse(
             episodes=episodes,
@@ -1407,6 +1425,46 @@ async def list_agent_instructions(
     except Exception as e:
         logger.error(f"Error listing agent instructions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error listing agent instructions: {str(e)}")
+
+
+@app.get("/agent-instructions/by-text", tags=["Agent Instructions"])
+async def get_instruction_by_text(
+    instruction_text: str,
+    agent_type: str,
+    instruction_type: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get instruction text by key (stored in original_user_request field).
+    
+    Args:
+        instruction_text: The key to search for (stored in original_user_request)
+        agent_type: Type of agent (e.g., "google_adk")
+        instruction_type: Type of instruction (e.g., "memory_usage")
+    
+    Returns:
+        {"instruction_text": str} if found, 404 if not found
+    """
+    try:
+        result = ryumem.get_instruction_by_text(
+            instruction_text=instruction_text,
+            agent_type=agent_type,
+            instruction_type=instruction_type
+        )
+        
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No instruction found for key '{instruction_text}'"
+            )
+        
+        return {"instruction_text": result}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting instruction by text: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting instruction: {str(e)}")
 
 
 # ============================================================================

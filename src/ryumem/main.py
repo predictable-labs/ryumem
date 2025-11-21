@@ -163,12 +163,34 @@ class Ryumem:
         response.raise_for_status()
         return response.json()
 
+    def add_memory(self,
+        content: str,
+        user_id: str,
+        session_id: str,
+        source: str = "text",
+    ) -> str:
+        episode = self.db.get_episode_by_session_id(session_id)
+
+        if episode == None:
+            raise ValueError("Episode not found")
+
+        metadata = episode["metadata"]
+        metadata["memories"] = metadata.get("memories", [])
+        metadata["memories"].append({
+            "content": content,
+            "user_id": user_id,
+            "session_id": session_id,
+            "source": source,
+        })
+
+        self.update_episode_metadata(episode["episode_id"], metadata)
+
     def add_episode(
         self,
         content: str,
         user_id: str,
+        session_id: str,
         agent_id: Optional[str] = None,
-        session_id: Optional[str] = None,
         source: str = "text",
         metadata: Optional[Dict] = None,
         extract_entities: Optional[bool] = None,

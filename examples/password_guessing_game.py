@@ -295,6 +295,7 @@ If the user wants a hint, use get_hint.""",
     # ⭐ Add memory + tool tracking + query augmentation
     memory = add_memory_to_agent(
         password_agent,
+        enable_tool_tracking=True,
     )
 
     print("✓ Memory and tool tracking enabled")

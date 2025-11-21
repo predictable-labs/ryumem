@@ -22,7 +22,7 @@ export interface EpisodeInfo {
   valid_at: string;
   user_id?: string;
   session_id?: string;
-  metadata?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface GetEpisodesResponse {

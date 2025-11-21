@@ -685,24 +685,27 @@ class Ryumem:
         instruction_type: str,
     ) -> Optional[str]:
         """
-        Check if an instruction with the given text already exists.
+        Get instruction by key (original_user_request).
+
+        This method uses original_user_request as a lookup key to retrieve
+        the actual instruction_text from the database.
 
         Args:
-            instruction_text: The instruction text to search for
+            instruction_text: The key to search for (stored in original_user_request)
             agent_type: Type of agent (e.g., "google_adk")
-            instruction_type: Type of instruction (e.g., "tool_tracking")
+            instruction_type: Type of instruction (e.g., "memory_usage", "tool_tracking")
 
         Returns:
-            UUID of the existing instruction if found, None otherwise
+            The instruction_text content if found, None otherwise
         """
-        logger.info(f"[DB] get_instruction_by_text called: agent_type={agent_type}, instruction_type={instruction_type}")
+        logger.info(f"[DB] get_instruction_by_text called: key={instruction_text}, agent_type={agent_type}, instruction_type={instruction_type}")
 
         query = """
         MATCH (i:AgentInstruction)
-        WHERE i.instruction_text = $instruction_text
+        WHERE i.original_user_request = $instruction_text
           AND i.agent_type = $agent_type
           AND i.instruction_type = $instruction_type
-        RETURN i.uuid AS uuid
+        RETURN i.instruction_text AS instruction_text
         ORDER BY i.created_at DESC
         LIMIT 1
         """
@@ -714,10 +717,10 @@ class Ryumem:
         })
 
         if result and len(result) > 0:
-            logger.info(f"[DB] Found existing instruction: {result[0]['uuid']}")
-            return result[0]["uuid"]
+            logger.info(f"[DB] Found instruction with key '{instruction_text}'")
+            return result[0]["instruction_text"]
 
-        logger.info(f"[DB] No existing instruction found")
+        logger.info(f"[DB] No instruction found for key '{instruction_text}'")
         return None
 
     def save_agent_instruction(

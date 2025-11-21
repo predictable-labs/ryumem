@@ -130,17 +130,8 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
     }
   };
 
-  const parseMetadata = (metadataStr?: string) => {
-    if (!metadataStr) return null;
-    try {
-      return JSON.parse(metadataStr);
-    } catch {
-      return null;
-    }
-  };
-
   const getToolsUsed = (episode: EpisodeInfo) => {
-    const metadata = parseMetadata(episode.metadata);
+    const metadata = episode.metadata;
     if (!metadata) return [];
 
     // New structure: metadata.sessions[session_id][].tools_used[]
@@ -163,7 +154,7 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
   };
 
   const getQueryRuns = (episode: EpisodeInfo) => {
-    const metadata = parseMetadata(episode.metadata);
+    const metadata = episode.metadata;
     if (!metadata?.sessions) return [];
 
     const allRuns: any[] = [];
