@@ -78,73 +78,11 @@ def get_write_ryumem():
         yield ryumem
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Server startup/shutdown lifecycle"""
-    logger.info("Starting Ryumem server...")
-
-    # Initialize DB and migrate config if needed (write mode)
-    try:
-        # Database configuration MUST come from environment variables (circular dependency)
-        # Cannot store db_path in database - we need the path to open the database!
-        db_path = os.getenv("RYUMEM_DB_PATH", "./data/ryumem.db")
-
-        # Embedding dimensions needed for database schema creation
-        # Try to get from environment, fall back to safe default (768 = common for many models)
-        embedding_dims = int(os.getenv("RYUMEM_EMBEDDING_DIMENSIONS", "768"))
-
-        # Ensure database directory exists
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-        # Initialize database directly (without full Ryumem wrapper)
-        # This avoids creating temp_config with default LLM/embedding providers
-        from ryumem_server.core.graph_db import RyugraphDB
-        db = RyugraphDB(
-            db_path=db_path,
-            embedding_dimensions=embedding_dims,
-        )
-        logger.info(f"Database initialized at {db_path}")
-        logger.info(f"  (Database location is set via RYUMEM_DB_PATH environment variable)")
-
-        # Migrate configuration from .env if this is first run
-        from ryumem_server.core.config_service import ConfigService
-        config_service = ConfigService(db)
-        migrated, skipped = config_service.migrate_from_env()
-
-        if migrated > 0:
-            logger.info(f"✓ Configuration migrated: {migrated} settings moved to database")
-            logger.info("  Database is now the source of truth for configuration")
-        elif skipped > 0:
-            logger.info(f"  Configuration already in database ({skipped} settings)")
-
-        # Load configuration from database for the app
-        global _app_config
-        _app_config = RyumemConfig.from_database(db)
-        logger.info("  Loaded configuration from database")
-
-        # Close the initialization database connection
-        db.close()
-
-    except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
-        # Fall back to environment-based config
-        _app_config = RyumemConfig()
-        logger.warning("  Falling back to environment-based configuration")
-
-    logger.info("Using per-request database connections")
-
-    yield
-
-    logger.info("Shutting down Ryumem server...")
-    logger.info("Server shutdown complete")
-
-
 # Create FastAPI app
 app = FastAPI(
     title="Ryumem API",
     description="RESTful API for Ryumem - Bi-temporal Knowledge Graph Memory System",
     version="1.0.0",
-    lifespan=lifespan,
 )
 
 # Configure CORS
