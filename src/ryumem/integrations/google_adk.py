@@ -452,6 +452,7 @@ def _find_similar_query_episodes(
     query_text: str,
     memory: RyumemGoogleADK,
     user_id: str,
+    session_id: str,
     similarity_threshold: float,
     top_k: int
 ) -> List[Dict[str, Any]]:
@@ -459,6 +460,7 @@ def _find_similar_query_episodes(
     search_results = memory.ryumem.search(
         query=query_text,
         user_id=user_id,
+        session_id=session_id,
         strategy="semantic",
         limit=top_k if top_k > 0 else 100
     )
@@ -502,7 +504,9 @@ def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> Lis
     """
 
     try:
-        return memory.ryumem.db.execute(tool_query, {"query_uuid": query_uuid})
+        results = memory.ryumem.execute(tool_query, {"query_uuid": query_uuid})
+        # Convert CypherResult objects back to dicts for backward compatibility
+        return [result.data for result in results]
     except Exception as e:
         logger.warning(f"Failed to query tool executions: {e}")
         return []
@@ -555,6 +559,7 @@ def _augment_query_with_history(
     query_text: str,
     memory: RyumemGoogleADK,
     user_id: str,
+    session_id: str,
     similarity_threshold: float = 0.1,
     top_k: int = 5,
 ) -> str:
@@ -568,6 +573,7 @@ def _augment_query_with_history(
         query_text: The incoming user query
         memory: RyumemGoogleADK instance with access to Ryumem
         user_id: User identifier for scoped search
+        session_id: Session identifier (required)
         similarity_threshold: Minimum similarity score (0.0-1.0)
         top_k: Number of similar queries to consider (-1 for all)
 
@@ -576,7 +582,7 @@ def _augment_query_with_history(
     """
     try:
         similar_queries = _find_similar_query_episodes(
-            query_text, memory, user_id, similarity_threshold, top_k
+            query_text, memory, user_id, session_id, similarity_threshold, top_k
         )
 
         if not similar_queries:
@@ -730,7 +736,7 @@ def _prepare_query_and_episode(
     # Augment query with historical context if enabled
     if augment_queries:
         augmented_query_text = _augment_query_with_history(
-            query_text, memory, user_id, similarity_threshold, top_k_similar
+            query_text, memory, user_id, session_id, similarity_threshold, top_k_similar
         )
 
         # Update message if context was added (query text might be same but context added)
@@ -747,7 +753,7 @@ def _prepare_query_and_episode(
         augmented_query_text = original_query_text
 
     # Check if session already has an episode
-    existing_episode = memory.ryumem.db.get_episode_by_session_id(session_id)
+    existing_episode = memory.ryumem.get_episode_by_session_id(session_id)
     run_id = str(uuid_module.uuid4())
 
     if existing_episode:
@@ -818,10 +824,12 @@ def _save_agent_response_to_episode(
         logger.debug(f"Captured agent response ({len(agent_response)} chars) for query {query_episode_id}")
 
         # Get existing episode
-        existing_episode = memory.ryumem.db.execute(
+        existing_episode_results = memory.ryumem.execute(
             "MATCH (e:Episode {uuid: $uuid}) RETURN e.metadata AS metadata",
             {"uuid": query_episode_id}
         )
+        # Convert CypherResult objects to dicts
+        existing_episode = [result.data for result in existing_episode_results]
 
         if existing_episode:
             metadata_str = existing_episode[0].get("metadata", "{}")
@@ -836,7 +844,7 @@ def _save_agent_response_to_episode(
                 latest_run.agent_response = agent_response
 
                 # Save back to database
-                memory.ryumem.db.execute(
+                memory.ryumem.execute(
                     "MATCH (e:Episode {uuid: $uuid}) SET e.metadata = $metadata",
                     {"uuid": query_episode_id, "metadata": json.dumps(episode_metadata.model_dump())}
                 )

@@ -117,7 +117,7 @@ INFO - Saved agent response to episode a84642ff-d34c-4394-b196-ae019f203604 sess
                     continue
 
                 # Check if tool already exists
-                existing_tool = self.ryumem.db.get_tool_by_name(tool_name)
+                existing_tool = self.ryumem.get_tool_by_name(tool_name)
                 if existing_tool:
                     logger.debug(f"Tool already registered: {tool_name}")
                     continue
@@ -131,13 +131,13 @@ INFO - Saved agent response to episode a84642ff-d34c-4394-b196-ae019f203604 sess
                     )
 
                 # Create embedding for tool name
-                tool_embedding = self.ryumem.embedding_client.embed(tool_name)
+                embedding_response = self.ryumem.embed(tool_name)
 
                 # Save tool to database
-                self.ryumem.db.save_tool(
+                self.ryumem.save_tool(
                     tool_name=tool_name,
                     description=enhanced_description or f"Tool: {tool_name}",
-                    name_embedding=tool_embedding,
+                    name_embedding=embedding_response.embedding,
                 )
 
                 logger.debug(f"Registered new tool: {tool_name}")
@@ -266,14 +266,14 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             MATCH (e:Episode {uuid: $episode_id})
             RETURN e.metadata AS metadata
             """
-            result = self.ryumem.db.execute(query_fetch, {"episode_id": episode_id})
+            result = self.ryumem.execute(query_fetch, {"episode_id": episode_id})
 
             if not result:
                 logger.error(f"Episode {episode_id} not found")
                 return
 
-            # Parse existing metadata
-            current_metadata_str = result[0].get('metadata', '{}')
+            # Parse existing metadata (result is List[CypherResult])
+            current_metadata_str = result[0].data.get('metadata', '{}')
             metadata_dict = json.loads(current_metadata_str) if isinstance(current_metadata_str, str) else current_metadata_str
 
             # Parse into Pydantic model
@@ -294,7 +294,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                 RETURN e.uuid
                 """
 
-                self.ryumem.db.execute(query_update, {
+                self.ryumem.execute(query_update, {
                     "episode_id": episode_id,
                     "metadata": json.dumps(episode_metadata.model_dump())
                 })
@@ -329,7 +329,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             sanitized_params = self._sanitize_params(input_params)
             output_summary = self._summarize_output(output) if success else None
 
-            episode = self.ryumem.db.get_episode_by_session_id(session_id)
+            episode = self.ryumem.get_episode_by_session_id(session_id)
             if episode is None:
                 logger.error("Failed to find episode related to session {session_id} to store tool execution")
                 return

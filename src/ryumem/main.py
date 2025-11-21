@@ -5,107 +5,22 @@ Client SDK for Ryumem Server.
 
 import logging
 import requests
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 from ryumem.core.config import RyumemConfig
-from ryumem.core.models import SearchResult, EntityNode as Entity, EntityEdge as Edge, EpisodeNode
+from ryumem.core.models import (
+    SearchResult,
+    EntityNode as Entity,
+    EntityEdge as Edge,
+    EpisodeNode,
+    ToolNode,
+    CypherResult,
+    EmbeddingResponse,
+    LLMResponse
+)
+from ryumem.core.metadata_models import EpisodeMetadata
 
 logger = logging.getLogger(__name__)
 
-class DBProxy:
-    """
-    Proxy for database operations that are now handled by the server.
-    Maintains backward compatibility for integrations accessing ryumem.db.*
-    """
-    def __init__(self, client: "Ryumem"):
-        self.client = client
-
-    def get_episode_by_uuid(self, episode_uuid: str) -> Optional[EpisodeNode]:
-        """Get episode by UUID via API."""
-        try:
-            data = self.client._get(f"/episodes/{episode_uuid}")
-            if data:
-                # Handle metadata being a JSON string
-                if isinstance(data.get("metadata"), str):
-                    import json
-                    try:
-                        data["metadata"] = json.loads(data["metadata"])
-                    except json.JSONDecodeError:
-                        data["metadata"] = {}
-                return EpisodeNode(**data)
-            return None
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                return None
-            raise
-
-    def update_episode_metadata(self, episode_uuid: str, metadata: Dict) -> Dict:
-        """Update episode metadata via API."""
-        return self.client._patch(f"/episodes/{episode_uuid}/metadata", json={"metadata": metadata})
-
-    def execute(self, query: str, params: Optional[Dict] = None) -> List[Dict]:
-        """Execute raw Cypher query via API."""
-        response = self.client._post("/cypher/execute", json={"query": query, "params": params or {}})
-        return response.get("results", [])
-
-    def get_episode_by_session_id(self, session_id: str) -> Optional[EpisodeNode]:
-        """Get episode by session ID via API."""
-        try:
-            data = self.client._get(f"/episodes/session/{session_id}")
-            if data:
-                # Handle metadata being a JSON string
-                if isinstance(data.get("metadata"), str):
-                    import json
-                    try:
-                        data["metadata"] = json.loads(data["metadata"])
-                    except json.JSONDecodeError:
-                        data["metadata"] = {}
-                return EpisodeNode(**data)
-            return None
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                return None
-            raise
-
-    def save_tool(self, tool_name: str, description: str, name_embedding: List[float]) -> None:
-        """Save a tool via API."""
-        self.client._post("/tools", json={
-            "tool_name": tool_name,
-            "description": description,
-            "name_embedding": name_embedding
-        })
-
-    def get_tool_by_name(self, name: str) -> Optional[Dict]:
-        """Get a tool by name via API."""
-        try:
-            return self.client._get(f"/tools/{name}")
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                return None
-            raise
-
-class EmbeddingClientProxy:
-    """Proxy for embedding client."""
-    def __init__(self, client: "Ryumem"):
-        self.client = client
-
-    def embed(self, text: str) -> List[float]:
-        """Generate embedding via API."""
-        response = self.client._post("/embeddings", json={"text": text})
-        return response["embedding"]
-
-class LLMClientProxy:
-    """Proxy for LLM client."""
-    def __init__(self, client: "Ryumem"):
-        self.client = client
-
-    def generate(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 1000) -> Dict[str, str]:
-        """Generate text via API."""
-        response = self.client._post("/llm/generate", json={
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens
-        })
-        return {"content": response["content"]}
 
 class Ryumem:
     """
@@ -131,12 +46,7 @@ class Ryumem:
 
         self.base_url = server_url.rstrip('/')
         self.api_key = api_key
-        
-        # Initialize proxies
-        self.db = DBProxy(self)
-        self.embedding_client = EmbeddingClientProxy(self)
-        self.llm_client = LLMClientProxy(self)
-        
+
         logger.info(f"Ryumem Client initialized (server: {self.base_url})")
 
     def _get_headers(self) -> Dict[str, str]:
@@ -163,27 +73,57 @@ class Ryumem:
         response.raise_for_status()
         return response.json()
 
-    def add_memory(self,
-        content: str,
-        user_id: str,
-        session_id: str,
-        source: str = "text",
-    ) -> str:
-        episode = self.db.get_episode_by_session_id(session_id)
+    # ==================== Episode Methods ====================
 
-        if episode == None:
-            raise ValueError("Episode not found")
+    def get_episode_by_uuid(self, episode_uuid: str) -> Optional[EpisodeNode]:
+        """Get episode by UUID via API."""
+        try:
+            data = self._get(f"/episodes/{episode_uuid}")
+            if data:
+                # Handle metadata being a JSON string
+                if isinstance(data.get("metadata"), str):
+                    import json
+                    try:
+                        data["metadata"] = json.loads(data["metadata"])
+                    except json.JSONDecodeError:
+                        data["metadata"] = {}
+                return EpisodeNode(**data)
+            return None
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
 
-        metadata = episode["metadata"]
-        metadata["memories"] = metadata.get("memories", [])
-        metadata["memories"].append({
-            "content": content,
-            "user_id": user_id,
-            "session_id": session_id,
-            "source": source,
-        })
+    def get_episode_by_session_id(self, session_id: str) -> Optional[EpisodeNode]:
+        """Get episode by session ID via API."""
+        try:
+            data = self._get(f"/episodes/session/{session_id}")
+            if data:
+                # Handle metadata being a JSON string
+                if isinstance(data.get("metadata"), str):
+                    import json
+                    try:
+                        data["metadata"] = json.loads(data["metadata"])
+                    except json.JSONDecodeError:
+                        data["metadata"] = {}
+                return EpisodeNode(**data)
+            return None
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
 
-        self.update_episode_metadata(episode["episode_id"], metadata)
+    def update_episode_metadata(self, episode_uuid: str, metadata: Dict) -> EpisodeNode:
+        """Update episode metadata via API and return updated episode."""
+        updated_data = self._patch(f"/episodes/{episode_uuid}/metadata", json={"metadata": metadata})
+        # Handle metadata being a JSON string
+        if isinstance(updated_data.get("metadata"), str):
+            import json
+            try:
+                updated_data["metadata"] = json.loads(updated_data["metadata"])
+            except json.JSONDecodeError:
+                updated_data["metadata"] = {}
+        return EpisodeNode(**updated_data)
 
     def add_episode(
         self,
@@ -207,18 +147,88 @@ class Ryumem:
         response = self._post("/episodes", json=payload)
         return response["episode_id"]
 
-    def get_episode_by_uuid(self, episode_uuid: str) -> Optional[Dict]:
-        """Get episode by UUID."""
-        return self.db.get_episode_by_uuid(episode_uuid)
+    def add_memory(
+        self,
+        content: str,
+        user_id: str,
+        session_id: str,
+        source: str = "text",
+    ) -> EpisodeNode:
+        """
+        Add a memory to an existing episode session.
 
-    def update_episode_metadata(self, episode_uuid: str, metadata: Dict) -> Dict:
-        """Update episode metadata."""
-        return self.db.update_episode_metadata(episode_uuid, metadata)
+        Args:
+            content: The memory content to add
+            user_id: User identifier
+            session_id: Session identifier (required)
+            source: Episode type (text, message, json)
+
+        Returns:
+            Updated EpisodeNode
+        """
+        episode = self.get_episode_by_session_id(session_id)
+
+        if episode is None:
+            raise ValueError(f"Episode not found for session_id: {session_id}")
+
+        # Parse metadata into dict or create new
+        if episode.metadata:
+            metadata_dict = episode.metadata if isinstance(episode.metadata, dict) else {}
+        else:
+            metadata_dict = {}
+
+        # Add memory to metadata
+        if "memories" not in metadata_dict:
+            metadata_dict["memories"] = []
+
+        metadata_dict["memories"].append({
+            "content": content,
+            "user_id": user_id,
+            "session_id": session_id,
+            "source": source,
+        })
+
+        # Update episode metadata and return updated episode
+        return self.update_episode_metadata(episode.uuid, metadata_dict)
+
+    # ==================== Tool Methods ====================
+
+    def save_tool(self, tool_name: str, description: str, name_embedding: List[float]) -> ToolNode:
+        """Save a tool via API."""
+        response = self._post("/tools", json={
+            "tool_name": tool_name,
+            "description": description,
+            "name_embedding": name_embedding
+        })
+        return ToolNode(**response)
+
+    def get_tool_by_name(self, name: str) -> Optional[ToolNode]:
+        """Get a tool by name via API."""
+        try:
+            response = self._get(f"/tools/{name}")
+            if response:
+                return ToolNode(**response)
+            return None
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                return None
+            raise
+
+    # ==================== Query Methods ====================
+
+    def execute(self, query: str, params: Optional[Dict] = None) -> List[CypherResult]:
+        """Execute raw Cypher query via API."""
+        response = self._post("/cypher/execute", json={"query": query, "params": params or {}})
+        results = response.get("results", [])
+        return [CypherResult(data=result) for result in results]
+
+    # ==================== Search Methods ====================
 
     def search(
         self,
         query: str,
         user_id: str,
+        session_id: str,
         limit: int = 10,
         strategy: str = "hybrid",
         similarity_threshold: Optional[float] = None,
@@ -238,7 +248,7 @@ class Ryumem:
         }
 
         response = self._post("/search", json=payload)
-        
+
         # Reconstruct SearchResult object
         entities = []
         for e in response.get("entities", []):
@@ -249,7 +259,7 @@ class Ryumem:
                 summary=e["summary"],
                 mentions=e["mentions"]
             ))
-            
+
         edges = []
         for e in response.get("edges", []):
             edges.append(Edge(
@@ -260,13 +270,13 @@ class Ryumem:
                 fact=e["fact"],
                 mentions=e["mentions"]
             ))
-            
+
         scores = {}
         for e in response.get("entities", []):
             scores[e["uuid"]] = e.get("score", 0.0)
         for e in response.get("edges", []):
             scores[e["uuid"]] = e.get("score", 0.0)
-            
+
         return SearchResult(
             entities=entities,
             edges=edges,
@@ -278,27 +288,38 @@ class Ryumem:
         self,
         entity_name: str,
         user_id: str,
+        session_id: str,
         max_depth: int = 2,
     ) -> Dict:
-        """Get entity context."""
+        """
+        Get entity context.
+
+        Args:
+            entity_name: Name of the entity to look up
+            user_id: User identifier (required)
+            session_id: Session identifier (required)
+            max_depth: Maximum depth for traversal
+        """
         try:
             response = self._get(f"/entity/{entity_name}", params={"user_id": user_id, "max_depth": max_depth})
-            
+
             result = {}
             if response.get("entity"):
                 result["entity"] = response["entity"]
-            
+
             if response.get("relationships"):
                 result["relationships"] = response["relationships"]
-                
+
             result["relationship_count"] = response.get("relationship_count", 0)
-            
+
             return result
-            
+
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
                 return {}
             raise
+
+    # ==================== Community Methods ====================
 
     def update_communities(
         self,
@@ -333,6 +354,8 @@ class Ryumem:
         }
         response = self._post("/prune", json=payload)
         return response
+
+    # ==================== Agent Instruction Methods ====================
 
     def save_agent_instruction(
         self,
@@ -420,3 +443,26 @@ class Ryumem:
 
         response = self._get("/agent-instructions", params=params)
         return response
+
+    # ==================== Embedding & LLM Methods ====================
+
+    def embed(self, text: str) -> EmbeddingResponse:
+        """Generate embedding via API."""
+        response = self._post("/embeddings", json={"text": text})
+        return EmbeddingResponse(
+            embedding=response["embedding"],
+            model=response.get("model")
+        )
+
+    def generate(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 1000) -> LLMResponse:
+        """Generate text via API."""
+        response = self._post("/llm/generate", json={
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        })
+        return LLMResponse(
+            content=response["content"],
+            model=response.get("model"),
+            tokens_used=response.get("tokens_used")
+        )
