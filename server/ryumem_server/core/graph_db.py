@@ -79,13 +79,13 @@ class RyugraphDB:
             CREATE NODE TABLE IF NOT EXISTS AgentInstruction(
                 uuid STRING PRIMARY KEY,
                 agent_type STRING,
-                instruction_type STRING,
-                instruction_text STRING,
-                original_user_request STRING,
-                description STRING,
-                version INT64,
-                active BOOLEAN,
-                created_at TIMESTAMP
+                base_instruction STRING,
+                enhanced_instruction STRING,
+                query_augmentation_template STRING,
+                memory_enabled BOOLEAN,
+                tool_tracking_enabled BOOLEAN,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
             );
             """
         )

@@ -30,13 +30,7 @@ from ryumem.core.metadata_models import EpisodeMetadata, QueryRun
 logger = logging.getLogger(__name__)
 
 
-# ===== Prompt Keys and Defaults =====
-# These keys are used to lookup prompts in the database via original_user_request field
-# The default prompts serve as fallbacks when database doesn't have the instructions yet
-
-MEMORY_USAGE_KEY = "google_adk_memory_usage"
-TOOL_SELECTION_KEY = "google_adk_tool_selection"
-QUERY_AUGMENTATION_KEY = "google_adk_query_augmentation"
+# ===== Default Prompt Blocks =====
 
 DEFAULT_MEMORY_BLOCK = """MEMORY USAGE:
 Use search_memory to find relevant context before answering questions.
@@ -431,19 +425,44 @@ def add_memory_to_agent(
     if enable_tool_tracking:
         _register_and_track_tools(agent, ryumem, memory, tool_tracking_kwargs)
 
-    # Load/save query augmentation prompt and store locally
-    if track_queries and augment_queries:
-        memory._augmentation_prompt = _save_query_augmentation_prompt(ryumem)
-    else:
-        memory._augmentation_prompt = DEFAULT_AUGMENTATION_TEMPLATE
+    # Build enhanced instruction with memory/tool guidance
+    base_instruction = agent.instruction or ""
+    enhanced_instruction = base_instruction
 
     if enhance_agent_instruction:
-        _enhance_agent_instruction(
-            agent,
-            ryumem,
+        instruction_parts = []
+        if base_instruction:
+            instruction_parts.append(base_instruction)
+
+        # Add memory guidance
+        if memory_enabled:
+            instruction_parts.append(DEFAULT_MEMORY_BLOCK)
+
+        # Add tool tracking guidance
+        if enable_tool_tracking:
+            instruction_parts.append(DEFAULT_TOOL_BLOCK)
+
+        enhanced_instruction = "\n\n".join(instruction_parts)
+        agent.instruction = enhanced_instruction
+
+    # Register agent with all configurations in one call
+    query_augmentation_template = DEFAULT_AUGMENTATION_TEMPLATE if (track_queries and augment_queries) else ""
+
+    try:
+        ryumem.save_agent_instruction(
+            base_instruction=base_instruction,
+            agent_type="google_adk",
+            enhanced_instruction=enhanced_instruction,
+            query_augmentation_template=query_augmentation_template,
             memory_enabled=memory_enabled,
             tool_tracking_enabled=enable_tool_tracking
         )
+        logger.info("Registered agent configuration in database")
+    except Exception as e:
+        logger.warning(f"Failed to register agent configuration: {e}")
+
+    # Store augmentation prompt locally for runtime use
+    memory._augmentation_prompt = query_augmentation_template or DEFAULT_AUGMENTATION_TEMPLATE
 
     return memory
 
@@ -969,179 +988,4 @@ def wrap_runner_with_tracking(
     return original_runner
 
 
-def _save_query_augmentation_prompt(
-    ryumem: Ryumem,
-    agent_type: str = "google_adk"
-) -> str:
-    """
-    Load or save query augmentation prompt from/to database.
-
-    Args:
-        ryumem: Ryumem instance for database access
-        agent_type: Type of agent (default: "google_adk")
-
-    Returns:
-        Query augmentation template string
-    """
-    instruction_type = "agent_instruction"
-
-    # Try to load existing prompt from database using the template text
-    try:
-        existing_prompt = ryumem.get_instruction_by_text(
-            instruction_text=DEFAULT_AUGMENTATION_TEMPLATE,
-            agent_type=agent_type,
-            instruction_type=instruction_type
-        )
-    except Exception:
-        existing_prompt = None
-
-    # If no prompt exists, save the default
-    if not existing_prompt:
-        try:
-            ryumem.save_agent_instruction(
-                instruction_text=DEFAULT_AUGMENTATION_TEMPLATE,
-                original_user_request=QUERY_AUGMENTATION_KEY,
-                agent_type=agent_type,
-                instruction_type=instruction_type,
-                description="Query augmentation template for historical context"
-            )
-            logger.info("Saved default query augmentation prompt")
-            return DEFAULT_AUGMENTATION_TEMPLATE
-        except Exception as e:
-            logger.warning(f"Failed to save query augmentation prompt: {e}")
-            return DEFAULT_AUGMENTATION_TEMPLATE
-    else:
-        return existing_prompt
-
-
-def _save_agent_instruction(
-    ryumem: Ryumem,
-    base_instruction: str,
-    memory_enabled: bool,
-    tool_tracking_enabled: bool,
-    agent_type: str = "google_adk"
-) -> str:
-    """
-    Generate, validate, save, and return agent instruction based on enabled features.
-
-    Args:
-        ryumem: Ryumem instance for database access
-        base_instruction: The agent's original instruction text
-        memory_enabled: Whether memory features are enabled
-        tool_tracking_enabled: Whether tool tracking is enabled
-        agent_type: Type of agent (default: "google_adk")
-
-    Returns:
-        Final instruction string with appropriate guidance blocks
-    """
-    # Single key for all instructions
-    instruction_key = "google_adk_agent_instruction"
-    instruction_type = "agent_instruction"
-
-    # No features enabled, return base instruction as-is
-    if not memory_enabled and not tool_tracking_enabled:
-        return base_instruction
-
-    # Determine description based on features
-    if memory_enabled and tool_tracking_enabled:
-        description = "Memory usage and tool tracking guidance"
-    elif memory_enabled:
-        description = "Memory usage guidance"
-    else:
-        description = "Tool tracking guidance"
-
-    # Try to load existing instruction from database
-    try:
-        existing_instruction = ryumem.get_instruction_by_text(
-            instruction_text=instruction_key,
-            agent_type=agent_type,
-            instruction_type=instruction_type
-        )
-    except Exception:
-        existing_instruction = None
-
-    # Validate existing instruction matches enabled features
-    instruction_valid = False
-    if existing_instruction:
-        has_memory_guidance = ("search_memory" in existing_instruction or "MEMORY USAGE" in existing_instruction)
-        has_tool_guidance = ("tool usage patterns" in existing_instruction or "TOOL SELECTION" in existing_instruction)
-
-        # Check if existing instruction matches enabled features
-        if memory_enabled and not has_memory_guidance:
-            instruction_valid = False
-        elif not memory_enabled and has_memory_guidance:
-            instruction_valid = False
-        elif tool_tracking_enabled and not has_tool_guidance:
-            instruction_valid = False
-        elif not tool_tracking_enabled and has_tool_guidance:
-            instruction_valid = False
-        else:
-            instruction_valid = True
-
-    # If no valid instruction, generate new one
-    if not instruction_valid:
-        instruction_parts = []
-        if base_instruction:
-            instruction_parts.append(base_instruction)
-
-        # Add default memory guidance if enabled
-        if memory_enabled:
-            instruction_parts.append(DEFAULT_MEMORY_BLOCK)
-
-        # Add default tool guidance if enabled
-        if tool_tracking_enabled:
-            instruction_parts.append(DEFAULT_TOOL_BLOCK)
-
-        # Combine all parts
-        new_instruction = "\n\n".join(instruction_parts)
-
-        # Save to database
-        try:
-            ryumem.save_agent_instruction(
-                instruction_text=new_instruction,
-                original_user_request=instruction_key,
-                agent_type=agent_type,
-                instruction_type=instruction_type,
-                description=description
-            )
-            logger.info(f"Saved new agent instruction: {description}")
-        except Exception as e:
-            logger.warning(f"Failed to save agent instruction: {e}")
-
-        return new_instruction
-    else:
-        # Use existing valid instruction, but combine with base
-        if base_instruction and base_instruction not in existing_instruction:
-            return f"{base_instruction}\n\n{existing_instruction}"
-        return existing_instruction
-
-
-def _enhance_agent_instruction(
-    agent,
-    ryumem,
-    memory_enabled: bool = True,
-    tool_tracking_enabled: bool = False,
-    agent_type: str = "google_adk"
-):
-    """
-    Enhances agent.instruction based on enabled features.
-    Uses _save_agent_instruction to generate, validate, and save instructions.
-
-    Args:
-        agent: Agent instance to enhance
-        ryumem: Ryumem instance
-        memory_enabled: Whether memory features are enabled
-        tool_tracking_enabled: Whether tool tracking is enabled
-        agent_type: Type of agent (default: "google_adk")
-    """
-    base_instruction = agent.instruction or ""
-
-    new_instruction = _save_agent_instruction(
-        ryumem=ryumem,
-        base_instruction=base_instruction,
-        memory_enabled=memory_enabled,
-        tool_tracking_enabled=tool_tracking_enabled,
-        agent_type=agent_type
-    )
-
-    agent.instruction = new_instruction
+# Removed old complex instruction saving logic - now handled directly in add_memory_to_agent
