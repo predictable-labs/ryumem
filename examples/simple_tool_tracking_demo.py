@@ -123,8 +123,16 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     # ⭐ Add memory + tool tracking + query augmentation in ONE line!
     # This automatically wraps ALL tools for tracking - nothing else needed!
     # print("⭐ Adding memory + automatic tool tracking + query augmentation...")
+    
+    from ryumem import Ryumem
+    # Using a valid API key registered for demo_company_v2
+    ryumem = Ryumem(
+        api_key="ryu_gueIg17mk5H-36uZzULdvim7vblhcc5po3tpYk37714",
+    )
+    
     memory = add_memory_to_agent(
         weather_sentiment_agent,
+        ryumem_instance=ryumem,
     )
 
     # Session and Runner Setup (standard Google ADK usage)

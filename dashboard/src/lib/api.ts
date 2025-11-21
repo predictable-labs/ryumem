@@ -204,17 +204,35 @@ class RyumemAPI {
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
 
+    // Get API Key from storage
+    const apiKey = typeof window !== 'undefined' ? localStorage.getItem('ryumem_api_key') : null;
+
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+
+    if (apiKey) {
+      (headers as any)['X-API-Key'] = apiKey;
+    }
+
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+      headers,
     });
 
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        // Clear invalid key and redirect
+        localStorage.removeItem('ryumem_api_key');
+        window.location.href = '/login';
+      }
+      throw new Error('Unauthorized');
+    }
+
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(`${error.detail.message}: ${error.detail.errors.join(',')}` || `HTTP ${response.status}: ${response.statusText}`);
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `HTTP ${response.status}: ${response.statusText}`);
     }
 
     return response.json();
@@ -357,6 +375,10 @@ class RyumemAPI {
   async getUsers(): Promise<string[]> {
     const response = await this.request<{ users: string[] }>('/users');
     return response.users;
+  }
+
+  async getCustomerMe(): Promise<{ customer_id: string }> {
+    return this.request('/customer/me');
   }
 
   // ============================================================================

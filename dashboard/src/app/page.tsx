@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User, History, Cog } from "lucide-react";
+import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User, History, Cog, LogOut } from "lucide-react";
 import { EpisodesList } from "@/components/episodes-list";
 import { EpisodeFormModal } from "@/components/episode-form-modal";
 import { ChatInterface } from "@/components/chat-interface";
@@ -22,6 +22,7 @@ import { api, Entity, GraphDataResponse, EntitiesListResponse, Edge } from "@/li
 export default function Home() {
   const [users, setUsers] = useState<string[]>([]);
   const [userId, setUserId] = useState<string>("");
+  const [customerId, setCustomerId] = useState<string>("");
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
   const [refreshStats, setRefreshStats] = useState(0);
 
@@ -45,24 +46,32 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("chat");
   const [selectedToolForAnalytics, setSelectedToolForAnalytics] = useState<string | null>(null);
 
-  // Load users on mount
+  // Load users and customer info on mount
   useEffect(() => {
-    const loadUsers = async () => {
+    const loadData = async () => {
       setIsLoadingUsers(true);
       try {
-        const usersList = await api.getUsers();
+        const [usersList, customerInfo] = await Promise.all([
+          api.getUsers(),
+          api.getCustomerMe().catch(() => null)
+        ]);
+
         setUsers(usersList);
         if (usersList.length > 0) {
           setUserId(usersList[0]); // Set first user as default
         }
+
+        if (customerInfo) {
+          setCustomerId(customerInfo.customer_id);
+        }
       } catch (error) {
-        console.error("Failed to load users:", error);
+        console.error("Failed to load initial data:", error);
       } finally {
         setIsLoadingUsers(false);
       }
     };
 
-    loadUsers();
+    loadData();
   }, []);
 
   const handleEpisodeAdded = () => {
@@ -145,9 +154,15 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-4xl font-bold tracking-tight">RyuMem Dashboard</h1>
-              <p className="text-muted-foreground">
-                Bi-temporal Knowledge Graph Memory System
-              </p>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <p>Bi-temporal Knowledge Graph Memory System</p>
+                {customerId && (
+                  <>
+                    <span>•</span>
+                    <span className="font-medium text-primary">Customer: {customerId}</span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -194,6 +209,16 @@ export default function Home() {
                 <Cog className="h-4 w-4" />
                 System Settings
               </Link>
+              <button
+                onClick={() => {
+                  localStorage.removeItem("ryumem_api_key");
+                  window.location.href = "/login";
+                }}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-md hover:bg-red-50 transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </button>
             </div>
           </CardContent>
         </Card>

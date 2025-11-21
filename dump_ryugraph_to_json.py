@@ -252,7 +252,7 @@ def main():
     if len(sys.argv) > 1:
         db_path = sys.argv[1]
     else:
-        db_path = "./server/data/ryumem.db"
+        db_path = "./server/data/demo_company_v2.db"
 
     if len(sys.argv) > 2:
         output_file = sys.argv[2]

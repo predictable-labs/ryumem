@@ -7,7 +7,10 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import ryugraph
+try:
+    import ryugraph
+except ImportError:
+    import kuzu as ryugraph
 
 from ryumem_server.core.models import (
     CommunityEdge,

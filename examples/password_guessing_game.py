@@ -293,8 +293,12 @@ If the user wants a hint, use get_hint.""",
     print()
 
     # ⭐ Add memory + tool tracking + query augmentation
+    from ryumem import Ryumem
+    ryumem = Ryumem(api_key=os.getenv("GOOGLE_API_KEY"))
+    
     memory = add_memory_to_agent(
         password_agent,
+        ryumem_instance=ryumem,
         enable_tool_tracking=True,
     )
 

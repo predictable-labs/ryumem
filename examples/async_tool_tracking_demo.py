@@ -125,18 +125,23 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     print()
 
     # Add memory + tool tracking + query augmentation
+    from ryumem import Ryumem
+    ryumem = Ryumem(
+        api_key=os.getenv("GOOGLE_API_KEY"),
+        ryumem_customer_id="demo_company_async",
+        llm_provider="ollama",
+        llm_model="qwen2.5:7b",
+        ollama_base_url="http://100.108.18.43:11434/",
+    )
+    
     memory = add_memory_to_agent(
         weather_sentiment_agent,
-        user_id=USER_ID,
-        ryumem_customer_id="demo_company_async",
-        track_tools=True,  # 🎯 Track all tool usage
+        ryumem_instance=ryumem,
+        enable_tool_tracking=True,  # 🎯 Track all tool usage
         track_queries=True,  # 🎯 Track user queries as episodes
         augment_queries=True,  # ✨ Augment queries with historical context
         similarity_threshold=0.3,  # Match queries with 30%+ similarity
         top_k_similar=5,  # Use top 5 similar queries
-        llm_provider="ollama",
-        llm_model="qwen2.5:7b",
-        ollama_base_url="http://100.108.18.43:11434/",
         extract_entities=True,
     )
 

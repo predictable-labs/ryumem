@@ -288,7 +288,7 @@ def _register_and_track_tools(
 
 def add_memory_to_agent(
     agent,
-    ryumem_instance: Optional[Ryumem] = None,
+    ryumem_instance: Ryumem,
 
     # Memory configuration
     extract_entities: bool = False,
@@ -304,13 +304,11 @@ def add_memory_to_agent(
     tool_tracking_enhance_descriptions: bool = False,
     ignore_tracking_errors: bool = True,
 
-    # Query tracking configuration
+    # Query Tracking Configuration
     track_queries: bool = True,
     augment_queries: bool = True,
     similarity_threshold: float = 0.3,
     top_k_similar: int = 5,
-
-    **ryumem_kwargs
 ) -> RyumemGoogleADK:
     """
     Enable memory for a Google ADK agent with a single function call.
@@ -319,7 +317,7 @@ def add_memory_to_agent(
 
     Args:
         agent: Google ADK Agent instance to add memory to
-        ryumem_instance: Optional pre-configured Ryumem instance. If None, creates new instance.
+        ryumem_instance: Pre-configured Ryumem instance.
 
         # Memory Configuration
         extract_entities: Enable entity/relationship extraction from memories (default: False)
@@ -345,33 +343,36 @@ def add_memory_to_agent(
                             Lower = more matches, higher = stricter
         top_k_similar: Number of similar queries for augmentation (default: 5)
 
-        **ryumem_kwargs: Additional arguments passed to Ryumem constructor
-
     Returns:
         RyumemGoogleADK instance with configured memory tools
 
     Example - Minimal Setup:
         ```python
         from google import genai
+        from ryumem import Ryumem
         from ryumem.integrations import add_memory_to_agent
 
+        ryumem = Ryumem(api_key="...")
         agent = genai.Agent(
             name="assistant",
             model="gemini-2.0-flash-exp",
             instruction="You are a helpful assistant with memory."
         )
 
-        add_memory_to_agent(agent)
+        add_memory_to_agent(agent, ryumem_instance=ryumem)
         ```
 
     Example - With Tool Tracking:
         ```python
+        from ryumem import Ryumem
         from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
 
+        ryumem = Ryumem(api_key="...")
         agent = genai.Agent(name="assistant", model="gemini-2.0-flash")
 
         memory = add_memory_to_agent(
             agent,
+            ryumem_instance=ryumem,
             enable_tool_tracking=True,
             extract_entities=True
         )
@@ -392,14 +393,9 @@ def add_memory_to_agent(
         'fail_open': ignore_tracking_errors,
     }
 
-    if ryumem_instance is None:
-        ryumem = Ryumem(**ryumem_kwargs)
-    else:
-        ryumem = ryumem_instance
-
     # Create memory integration
     memory = RyumemGoogleADK(
-        ryumem=ryumem,
+        ryumem=ryumem_instance,
         extract_entities=extract_entities,
         memory_enabled=memory_enabled
     )
