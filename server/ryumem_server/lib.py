@@ -71,106 +71,96 @@ class Ryumem:
 
         self.config = config
 
-        # Ensure database directory exists (skip for read-only mode)
-        read_only = config.database.read_only
-
-        # Validate API keys are present for configured providers (skip in read-only mode)
-        config.validate_api_keys(read_only=read_only)
+        # Ensure database directory exists
         db_path_obj = Path(config.database.db_path)
-        if not read_only:
-            db_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        db_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        # Validate API keys are present for configured providers
+        config.validate_api_keys()
 
         # Initialize core components
         logger.info("Initializing Ryumem...")
-        logger.info(f"DEBUG: read_only={read_only}, db_path={config.database.db_path}")
+        logger.info(f"DEBUG: db_path={config.database.db_path}")
 
         self.db = RyugraphDB(
             db_path=config.database.db_path,
             embedding_dimensions=config.embedding.dimensions,
-            read_only=read_only,
         )
 
-        # Skip LLM and embedding client initialization in read-only mode
-        # (not needed for read operations, only for entity extraction and ingestion)
-        if read_only:
-            logger.info("Running in READ_ONLY mode - skipping LLM and embedding client initialization")
-            self.llm_client = None
-            self.embedding_client = None
-        else:
-            # Initialize LLM client based on provider
-            if config.llm.provider == "litellm":
-                logger.info(f"Using LiteLLM for LLM inference: {config.llm.model}")
-                self.llm_client = LiteLLMClient(
-                    model=config.llm.model,
-                    max_retries=config.llm.max_retries,
-                    timeout=config.llm.timeout_seconds,
-                )
-            elif config.llm.provider == "ollama":
-                logger.info(f"Using Ollama for LLM inference: {config.llm.model}")
-                self.llm_client = OllamaClient(
-                    model=config.llm.model,
-                    base_url=config.llm.ollama_base_url,
-                    max_retries=config.llm.max_retries,
-                    timeout=config.llm.timeout_seconds,
-                )
-            elif config.llm.provider == "gemini":
-                if not config.llm.gemini_api_key:
-                    raise ValueError("gemini_api_key is required when llm_provider='gemini'")
-                logger.info(f"Using Gemini for LLM inference: {config.llm.model}")
-                self.llm_client = GeminiClient(
-                    api_key=config.llm.gemini_api_key,
-                    model=config.llm.model,
-                    max_retries=config.llm.max_retries,
-                    timeout=config.llm.timeout_seconds,
-                )
-            else:  # openai
-                if not config.llm.openai_api_key:
-                    raise ValueError("openai_api_key is required when llm_provider='openai'")
-                logger.info(f"Using OpenAI for LLM inference: {config.llm.model}")
-                self.llm_client = LLMClient(
-                    api_key=config.llm.openai_api_key,
-                    model=config.llm.model,
-                    max_retries=config.llm.max_retries,
-                    timeout=config.llm.timeout_seconds,
-                )
+        # Initialize LLM client based on provider
+        if config.llm.provider == "litellm":
+            logger.info(f"Using LiteLLM for LLM inference: {config.llm.model}")
+            self.llm_client = LiteLLMClient(
+                model=config.llm.model,
+                max_retries=config.llm.max_retries,
+                timeout=config.llm.timeout_seconds,
+            )
+        elif config.llm.provider == "ollama":
+            logger.info(f"Using Ollama for LLM inference: {config.llm.model}")
+            self.llm_client = OllamaClient(
+                model=config.llm.model,
+                base_url=config.llm.ollama_base_url,
+                max_retries=config.llm.max_retries,
+                timeout=config.llm.timeout_seconds,
+            )
+        elif config.llm.provider == "gemini":
+            if not config.llm.gemini_api_key:
+                raise ValueError("gemini_api_key is required when llm_provider='gemini'")
+            logger.info(f"Using Gemini for LLM inference: {config.llm.model}")
+            self.llm_client = GeminiClient(
+                api_key=config.llm.gemini_api_key,
+                model=config.llm.model,
+                max_retries=config.llm.max_retries,
+                timeout=config.llm.timeout_seconds,
+            )
+        else:  # openai
+            if not config.llm.openai_api_key:
+                raise ValueError("openai_api_key is required when llm_provider='openai'")
+            logger.info(f"Using OpenAI for LLM inference: {config.llm.model}")
+            self.llm_client = LLMClient(
+                api_key=config.llm.openai_api_key,
+                model=config.llm.model,
+                max_retries=config.llm.max_retries,
+                timeout=config.llm.timeout_seconds,
+            )
 
-            # Initialize embedding client based on provider
-            if config.embedding.provider == "ollama":
-                logger.info(f"Using Ollama for embeddings: {config.embedding.model}")
-                self.embedding_client = OllamaClient(
-                    model=config.embedding.model,
-                    base_url=config.embedding.ollama_base_url,
-                    timeout=config.embedding.timeout_seconds,
-                )
-            elif config.embedding.provider == "litellm":
-                logger.info(f"Using LiteLLM for embeddings: {config.embedding.model}")
-                self.embedding_client = LiteLLMClient(
-                    model=config.embedding.model,
-                    max_retries=config.llm.max_retries,
-                    timeout=config.embedding.timeout_seconds,
-                )
-            elif config.embedding.provider == "gemini":
-                if not config.llm.gemini_api_key:
-                    raise ValueError("gemini_api_key is required when embedding_provider='gemini'")
-                logger.info(f"Using Gemini for embeddings: {config.embedding.model}")
-                # Use GeminiClient for embeddings
-                self.embedding_client = GeminiClient(
-                    api_key=config.llm.gemini_api_key,
-                    model=config.embedding.model,
-                    max_retries=config.llm.max_retries,
-                    timeout=config.embedding.timeout_seconds,
-                )
-            else:  # openai
-                if not config.llm.openai_api_key:
-                    raise ValueError("openai_api_key is required when embedding_provider='openai'")
-                logger.info(f"Using OpenAI for embeddings: {config.embedding.model}")
-                self.embedding_client = EmbeddingClient(
-                    api_key=config.llm.openai_api_key,
-                    model=config.embedding.model,
-                    dimensions=config.embedding.dimensions,
-                    batch_size=config.embedding.batch_size,
-                    timeout=config.embedding.timeout_seconds,
-                )
+        # Initialize embedding client based on provider
+        if config.embedding.provider == "ollama":
+            logger.info(f"Using Ollama for embeddings: {config.embedding.model}")
+            self.embedding_client = OllamaClient(
+                model=config.embedding.model,
+                base_url=config.embedding.ollama_base_url,
+                timeout=config.embedding.timeout_seconds,
+            )
+        elif config.embedding.provider == "litellm":
+            logger.info(f"Using LiteLLM for embeddings: {config.embedding.model}")
+            self.embedding_client = LiteLLMClient(
+                model=config.embedding.model,
+                max_retries=config.llm.max_retries,
+                timeout=config.embedding.timeout_seconds,
+            )
+        elif config.embedding.provider == "gemini":
+            if not config.llm.gemini_api_key:
+                raise ValueError("gemini_api_key is required when embedding_provider='gemini'")
+            logger.info(f"Using Gemini for embeddings: {config.embedding.model}")
+            # Use GeminiClient for embeddings
+            self.embedding_client = GeminiClient(
+                api_key=config.llm.gemini_api_key,
+                model=config.embedding.model,
+                max_retries=config.llm.max_retries,
+                timeout=config.embedding.timeout_seconds,
+            )
+        else:  # openai
+            if not config.llm.openai_api_key:
+                raise ValueError("openai_api_key is required when embedding_provider='openai'")
+            logger.info(f"Using OpenAI for embeddings: {config.embedding.model}")
+            self.embedding_client = EmbeddingClient(
+                api_key=config.llm.openai_api_key,
+                model=config.embedding.model,
+                dimensions=config.embedding.dimensions,
+                batch_size=config.embedding.batch_size,
+                timeout=config.embedding.timeout_seconds,
+            )
 
         # Initialize search engine first (creates BM25 index)
         self.search_engine = SearchEngine(

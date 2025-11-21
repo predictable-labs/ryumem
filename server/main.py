@@ -50,7 +50,6 @@ def get_ryumem():
     This ensures:
     - Database connections are only opened when API requests arrive
     - Connections are automatically closed after the request completes
-    - READ_ONLY mode is maintained for safe concurrent access
     - No persistent connections that could leak resources
     """
     # Use global config from database, fallback to environment
@@ -58,9 +57,6 @@ def get_ryumem():
         config = _app_config
     else:
         config = RyumemConfig()
-
-    # Override read_only to ensure server always uses READ_ONLY mode
-    config.database.read_only = True
 
     # Create new instance with context manager for automatic cleanup
     with Ryumem(config=config) as ryumem:
@@ -78,7 +74,6 @@ def get_write_ryumem():
     else:
         config = RyumemConfig()
 
-    config.database.read_only = False
     with Ryumem(config=config) as ryumem:
         yield ryumem
 
@@ -92,9 +87,7 @@ async def lifespan(app: FastAPI):
     try:
         # Database configuration MUST come from environment variables (circular dependency)
         # Cannot store db_path in database - we need the path to open the database!
-        # Set via: RYUMEM_DB_PATH and RYUMEM_READ_ONLY
         db_path = os.getenv("RYUMEM_DB_PATH", "./data/ryumem.db")
-        read_only_mode = os.getenv("RYUMEM_READ_ONLY", "false").lower() == "true"
 
         # Embedding dimensions needed for database schema creation
         # Try to get from environment, fall back to safe default (768 = common for many models)
@@ -109,7 +102,6 @@ async def lifespan(app: FastAPI):
         db = RyugraphDB(
             db_path=db_path,
             embedding_dimensions=embedding_dims,
-            read_only=False  # Need write mode for migration
         )
         logger.info(f"Database initialized at {db_path}")
         logger.info(f"  (Database location is set via RYUMEM_DB_PATH environment variable)")
@@ -476,7 +468,6 @@ async def add_episode(
     3. Update the knowledge graph
     4. Detect and handle contradictions
 
-    Note: This endpoint will fail in READ_ONLY mode.
     Use a separate write instance for adding episodes.
     """
     try:
@@ -1021,8 +1012,6 @@ async def update_communities(
     - More efficient retrieval
     - Higher-level reasoning
     - Better organization
-
-    Note: This endpoint will fail in READ_ONLY mode.
     """
     try:
         num_communities = ryumem.update_communities(
@@ -1051,8 +1040,6 @@ async def prune_memories(
     - Delete facts that were invalidated/expired long ago
     - Remove entities with very few mentions (likely noise)
     - Merge near-duplicate relationship facts
-
-    Note: This endpoint will fail in READ_ONLY mode.
     """
     try:
         stats = ryumem.prune_memories(

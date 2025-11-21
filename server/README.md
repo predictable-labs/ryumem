@@ -39,8 +39,6 @@ nano .env
 Required environment variables:
 - `RYUMEM_DB_PATH` - Path to your Ryumem database (e.g., "./data/ryumem.db")
 
-**Note:** The server runs in READ_ONLY mode and does not perform any LLM operations (entity extraction, embeddings, etc.). Therefore, **API keys are NOT required** to run the server. You only need to point it to an existing Ryumem database that was created by a write instance.
-
 ## Usage
 
 ### Start the Server
@@ -228,7 +226,6 @@ These provide:
 | `HOST` | Server host | 0.0.0.0 | No |
 | `PORT` | Server port | 8000 | No |
 
-**Note:** LLM provider settings (`OPENAI_API_KEY`, `RYUMEM_LLM_PROVIDER`, etc.) are NOT required for the server since it runs in READ_ONLY mode and doesn't perform any LLM operations.
 
 ### Creating a Ryumem Database
 

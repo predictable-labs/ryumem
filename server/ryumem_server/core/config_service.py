@@ -100,7 +100,6 @@ class ConfigService:
         # db_path is needed to OPEN the database, so it cannot be stored IN the database
         # These settings must be configured via environment variables:
         #   RYUMEM_DB_PATH (default: ./data/ryumem.db)
-        #   RYUMEM_DATABASE_READ_ONLY (default: false)
 
         # LLM configs
         llm_config = LLMConfig()
@@ -501,7 +500,6 @@ class ConfigService:
 
             # Database
             "RYUMEM_DB_PATH": "database.db_path",
-            "RYUMEM_READ_ONLY": "database.read_only",
 
             # LLM
             "RYUMEM_LLM_PROVIDER": "llm.provider",
