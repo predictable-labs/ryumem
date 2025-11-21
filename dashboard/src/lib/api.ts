@@ -134,15 +134,14 @@ export interface AgentInstruction {
 
 export interface AgentInstructionResponse {
   instruction_id: string;
-  instruction_text: string;
-  name: string;
+  base_instruction: string;
+  enhanced_instruction: string;
+  query_augmentation_template: string;
   agent_type: string;
-  instruction_type: string;
-  version: number;
-  description: string;
-  original_user_request: string;
-  converted_instruction: string;
+  memory_enabled: boolean;
+  tool_tracking_enabled: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface ToolForTask {
@@ -373,12 +372,10 @@ class RyumemAPI {
 
   async listAgentInstructions(
     agentType?: string,
-    instructionType?: string,
     limit: number = 50
   ): Promise<AgentInstructionResponse[]> {
     const params = new URLSearchParams({
       ...(agentType && { agent_type: agentType }),
-      ...(instructionType && { instruction_type: instructionType }),
       limit: limit.toString(),
     });
     return this.request(`/agent-instructions?${params}`);

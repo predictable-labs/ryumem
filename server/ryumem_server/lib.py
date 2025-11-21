@@ -715,84 +715,114 @@ class Ryumem:
 
     def save_agent_instruction(
         self,
-        instruction_text: str,
+        base_instruction: str,
         agent_type: str = "google_adk",
-        instruction_type: str = "tool_tracking",
-        description: str = "",
-        original_user_request: Optional[str] = None,
+        enhanced_instruction: Optional[str] = None,
+        query_augmentation_template: Optional[str] = None,
+        memory_enabled: bool = False,
+        tool_tracking_enabled: bool = False,
     ) -> str:
         """
-        Save custom agent instruction to the database.
+        Register or update an agent by its base instruction.
 
-        This tracks both what the user originally requested and what instruction
-        text will actually be added to the agent's prompt.
+        Uses base_instruction as the unique key. MERGE behavior means this will
+        update existing agent records instead of creating duplicates.
 
         Args:
-            instruction_text: The actual instruction text to add to agent prompt (converted/final)
+            base_instruction: The agent's original instruction text (used as unique key)
             agent_type: Type of agent (e.g., "google_adk", "custom_agent")
-            instruction_type: Type of instruction (e.g., "tool_tracking", "memory_guidance")
-            description: User-friendly description of what this instruction does
-            original_user_request: Optional original request from user before conversion
+            enhanced_instruction: Instruction with memory/tool guidance added
+            query_augmentation_template: Template for query augmentation
+            memory_enabled: Whether memory features are enabled
+            tool_tracking_enabled: Whether tool tracking is enabled
 
         Returns:
-            UUID of the created instruction
+            UUID of the agent instruction record
 
         Example:
             instruction_id = ryumem.save_agent_instruction(
-                instruction_text="TOOL SELECTION:\nAlways check memory...",
-                original_user_request="Make the agent check past tool usage",
-                agent_type="google_adk",
-                description="Custom tool selection guidance"
+                base_instruction="You are a helpful assistant.",
+                enhanced_instruction="You are a helpful assistant.\n\nMEMORY USAGE:...",
+                query_augmentation_template="[Previous Attempt]...",
+                memory_enabled=True
             )
         """
         import uuid
         from datetime import datetime
 
-        logger.info(f"[DB] save_agent_instruction called: agent_type={agent_type}, instruction_type={instruction_type}")
+        logger.info(f"[DB] save_agent_instruction called: agent_type={agent_type}")
 
-        # Get version number (count of existing instructions for this type + 1)
-        logger.info(f"[DB] Counting existing instructions for versioning...")
-        count_query = """
+        # First, try to find existing agent - only return uuid to avoid property errors
+        find_query = """
         MATCH (i:AgentInstruction)
         WHERE i.agent_type = $agent_type
-          AND i.instruction_type = $instruction_type
-        RETURN count(i) AS count
-        """
-        result = self.db.execute(count_query, {
-            "agent_type": agent_type,
-            "instruction_type": instruction_type
-        })
-        version = result[0]["count"] + 1 if result else 1
-        logger.info(f"[DB] Current count: {result[0]['count'] if result else 0}, new version will be: {version}")
-
-        # Create new instruction
-        instruction_id = str(uuid.uuid4())
-        logger.info(f"[DB] Creating new instruction with ID: {instruction_id}")
-        insert_query = """
-        CREATE (i:AgentInstruction {
-            uuid: $uuid,
-            agent_type: $agent_type,
-            instruction_type: $instruction_type,
-            instruction_text: $instruction_text,
-            original_user_request: $original_user_request,
-            description: $description,
-            version: $version,
-            created_at: $created_at
-        })
         RETURN i.uuid AS uuid
+        LIMIT 1
         """
 
-        insert_result = self.db.execute(insert_query, {
-            "uuid": instruction_id,
-            "agent_type": agent_type,
-            "instruction_type": instruction_type,
-            "instruction_text": instruction_text,
-            "original_user_request": original_user_request or "",
-            "description": description,
-            "version": version,
-            "created_at": datetime.utcnow(),
-        })
-        logger.info(f"[DB] Insert query executed, result: {insert_result}")
+        try:
+            existing = self.db.execute(find_query, {"agent_type": agent_type})
+        except Exception as e:
+            # If query fails, assume no existing nodes
+            logger.warning(f"[DB] Could not query existing agents: {e}")
+            existing = []
+
+        instruction_id = str(uuid.uuid4())
+
+        if existing and len(existing) > 0:
+            # Update existing agent (migrate to new schema)
+            instruction_id = existing[0].get("uuid", instruction_id)
+            logger.info(f"[DB] Migrating existing agent instruction: {instruction_id}")
+
+            # Update existing agent with new properties
+            update_query = """
+            MATCH (i:AgentInstruction {uuid: $uuid})
+            SET i.base_instruction = $base_instruction,
+                i.enhanced_instruction = $enhanced_instruction,
+                i.query_augmentation_template = $query_augmentation_template,
+                i.memory_enabled = $memory_enabled,
+                i.tool_tracking_enabled = $tool_tracking_enabled,
+                i.updated_at = $updated_at
+            RETURN i.uuid AS uuid
+            """
+            result = self.db.execute(update_query, {
+                "uuid": instruction_id,
+                "base_instruction": base_instruction,
+                "enhanced_instruction": enhanced_instruction or base_instruction,
+                "query_augmentation_template": query_augmentation_template or "",
+                "memory_enabled": memory_enabled,
+                "tool_tracking_enabled": tool_tracking_enabled,
+                "updated_at": datetime.utcnow(),
+            })
+            logger.info(f"[DB] Migrated agent to new schema: {instruction_id}")
+        else:
+            # Create new agent with new schema
+            create_query = """
+            CREATE (i:AgentInstruction {
+                uuid: $uuid,
+                base_instruction: $base_instruction,
+                agent_type: $agent_type,
+                enhanced_instruction: $enhanced_instruction,
+                query_augmentation_template: $query_augmentation_template,
+                memory_enabled: $memory_enabled,
+                tool_tracking_enabled: $tool_tracking_enabled,
+                created_at: $created_at,
+                updated_at: $updated_at
+            })
+            RETURN i.uuid AS uuid
+            """
+            result = self.db.execute(create_query, {
+                "uuid": instruction_id,
+                "base_instruction": base_instruction,
+                "agent_type": agent_type,
+                "enhanced_instruction": enhanced_instruction or base_instruction,
+                "query_augmentation_template": query_augmentation_template or "",
+                "memory_enabled": memory_enabled,
+                "tool_tracking_enabled": tool_tracking_enabled,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            })
+            logger.info(f"[DB] Created new agent instruction: {instruction_id}")
         logger.info(f"[DB] ✓ Instruction saved successfully with ID: {instruction_id}")
 
         return instruction_id
@@ -800,28 +830,24 @@ class Ryumem:
     def list_agent_instructions(
         self,
         agent_type: Optional[str] = None,
-        instruction_type: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict]:
         """
-        List all agent instructions with metadata and version history.
+        List all registered agent configurations.
 
         Args:
             agent_type: Optional filter by agent type
-            instruction_type: Optional filter by instruction type
             limit: Maximum number of instructions to return
 
         Returns:
-            List of instruction dictionaries with metadata
+            List of agent configuration dictionaries
 
         Example:
-            instructions = ryumem.list_agent_instructions(
-                agent_type="google_adk"
-            )
-            for instr in instructions:
-                print(f"Version {instr['version']}: {instr['description']}")
+            agents = ryumem.list_agent_instructions(agent_type="google_adk")
+            for agent in agents:
+                print(f"Agent: {agent['base_instruction'][:50]}...")
         """
-        logger.info(f"[DB] list_agent_instructions called: agent_type={agent_type}, instruction_type={instruction_type}, limit={limit}")
+        logger.info(f"[DB] list_agent_instructions called: agent_type={agent_type}, limit={limit}")
 
         # Build query
         query = "MATCH (i:AgentInstruction) WHERE true"
@@ -831,20 +857,17 @@ class Ryumem:
             query += " AND i.agent_type = $agent_type"
             params["agent_type"] = agent_type
 
-        if instruction_type:
-            query += " AND i.instruction_type = $instruction_type"
-            params["instruction_type"] = instruction_type
-
         query += """
         RETURN i.uuid AS instruction_id,
-               i.instruction_text AS instruction_text,
+               i.base_instruction AS base_instruction,
+               i.enhanced_instruction AS enhanced_instruction,
+               i.query_augmentation_template AS query_augmentation_template,
                i.agent_type AS agent_type,
-               i.instruction_type AS instruction_type,
-               i.original_user_request AS original_user_request,
-               i.description AS description,
-               i.version AS version,
-               i.created_at AS created_at
-        ORDER BY i.created_at DESC
+               i.memory_enabled AS memory_enabled,
+               i.tool_tracking_enabled AS tool_tracking_enabled,
+               i.created_at AS created_at,
+               i.updated_at AS updated_at
+        ORDER BY i.updated_at DESC
         LIMIT $limit
         """
 
@@ -857,21 +880,20 @@ class Ryumem:
         # Format results
         formatted_results = []
         for row in result:
-            logger.info(f"[DB]   - Found instruction: id={row['instruction_id']}, version={row['version']}")
+            logger.info(f"[DB]   - Found agent: id={row['instruction_id']}, type={row['agent_type']}")
             formatted_results.append({
                 "instruction_id": row["instruction_id"],
-                "instruction_text": row["instruction_text"],
-                "name": f"Agent Instruction - {row['agent_type']} - {row['instruction_type']} v{row['version']}",
+                "base_instruction": row["base_instruction"],
+                "enhanced_instruction": row["enhanced_instruction"],
+                "query_augmentation_template": row["query_augmentation_template"],
                 "agent_type": row["agent_type"],
-                "instruction_type": row["instruction_type"],
-                "version": row["version"],
-                "description": row["description"],
-                "original_user_request": row["original_user_request"],
-                "converted_instruction": row["instruction_text"],
+                "memory_enabled": row["memory_enabled"],
+                "tool_tracking_enabled": row["tool_tracking_enabled"],
                 "created_at": str(row["created_at"]),
+                "updated_at": str(row["updated_at"]),
             })
 
-        logger.info(f"[DB] Returning {len(formatted_results)} formatted instruction(s)")
+        logger.info(f"[DB] Returning {len(formatted_results)} formatted agent(s)")
         return formatted_results
 
     def prune_memories(

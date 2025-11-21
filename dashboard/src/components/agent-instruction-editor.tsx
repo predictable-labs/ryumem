@@ -25,28 +25,24 @@ interface AgentInstructionEditorProps {
 
 export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) {
   const [agentType, setAgentType] = useState<string>("all")
-  const [instructionType, setInstructionType] = useState<string>("all")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [instructions, setInstructions] = useState<AgentInstructionResponse[]>([])
 
-  // Edit dialog state
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [editingInstruction, setEditingInstruction] = useState<AgentInstructionResponse | null>(null)
-  const [editInstructionText, setEditInstructionText] = useState("")
-  const [editDescription, setEditDescription] = useState("")
-  const [editOriginalRequest, setEditOriginalRequest] = useState("")
+  // View/Edit dialog state (unified)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [selectedInstruction, setSelectedInstruction] = useState<AgentInstructionResponse | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedBaseInstruction, setEditedBaseInstruction] = useState("")
+  const [editedEnhancedInstruction, setEditedEnhancedInstruction] = useState("")
+  const [editedQueryTemplate, setEditedQueryTemplate] = useState("")
   const [saving, setSaving] = useState(false)
-
-  // View dialog state
-  const [viewDialogOpen, setViewDialogOpen] = useState(false)
-  const [viewingInstruction, setViewingInstruction] = useState<AgentInstructionResponse | null>(null)
 
   // Load all cached instructions
   useEffect(() => {
     loadInstructions()
-  }, [agentType, instructionType])
+  }, [agentType])
 
   const loadInstructions = async () => {
     setLoading(true)
@@ -56,7 +52,6 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
       // Load instructions with optional filters
       const allInstructions = await api.listAgentInstructions(
         agentType === "all" ? undefined : agentType,
-        instructionType === "all" ? undefined : instructionType,
         100
       )
 
@@ -69,24 +64,17 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
     }
   }
 
-  const handleViewInstruction = (instruction: AgentInstructionResponse) => {
-    setViewingInstruction(instruction)
-    setViewDialogOpen(true)
+  const handleOpenDialog = (instruction: AgentInstructionResponse) => {
+    setSelectedInstruction(instruction)
+    setEditedBaseInstruction(instruction.base_instruction)
+    setEditedEnhancedInstruction(instruction.enhanced_instruction)
+    setEditedQueryTemplate(instruction.query_augmentation_template || "")
+    setIsEditing(true)  // Start in edit mode
+    setDialogOpen(true)
   }
 
-  const handleEditInstruction = (instruction: AgentInstructionResponse) => {
-    setEditingInstruction(instruction)
-    setEditInstructionText(instruction.instruction_text)
-    setEditDescription(instruction.description)
-    setEditOriginalRequest(instruction.original_user_request)
-    setEditDialogOpen(true)
-  }
-
-  const handleSaveEdit = async () => {
-    if (!editInstructionText.trim() || !editingInstruction) {
-      setError("Instruction text cannot be empty")
-      return
-    }
+  const handleSave = async () => {
+    if (!selectedInstruction) return
 
     setSaving(true)
     setError(null)
@@ -94,32 +82,39 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
 
     try {
       await api.createAgentInstruction({
-        instruction_text: editInstructionText,
-        agent_type: editingInstruction.agent_type,
-        instruction_type: editingInstruction.instruction_type,
-        description: editDescription,
-        original_user_request: editOriginalRequest,
+        base_instruction: editedBaseInstruction,
+        enhanced_instruction: editedEnhancedInstruction,
+        query_augmentation_template: editedQueryTemplate,
+        agent_type: selectedInstruction.agent_type,
+        memory_enabled: selectedInstruction.memory_enabled,
+        tool_tracking_enabled: selectedInstruction.tool_tracking_enabled,
       })
 
-      setSuccess("Instruction updated successfully!")
-      setEditDialogOpen(false)
+      setSuccess("Agent configuration updated successfully!")
+      setIsEditing(false)
 
       // Reload instructions
       await loadInstructions()
 
+      // Update the selected instruction with new values
+      const updated = instructions.find(i => i.agent_type === selectedInstruction.agent_type)
+      if (updated) {
+        setSelectedInstruction(updated)
+      }
+
       // Clear success message after 3 seconds
       setTimeout(() => setSuccess(null), 3000)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save instruction")
-      console.error("Error saving instruction:", err)
+      setError(err instanceof Error ? err.message : "Failed to save configuration")
+      console.error("Error saving configuration:", err)
     } finally {
       setSaving(false)
     }
   }
 
-  // Group instructions by agent_type and instruction_type
+  // Group instructions by agent_type (should be one per agent_type now)
   const groupedInstructions = instructions.reduce((acc, instr) => {
-    const key = `${instr.agent_type}-${instr.instruction_type}`
+    const key = instr.agent_type
     if (!acc[key]) {
       acc[key] = []
     }
@@ -149,20 +144,6 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                   <SelectItem value="all">All Agent Types</SelectItem>
                   <SelectItem value="google_adk">Google ADK</SelectItem>
                   <SelectItem value="custom_agent">Custom Agent</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="instruction-type">Instruction Type</Label>
-              <Select value={instructionType} onValueChange={setInstructionType}>
-                <SelectTrigger id="instruction-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Instruction Types</SelectItem>
-                  <SelectItem value="memory_usage">Memory Usage</SelectItem>
-                  <SelectItem value="tool_tracking">Tool Tracking</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -222,48 +203,58 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-20">Version</TableHead>
-                        <TableHead className="w-48">Description</TableHead>
-                        <TableHead>Instruction Preview</TableHead>
-                        <TableHead className="w-40">Created</TableHead>
-                        <TableHead className="w-32">Actions</TableHead>
+                        <TableHead className="w-32">Agent Type</TableHead>
+                        <TableHead className="w-48">Base Instruction</TableHead>
+                        <TableHead className="w-40">Features</TableHead>
+                        <TableHead className="w-64">Enhanced Instruction</TableHead>
+                        <TableHead className="w-64">Query Template</TableHead>
+                        <TableHead className="w-40">Last Updated</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {instrs.map((instr) => (
-                        <TableRow key={instr.instruction_id}>
-                          <TableCell className="font-medium">v{instr.version}</TableCell>
-                          <TableCell className="text-sm">
-                            {instr.description || <span className="text-muted-foreground italic">No description</span>}
-                          </TableCell>
+                        <TableRow
+                          key={instr.instruction_id}
+                          className="cursor-pointer hover:bg-muted/50"
+                          onClick={() => handleOpenDialog(instr)}
+                        >
+                          <TableCell className="font-medium">{instr.agent_type}</TableCell>
                           <TableCell>
-                            <div className="max-w-md">
-                              <pre className="text-xs whitespace-pre-wrap break-words font-mono bg-muted p-2 rounded line-clamp-3">
-                                {instr.instruction_text.substring(0, 150)}
-                                {instr.instruction_text.length > 150 && '...'}
+                            <div className="max-w-xs">
+                              <pre className="text-xs whitespace-pre-wrap break-words font-mono bg-slate-50 p-2 rounded line-clamp-2">
+                                {instr.base_instruction.substring(0, 80)}
+                                {instr.base_instruction.length > 80 && '...'}
                               </pre>
                             </div>
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {new Date(instr.created_at).toLocaleString()}
+                          <TableCell className="text-sm">
+                            <div className="flex gap-1 flex-wrap">
+                              {instr.memory_enabled && <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Memory</span>}
+                              {instr.tool_tracking_enabled && <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Tracking</span>}
+                            </div>
                           </TableCell>
                           <TableCell>
-                            <div className="flex gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleViewInstruction(instr)}
-                              >
-                                View
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEditInstruction(instr)}
-                              >
-                                <Edit2 className="h-4 w-4" />
-                              </Button>
+                            <div className="max-w-xs">
+                              <pre className="text-xs whitespace-pre-wrap break-words font-mono bg-muted p-2 rounded line-clamp-2">
+                                {instr.enhanced_instruction.substring(0, 100)}
+                                {instr.enhanced_instruction.length > 100 && '...'}
+                              </pre>
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-w-xs">
+                              {instr.query_augmentation_template ? (
+                                <pre className="text-xs whitespace-pre-wrap break-words font-mono bg-amber-50 p-2 rounded line-clamp-2">
+                                  {instr.query_augmentation_template.substring(0, 100)}
+                                  {instr.query_augmentation_template.length > 100 && '...'}
+                                </pre>
+                              ) : (
+                                <span className="text-xs text-muted-foreground italic">No template</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {new Date(instr.updated_at || instr.created_at).toLocaleString()}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -276,118 +267,66 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
         </div>
       )}
 
-      {/* View Dialog */}
-      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+      {/* Unified View/Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              Instruction Details - v{viewingInstruction?.version}
+              Agent Configuration - {selectedInstruction?.agent_type}
             </DialogTitle>
             <DialogDescription>
-              {viewingInstruction?.agent_type} - {viewingInstruction?.instruction_type}
+              <div className="flex gap-2 mt-2">
+                {selectedInstruction?.memory_enabled && <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Memory Enabled</span>}
+                {selectedInstruction?.tool_tracking_enabled && <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Tool Tracking Enabled</span>}
+              </div>
             </DialogDescription>
           </DialogHeader>
-          {viewingInstruction && (
+          {selectedInstruction && (
             <div className="space-y-4">
               <div>
-                <Label className="text-sm font-medium">Description</Label>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {viewingInstruction.description || "No description"}
-                </p>
-              </div>
-
-              <div>
-                <Label className="text-sm font-medium">Original User Request</Label>
-                <pre className="text-sm bg-muted p-3 rounded mt-1 whitespace-pre-wrap">
-                  {viewingInstruction.original_user_request || "No original request"}
+                <Label className="text-sm font-medium">Base Instruction</Label>
+                <pre className="text-sm bg-slate-50 p-3 rounded mt-1 whitespace-pre-wrap font-mono border border-slate-200">
+                  {selectedInstruction.base_instruction}
                 </pre>
               </div>
 
               <div>
-                <Label className="text-sm font-medium">Full Instruction Text</Label>
-                <pre className="text-sm bg-muted p-3 rounded mt-1 whitespace-pre-wrap font-mono">
-                  {viewingInstruction.instruction_text}
-                </pre>
-              </div>
-
-              <div className="text-xs text-muted-foreground">
-                Created: {new Date(viewingInstruction.created_at).toLocaleString()}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              Edit Instruction - v{editingInstruction?.version}
-            </DialogTitle>
-            <DialogDescription>
-              Create a new version by modifying the instruction below
-            </DialogDescription>
-          </DialogHeader>
-          {editingInstruction && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-description">Description</Label>
-                <Input
-                  id="edit-description"
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                  placeholder="Brief description of this instruction"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-original-request">Original User Request</Label>
+                <Label className="text-sm font-medium">Enhanced Instruction</Label>
                 <Textarea
-                  id="edit-original-request"
-                  value={editOriginalRequest}
-                  onChange={(e) => setEditOriginalRequest(e.target.value)}
-                  placeholder="What was originally requested"
-                  rows={3}
+                  value={editedEnhancedInstruction}
+                  onChange={(e) => setEditedEnhancedInstruction(e.target.value)}
+                  rows={8}
+                  className="font-mono text-sm mt-1"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-instruction-text">Instruction Text</Label>
+              <div>
+                <Label className="text-sm font-medium">Query Augmentation Template</Label>
                 <Textarea
-                  id="edit-instruction-text"
-                  value={editInstructionText}
-                  onChange={(e) => setEditInstructionText(e.target.value)}
-                  placeholder="The actual instruction text that will be added to the agent"
-                  rows={12}
-                  className="font-mono text-sm"
+                  value={editedQueryTemplate}
+                  onChange={(e) => setEditedQueryTemplate(e.target.value)}
+                  rows={8}
+                  className="font-mono text-sm mt-1"
+                  placeholder="Optional query augmentation template..."
                 />
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="text-xs text-muted-foreground border-t pt-3">
+                Created: {new Date(selectedInstruction.created_at).toLocaleString()}
+                {selectedInstruction.updated_at && ` • Updated: ${new Date(selectedInstruction.updated_at).toLocaleString()}`}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
                 <Button
                   variant="outline"
-                  onClick={() => setEditDialogOpen(false)}
+                  onClick={() => setDialogOpen(false)}
                   disabled={saving}
                 >
-                  <X className="h-4 w-4 mr-2" />
                   Cancel
                 </Button>
-                <Button
-                  onClick={handleSaveEdit}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4 mr-2" />
-                      Save as New Version
-                    </>
-                  )}
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Changes
                 </Button>
               </div>
             </div>

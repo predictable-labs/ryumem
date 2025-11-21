@@ -343,6 +343,14 @@ class SaveToolRequest(BaseModel):
     name_embedding: List[float] = Field(..., description="Embedding of tool name")
 
 
+class ToolResponse(BaseModel):
+    """Response model for tool data"""
+    tool_name: str = Field(..., description="Tool name")
+    description: str = Field(..., description="Tool description")
+    name_embedding: Optional[List[float]] = Field(None, description="Embedding of tool name")
+    created_at: Optional[str] = Field(None, description="Creation timestamp")
+
+
 class EmbedRequest(BaseModel):
     """Request model for embedding text"""
     text: str = Field(..., description="Text to embed")
@@ -870,7 +878,7 @@ async def get_stats(
         raise HTTPException(status_code=500, detail=f"Error getting stats: {str(e)}")
 
 
-@app.post("/tools", response_model=Dict[str, str])
+@app.post("/tools", response_model=ToolResponse)
 async def save_tool(
     request: SaveToolRequest,
     ryumem: Ryumem = Depends(get_write_ryumem)
@@ -882,7 +890,12 @@ async def save_tool(
             description=request.description,
             name_embedding=request.name_embedding
         )
-        return {"message": "Tool saved successfully"}
+        return ToolResponse(
+            tool_name=request.tool_name,
+            description=request.description,
+            name_embedding=request.name_embedding,
+            created_at=None  # Could add timestamp if needed
+        )
     except Exception as e:
         logger.error(f"Error saving tool: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error saving tool: {str(e)}")
@@ -1244,38 +1257,38 @@ async def list_relationships(
 # ============================================================================
 
 class AgentInstructionRequest(BaseModel):
-    """Request model for creating/updating agent instructions"""
-    instruction_text: str = Field(..., description="The converted/final instruction text to add to agent prompt")
+    """Request model for registering/updating agent configurations"""
+    base_instruction: str = Field(..., description="The agent's original instruction text (used as unique key)")
     agent_type: str = Field("google_adk", description="Type of agent (e.g., google_adk, custom_agent)")
-    instruction_type: str = Field("tool_tracking", description="Type of instruction (e.g., tool_tracking, memory_guidance)")
-    description: str = Field("", description="User-friendly description of what this instruction does")
-    user_id: Optional[str] = Field(None, description="Optional user ID for user-specific instructions")
-    original_user_request: Optional[str] = Field(None, description="Original request from user before conversion")
+    enhanced_instruction: Optional[str] = Field(None, description="Instruction with memory/tool guidance added")
+    query_augmentation_template: Optional[str] = Field(None, description="Template for query augmentation")
+    memory_enabled: bool = Field(False, description="Whether memory features are enabled")
+    tool_tracking_enabled: bool = Field(False, description="Whether tool tracking is enabled")
 
     class Config:
         json_schema_extra = {
             "example": {
-                "original_user_request": "Make the agent check past tool usage before selecting tools",
-                "instruction_text": "TOOL SELECTION GUIDANCE:\nAlways check memory before selecting tools...",
+                "base_instruction": "You are a helpful assistant.",
                 "agent_type": "google_adk",
-                "instruction_type": "tool_tracking",
-                "description": "Custom tool selection guidance for improved performance"
+                "enhanced_instruction": "You are a helpful assistant.\n\nMEMORY USAGE:...",
+                "query_augmentation_template": "[Previous Attempt]...",
+                "memory_enabled": True,
+                "tool_tracking_enabled": False
             }
         }
 
 
 class AgentInstructionResponse(BaseModel):
-    """Response model for agent instructions"""
-    instruction_id: str = Field(..., description="UUID of the instruction episode")
-    instruction_text: str = Field(..., description="The converted/final instruction text")
-    name: str = Field(..., description="Name/title of the instruction")
+    """Response model for agent configurations"""
+    instruction_id: str = Field(..., description="UUID of the agent configuration")
+    base_instruction: str = Field(..., description="The agent's original instruction text")
+    enhanced_instruction: str = Field("", description="Instruction with memory/tool guidance added")
+    query_augmentation_template: str = Field("", description="Template for query augmentation")
     agent_type: str = Field(..., description="Type of agent")
-    instruction_type: str = Field(..., description="Type of instruction")
-    version: int = Field(..., description="Version number")
-    description: str = Field(..., description="Description of the instruction")
-    original_user_request: str = Field("", description="Original request from user")
-    converted_instruction: str = Field("", description="Converted/final instruction")
+    memory_enabled: bool = Field(..., description="Whether memory features are enabled")
+    tool_tracking_enabled: bool = Field(..., description="Whether tool tracking is enabled")
     created_at: str = Field(..., description="Creation timestamp")
+    updated_at: str = Field(..., description="Last update timestamp")
 
 
 @app.post("/agent-instructions", response_model=AgentInstructionResponse, tags=["Agent Instructions"])
@@ -1293,38 +1306,37 @@ async def create_agent_instruction(
     """
     try:
 
-        # Save the instruction
+        # Save/update the agent configuration
         instruction_id = ryumem.save_agent_instruction(
-            instruction_text=request.instruction_text,
+            base_instruction=request.base_instruction,
             agent_type=request.agent_type,
-            instruction_type=request.instruction_type,
-            description=request.description,
-            original_user_request=request.original_user_request
+            enhanced_instruction=request.enhanced_instruction,
+            query_augmentation_template=request.query_augmentation_template,
+            memory_enabled=request.memory_enabled,
+            tool_tracking_enabled=request.tool_tracking_enabled
         )
 
-        # Get the created instruction details
-        instructions = ryumem.list_agent_instructions(
+        # Get the created/updated agent configuration
+        agents = ryumem.list_agent_instructions(
             agent_type=request.agent_type,
-            instruction_type=request.instruction_type,
             limit=1
         )
 
-        if not instructions:
-            raise HTTPException(status_code=500, detail="Failed to retrieve created instruction")
+        if not agents:
+            raise HTTPException(status_code=500, detail="Failed to retrieve agent configuration")
 
-        created = instructions[0]
+        agent_config = agents[0]
 
         return AgentInstructionResponse(
-            instruction_id=created["instruction_id"],
-            instruction_text=created["instruction_text"],
-            name=created["name"],
-            agent_type=created["agent_type"],
-            instruction_type=created["instruction_type"],
-            version=created["version"],
-            description=created["description"],
-            original_user_request=created.get("original_user_request", ""),
-            converted_instruction=created.get("converted_instruction", created["instruction_text"]),
-            created_at=created["created_at"]
+            instruction_id=agent_config["instruction_id"],
+            base_instruction=agent_config["base_instruction"],
+            enhanced_instruction=agent_config.get("enhanced_instruction", ""),
+            query_augmentation_template=agent_config.get("query_augmentation_template", ""),
+            agent_type=agent_config["agent_type"],
+            memory_enabled=agent_config.get("memory_enabled", False),
+            tool_tracking_enabled=agent_config.get("tool_tracking_enabled", False),
+            created_at=agent_config["created_at"],
+            updated_at=agent_config.get("updated_at", agent_config["created_at"])
         )
 
     except Exception as e:
@@ -1335,41 +1347,38 @@ async def create_agent_instruction(
 @app.get("/agent-instructions", response_model=List[AgentInstructionResponse], tags=["Agent Instructions"])
 async def list_agent_instructions(
     agent_type: Optional[str] = None,
-    instruction_type: Optional[str] = None,
     limit: int = 50,
     ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
-    List all agent instructions with optional filters.
+    List all agent configurations with optional filters.
 
-    Returns instructions ordered by creation date (newest first).
+    Returns agents ordered by last update (newest first).
     """
     try:
-        instructions = ryumem.list_agent_instructions(
+        agents = ryumem.list_agent_instructions(
             agent_type=agent_type,
-            instruction_type=instruction_type,
             limit=limit
         )
 
         return [
             AgentInstructionResponse(
-                instruction_id=instr["instruction_id"],
-                instruction_text=instr["instruction_text"],
-                name=instr["name"],
-                agent_type=instr["agent_type"],
-                instruction_type=instr["instruction_type"],
-                version=instr["version"],
-                description=instr["description"],
-                original_user_request=instr.get("original_user_request", ""),
-                converted_instruction=instr.get("converted_instruction", instr["instruction_text"]),
-                created_at=instr["created_at"]
+                instruction_id=agent["instruction_id"],
+                base_instruction=agent["base_instruction"],
+                enhanced_instruction=agent.get("enhanced_instruction", ""),
+                query_augmentation_template=agent.get("query_augmentation_template", ""),
+                agent_type=agent["agent_type"],
+                memory_enabled=agent.get("memory_enabled", False),
+                tool_tracking_enabled=agent.get("tool_tracking_enabled", False),
+                created_at=agent["created_at"],
+                updated_at=agent.get("updated_at", agent["created_at"])
             )
-            for instr in instructions
+            for agent in agents
         ]
 
     except Exception as e:
-        logger.error(f"Error listing agent instructions: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error listing agent instructions: {str(e)}")
+        logger.error(f"Error listing agent configurations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error listing agent configurations: {str(e)}")
 
 
 @app.get("/agent-instructions/by-text", tags=["Agent Instructions"])

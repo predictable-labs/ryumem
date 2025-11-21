@@ -359,31 +359,34 @@ class Ryumem:
 
     def save_agent_instruction(
         self,
-        instruction_text: str,
-        original_user_request: Optional[str] = None,
+        base_instruction: str,
         agent_type: str = "google_adk",
-        instruction_type: str = "agent_instruction",
-        description: str = "",
+        enhanced_instruction: Optional[str] = None,
+        query_augmentation_template: Optional[str] = None,
+        memory_enabled: bool = False,
+        tool_tracking_enabled: bool = False,
     ) -> str:
         """
-        Save an agent instruction to the database.
+        Register or update an agent by its base instruction.
 
         Args:
-            instruction_text: The converted/final instruction text to add to agent prompt
-            original_user_request: Original request from user before conversion (used as lookup key)
+            base_instruction: The agent's original instruction text (used as unique key)
             agent_type: Type of agent (e.g., "google_adk", "custom_agent")
-            instruction_type: Type of instruction (e.g., "tool_tracking", "memory_guidance", "agent_instruction")
-            description: User-friendly description of what this instruction does
+            enhanced_instruction: Instruction with memory/tool guidance added
+            query_augmentation_template: Template for query augmentation
+            memory_enabled: Whether memory features are enabled
+            tool_tracking_enabled: Whether tool tracking is enabled
 
         Returns:
-            UUID of the created instruction
+            UUID of the agent instruction record
         """
         payload = {
-            "instruction_text": instruction_text,
+            "base_instruction": base_instruction,
             "agent_type": agent_type,
-            "instruction_type": instruction_type,
-            "description": description,
-            "original_user_request": original_user_request
+            "enhanced_instruction": enhanced_instruction,
+            "query_augmentation_template": query_augmentation_template,
+            "memory_enabled": memory_enabled,
+            "tool_tracking_enabled": tool_tracking_enabled,
         }
         response = self._post("/agent-instructions", json=payload)
         return response["instruction_id"]
