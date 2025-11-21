@@ -60,7 +60,10 @@ async def lifespan(app: FastAPI):
     embedding_dims = int(os.getenv("RYUMEM_EMBEDDING_DIMENSIONS", "768"))
 
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
+    
+    # 1. Initialize DB for config loading
+    # We need a temporary DB connection just to load/migrate config
+    # Use a separate block/function to ensure init_db is cleaned up and lock released
     def load_initial_config():
         logger.info("Loading initial config from DB...")
         init_db = RyugraphDB(
