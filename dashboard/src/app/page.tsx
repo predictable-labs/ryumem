@@ -22,7 +22,6 @@ import { api, Entity, GraphDataResponse, EntitiesListResponse, Edge } from "@/li
 export default function Home() {
   const [users, setUsers] = useState<string[]>([]);
   const [userId, setUserId] = useState<string>("");
-  const [customerId, setCustomerId] = useState<string>("");
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
   const [refreshStats, setRefreshStats] = useState(0);
 
@@ -46,23 +45,16 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("chat");
   const [selectedToolForAnalytics, setSelectedToolForAnalytics] = useState<string | null>(null);
 
-  // Load users and customer info on mount
+  // Load users on mount
   useEffect(() => {
     const loadData = async () => {
       setIsLoadingUsers(true);
       try {
-        const [usersList, customerInfo] = await Promise.all([
-          api.getUsers(),
-          api.getCustomerMe().catch(() => null)
-        ]);
+        const usersList = await api.getUsers();
 
         setUsers(usersList);
         if (usersList.length > 0) {
           setUserId(usersList[0]); // Set first user as default
-        }
-
-        if (customerInfo) {
-          setCustomerId(customerInfo.customer_id);
         }
       } catch (error) {
         console.error("Failed to load initial data:", error);
@@ -144,28 +136,8 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+    <div className="min-h-0">
       <div className="container mx-auto p-6 max-w-7xl">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Brain className="h-8 w-8 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-4xl font-bold tracking-tight">RyuMem Dashboard</h1>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <p>Bi-temporal Knowledge Graph Memory System</p>
-                {customerId && (
-                  <>
-                    <span>•</span>
-                    <span className="font-medium text-primary">Customer: {customerId}</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* User Selector */}
         <Card className="mb-6">
@@ -202,23 +174,6 @@ export default function Home() {
                   )}
                 </div>
               </div>
-              <Link
-                href="/settings"
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-              >
-                <Cog className="h-4 w-4" />
-                System Settings
-              </Link>
-              <button
-                onClick={() => {
-                  localStorage.removeItem("ryumem_api_key");
-                  window.location.href = "/login";
-                }}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-md hover:bg-red-50 transition-colors"
-              >
-                <LogOut className="h-4 w-4" />
-                Sign Out
-              </button>
             </div>
           </CardContent>
         </Card>
@@ -403,24 +358,8 @@ export default function Home() {
             </Card>
           </TabsContent>
         </Tabs>
-
-        {/* Footer Info */}
-        <div className="mt-12 text-center text-sm text-muted-foreground">
-          <p>
-            Powered by{" "}
-            <a
-              href="https://github.com/predictable-labs/ryumem"
-              className="underline hover:text-primary"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Ryumem
-            </a>{" "}
-            - Memory layer for your agentic workflow.
-          </p>
-        </div>
       </div>
-    </main>
+    </div>
   );
 }
 
