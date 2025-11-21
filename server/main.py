@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,55 +41,76 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# Global config loaded from database at startup
-_app_config: Optional[RyumemConfig] = None
+# Global singleton instance
+_ryumem_instance: Optional[Ryumem] = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for FastAPI app.
+    Handles startup and shutdown events.
+    """
+    # Startup: Initialize Ryumem singleton
+    global _ryumem_instance, _app_config
+    
+    logger.info("Initializing Ryumem singleton...")
+    
+    db_path = os.getenv("RYUMEM_DB_PATH", "./data/ryumem.db")
+    embedding_dims = int(os.getenv("RYUMEM_EMBEDDING_DIMENSIONS", "768"))
+
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+
+    def load_initial_config():
+        logger.info("Loading initial config from DB...")
+        init_db = RyugraphDB(
+            db_path=db_path,
+            embedding_dimensions=embedding_dims,
+        )
+        try:
+            config_service = ConfigService(init_db)
+            config_service.migrate_from_env()
+            return RyumemConfig.from_database(init_db)
+        finally:
+            if hasattr(init_db, 'close'):
+                init_db.close()
+            # Explicitly delete to ensure Ryugraph releases lock if it relies on __del__
+            del init_db
+
+    _app_config = load_initial_config()
+
+    # 2. Initialize the global Ryumem singleton
+    _ryumem_instance = Ryumem(config=_app_config)
+    
+    logger.info("Ryumem singleton initialized successfully")
+    
+    yield
+    
+    # Shutdown: Clean up resources
+    logger.info("Shutting down Ryumem singleton...")
+    if _ryumem_instance:
+        _ryumem_instance.close()
+    logger.info("Ryumem shutdown complete")
 
 
 # Dependency injection for per-request Ryumem instances
 def get_ryumem():
     """
-    Create a new Ryumem instance per request with automatic connection cleanup.
-
-    This ensures:
-    - Database connections are only opened when API requests arrive
-    - Connections are automatically closed after the request completes
-    - No persistent connections that could leak resources
+    Get the global Ryumem singleton instance.
     """
-    db_path = os.getenv("RYUMEM_DB_PATH", "./data/ryumem.db")
-
-    embedding_dims = int(os.getenv("RYUMEM_EMBEDDING_DIMENSIONS", "768"))
-
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    db = RyugraphDB(
-        db_path=db_path,
-        embedding_dimensions=embedding_dims,
-    )
-    
-    config_service = ConfigService(db)
-    config_service.migrate_from_env()
-
-    global _app_config
-    _app_config = RyumemConfig.from_database(db)
-    db.close()
-
-    # Create new instance with context manager for automatic cleanup
-    with Ryumem(config=_app_config) as ryumem:
-        yield ryumem
-    # Connection automatically closed when request completes
+    if _ryumem_instance is None:
+        raise HTTPException(status_code=503, detail="Ryumem not initialized")
+    return _ryumem_instance
 
 
 def get_write_ryumem():
     """
-    Create a new Ryumem instance for WRITE operations.
+    Get the global Ryumem singleton instance for WRITE operations.
+    In the singleton pattern, this is the same instance.
     """
-    # Use global config from database, fallback to environment
-    if _app_config is not None:
-        config = _app_config
-    else:
-        config = RyumemConfig()
-
-    with Ryumem(config=config) as ryumem:
-        yield ryumem
+    if _ryumem_instance is None:
+        raise HTTPException(status_code=503, detail="Ryumem not initialized")
+    return _ryumem_instance
 
 
 # Create FastAPI app
@@ -96,6 +118,7 @@ app = FastAPI(
     title="Ryumem API",
     description="RESTful API for Ryumem - Bi-temporal Knowledge Graph Memory System",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Configure CORS
