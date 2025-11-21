@@ -90,39 +90,48 @@ async def lifespan(app: FastAPI):
 
     # Initialize DB and migrate config if needed (write mode)
     try:
-        # First, create a temporary config from environment to initialize the database
-        # NOTE: Database path (db_path) and read_only mode ALWAYS come from environment variables
-        # They cannot be stored in the database (circular dependency: need path to open database)
-        # Set via: RYUMEM_DB_PATH and RYUMEM_DATABASE_READ_ONLY
-        temp_config = RyumemConfig()
-        # Use safe temporary providers - don't require API keys for database initialization
-        # Real provider settings will be loaded from database after migration
-        temp_config.llm.provider = "ollama"
-        temp_config.llm.model = "llama3.2:3b"
-        temp_config.embedding.provider = "ollama"  # Ollama supports embeddings via /api/embeddings endpoint
-        temp_config.embedding.model = "nomic-embed-text"  # Default Ollama embedding model
-        temp_config.database.read_only = False
+        # Database configuration MUST come from environment variables (circular dependency)
+        # Cannot store db_path in database - we need the path to open the database!
+        # Set via: RYUMEM_DB_PATH and RYUMEM_READ_ONLY
+        db_path = os.getenv("RYUMEM_DB_PATH", "./data/ryumem.db")
+        read_only_mode = os.getenv("RYUMEM_READ_ONLY", "false").lower() == "true"
 
-        with Ryumem(config=temp_config) as ryumem:
-            logger.info(f"Database initialized at {temp_config.database.db_path}")
-            logger.info(f"  (Database location is set via RYUMEM_DB_PATH environment variable)")
+        # Embedding dimensions needed for database schema creation
+        # Try to get from environment, fall back to safe default (768 = common for many models)
+        embedding_dims = int(os.getenv("RYUMEM_EMBEDDING_DIMENSIONS", "768"))
 
-            # Check if configuration migration is needed
-            from ryumem_server.core.config_service import ConfigService
-            config_service = ConfigService(ryumem.db)
+        # Ensure database directory exists
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-            # Migrate from .env if database is empty
-            migrated, skipped = config_service.migrate_from_env()
-            if migrated > 0:
-                logger.info(f"✓ Configuration migrated: {migrated} settings moved to database")
-                logger.info("  Database is now the source of truth for configuration")
-            elif skipped > 0:
-                logger.info(f"  Configuration already in database ({skipped} settings)")
+        # Initialize database directly (without full Ryumem wrapper)
+        # This avoids creating temp_config with default LLM/embedding providers
+        from ryumem_server.core.graph_db import RyugraphDB
+        db = RyugraphDB(
+            db_path=db_path,
+            embedding_dimensions=embedding_dims,
+            read_only=False  # Need write mode for migration
+        )
+        logger.info(f"Database initialized at {db_path}")
+        logger.info(f"  (Database location is set via RYUMEM_DB_PATH environment variable)")
 
-            # Now load config from database for the app
-            global _app_config
-            _app_config = RyumemConfig.from_database(ryumem.db)
-            logger.info("  Loaded configuration from database")
+        # Migrate configuration from .env if this is first run
+        from ryumem_server.core.config_service import ConfigService
+        config_service = ConfigService(db)
+        migrated, skipped = config_service.migrate_from_env()
+
+        if migrated > 0:
+            logger.info(f"✓ Configuration migrated: {migrated} settings moved to database")
+            logger.info("  Database is now the source of truth for configuration")
+        elif skipped > 0:
+            logger.info(f"  Configuration already in database ({skipped} settings)")
+
+        # Load configuration from database for the app
+        global _app_config
+        _app_config = RyumemConfig.from_database(db)
+        logger.info("  Loaded configuration from database")
+
+        # Close the initialization database connection
+        db.close()
 
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")

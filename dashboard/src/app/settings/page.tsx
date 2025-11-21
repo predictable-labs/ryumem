@@ -106,19 +106,19 @@ export default function SettingsPage() {
       // Handle provider-specific field cleanup
       // If LLM provider is not Ollama, set Ollama URL to default (not empty)
       if (updates['llm.provider'] && updates['llm.provider'] !== 'ollama') {
-        updates['llm.ollama_base_url'] = 'http://localhost:11434';
+        updates['llm.ollama_base_url'] = 'http://100.108.18.43:11434';
       } else if (localSettings['llm.provider'] !== 'ollama' && !updates['llm.ollama_base_url']) {
         // Provider wasn't changed but it's still not Ollama - set to default
-        updates['llm.ollama_base_url'] = 'http://localhost:11434';
+        updates['llm.ollama_base_url'] = 'http://100.108.18.43:11434';
       }
 
       // Handle provider-specific field cleanup
       // If LLM provider is not Ollama, set Ollama URL to default (not empty)
       if (updates['embedding.provider'] && updates['embedding.provider'] !== 'ollama') {
-        updates['embedding.ollama_base_url'] = 'http://localhost:11434';
+        updates['embedding.ollama_base_url'] = 'http://100.108.18.43:11434';
       } else if (localSettings['embedding.provider'] !== 'ollama' && !updates['embedding.ollama_base_url']) {
         // Provider wasn't changed but it's still not Ollama - set to default
-        updates['embedding.ollama_base_url'] = 'http://localhost:11434';
+        updates['embedding.ollama_base_url'] = 'http://100.108.18.43:11434';
       }
 
       if (Object.keys(updates).length === 0) {

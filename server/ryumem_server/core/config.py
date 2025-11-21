@@ -34,8 +34,8 @@ class LLMConfig(BaseSettings):
         description="LLM provider: 'openai', 'ollama', 'gemini', or 'litellm'"
     )
     model: str = Field(
-        default="llama3.2:3b",
-        description="LLM model to use (e.g., 'gpt-4o-mini' for OpenAI, 'llama3.2:3b' for Ollama, 'gemini-2.0-flash-exp' for Gemini)"
+        default="qwen2.5:7b",
+        description="LLM model to use (e.g., 'gpt-4o-mini' for OpenAI, 'qwen2.5:7b' for Ollama, 'gemini-2.0-flash-exp' for Gemini)"
     )
 
     # API Keys
@@ -52,7 +52,7 @@ class LLMConfig(BaseSettings):
 
     # Ollama settings
     ollama_base_url: str = Field(
-        default="http://localhost:11434",
+        default="http://100.108.18.43:11434",
         description="Ollama server URL"
     )
 
@@ -136,7 +136,7 @@ class EmbeddingConfig(BaseSettings):
 
     # Ollama settings
     ollama_base_url: str = Field(
-        default="http://localhost:11434",
+        default="http://100.108.18.43:11434",
         description="Ollama server URL for embeddings"
     )
 

@@ -486,7 +486,9 @@ class ConfigService:
             env_values = dotenv_values(".env")
             logger.info(f"Loaded {len(env_values)} values from .env")
         else:
-            logger.info("No .env file found, using default values")
+            logger.warning("No .env file found - using default configuration values")
+            logger.warning("To customize: Create a .env file with RYUMEM_* environment variables")
+            logger.warning("Key settings: RYUMEM_LLM_PROVIDER, RYUMEM_LLM_MODEL, RYUMEM_EMBEDDING_PROVIDER, RYUMEM_EMBEDDING_MODEL")
 
         # Get default configs
         default_configs = self.get_default_configs()
@@ -555,6 +557,7 @@ class ConfigService:
 
         # Migrate configs
         migrated = 0
+        using_defaults = []
         for config in default_configs:
             key = config["key"]
 
@@ -570,6 +573,9 @@ class ConfigService:
                 value = env_values[env_key]
             else:
                 value = config["value"]
+                # Track important defaults being used
+                if key in ["llm.provider", "llm.model", "embedding.provider", "embedding.model"]:
+                    using_defaults.append(f"{key}={value}")
 
             # Save to database
             self.db.save_config(
@@ -583,6 +589,12 @@ class ConfigService:
             migrated += 1
 
         logger.info(f"Migration complete: {migrated} configs saved to database")
+
+        # Warn about important defaults being used
+        if using_defaults and not env_values:
+            logger.warning(f"Using default values for: {', '.join(using_defaults)}")
+            logger.warning("Consider setting these in .env for your use case")
+
         return (migrated, 0)
 
     def load_config_from_database(self) -> RyumemConfig:
@@ -619,13 +631,13 @@ class ConfigService:
         import os
 
         # Get ollama_base_url, ensure it's never None (use default if empty/None)
-        ollama_url = get_value("llm.ollama_base_url", "http://localhost:11434")
+        ollama_url = get_value("llm.ollama_base_url", "http://100.108.18.43:11434")
         if not ollama_url or ollama_url == "":
-            ollama_url = "http://localhost:11434"
+            ollama_url = "http://100.108.18.43:11434"
 
         llm_config = LLMConfig(
             provider=get_value("llm.provider", "ollama"),
-            model=get_value("llm.model", "llama3.2:3b"),
+            model=get_value("llm.model", "qwen2.5:7b"),
             ollama_base_url=ollama_url,
             entity_extraction_temperature=get_value("llm.entity_extraction_temperature", 0.3),
             relation_extraction_temperature=get_value("llm.relation_extraction_temperature", 0.3),
@@ -650,9 +662,9 @@ class ConfigService:
             llm_config.gemini_api_key = gemini_key
 
         # Get embedding ollama_base_url, ensure it's never None
-        embedding_ollama_url = get_value("embedding.ollama_base_url", "http://localhost:11434")
+        embedding_ollama_url = get_value("embedding.ollama_base_url", "http://100.108.18.43:11434")
         if not embedding_ollama_url or embedding_ollama_url == "":
-            embedding_ollama_url = "http://localhost:11434"
+            embedding_ollama_url = "http://100.108.18.43:11434"
 
         embedding_config = EmbeddingConfig(
             provider=get_value("embedding.provider", "ollama"),

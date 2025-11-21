@@ -25,8 +25,8 @@ class OllamaClient:
 
     def __init__(
         self,
-        model: str = "llama3.2:3b",
-        base_url: str = "http://localhost:11434",
+        model: str = "qwen2.5:7b",
+        base_url: str = "http://100.108.18.43:11434",
         max_retries: int = 3,
         timeout: int = 120,
     ):
@@ -34,13 +34,13 @@ class OllamaClient:
         Initialize Ollama client.
 
         Args:
-            model: Ollama model name (e.g., "llama3.2:3b", "mistral", "qwen2.5:7b")
+            model: Ollama model name (e.g., "qwen2.5:7b", "mistral", "qwen2.5:7b")
             base_url: Ollama server URL
             max_retries: Maximum number of retry attempts
             timeout: Request timeout in seconds
 
         Example models:
-            - llama3.2:3b (fast, good quality)
+            - qwen2.5:7b (fast, good quality)
             - mistral:7b (excellent reasoning)
             - qwen2.5:7b (great for structured output)
             - llama3.1:8b (balanced performance)
