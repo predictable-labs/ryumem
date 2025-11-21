@@ -124,9 +124,7 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     # This automatically wraps ALL tools for tracking - nothing else needed!
     # print("⭐ Adding memory + automatic tool tracking + query augmentation...")
     memory = add_memory_to_agent(
-        weather_sentiment_agent,
-        user_id=USER_ID,
-        ryumem_customer_id="demo_company",
+        weather_sentiment_agent
     )
 
     # Session and Runner Setup (standard Google ADK usage)
