@@ -13,7 +13,6 @@ Run with: uvicorn main:app --reload --host 0.0.0.0 --port 8000
 import json
 import logging
 import os
-from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -26,6 +25,9 @@ from pydantic import BaseModel, Field
 from ryumem_server import Ryumem
 from ryumem_server.core.config import RyumemConfig
 from ryumem_server.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
+
+from ryumem_server.core.graph_db import RyugraphDB
+from ryumem_server.core.config_service import ConfigService
 
 # Load environment variables
 load_dotenv()
@@ -52,14 +54,25 @@ def get_ryumem():
     - Connections are automatically closed after the request completes
     - No persistent connections that could leak resources
     """
-    # Use global config from database, fallback to environment
-    if _app_config is not None:
-        config = _app_config
-    else:
-        config = RyumemConfig()
+    db_path = os.getenv("RYUMEM_DB_PATH", "./data/ryumem.db")
+
+    embedding_dims = int(os.getenv("RYUMEM_EMBEDDING_DIMENSIONS", "768"))
+
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    db = RyugraphDB(
+        db_path=db_path,
+        embedding_dimensions=embedding_dims,
+    )
+    
+    config_service = ConfigService(db)
+    config_service.migrate_from_env()
+
+    global _app_config
+    _app_config = RyumemConfig.from_database(db)
+    db.close()
 
     # Create new instance with context manager for automatic cleanup
-    with Ryumem(config=config) as ryumem:
+    with Ryumem(config=_app_config) as ryumem:
         yield ryumem
     # Connection automatically closed when request completes
 
