@@ -636,47 +636,41 @@ async def get_episode_by_session_id(
     Get the latest episode for a session ID.
     """
     try:
-        # Assuming Ryumem DB has this method, if not we might need to implement it or use a cypher query
-        # Checking if ryumem.db has get_episode_by_session_id
-        # If not, we can use execute_cypher logic here or add it to RyugraphDB
-        # For now, let's assume it exists or we implement it via cypher here if needed.
-        # But better to use the method if it exists.
-        # If RyugraphDB doesn't have it, we can do a cypher query here.
-        
-        # Let's try to use the method first, if it fails we can fallback or fix RyugraphDB.
-        # But since I can't see RyugraphDB easily, I'll implement a safe fallback using execute if needed?
-        # No, let's trust it exists or I'll add it to RyugraphDB if I could.
-        # Actually, I can't edit RyugraphDB easily as it's in server/ryumem_server/core/graph_db.py
-        # Let's assume it exists as the client code was using it.
-        
-        episode = ryumem.db.get_episode_by_session_id(session_id)
+        try:
+            episode = ryumem.db.get_episode_by_session_id(session_id)
+        except AttributeError:
+            # Fallback if method doesn't exist on DB object
+            query = """
+            MATCH (e:Episode)
+            WHERE e.session_id = $session_id
+            RETURN e
+            ORDER BY e.created_at DESC
+            LIMIT 1
+            """
+            # Note: session_id is a property on Episode node, or in metadata?
+            # Based on add_episode, it's a property.
+            
+            results = ryumem.db.execute(query, {"session_id": session_id})
+            if results and len(results) > 0:
+                # Result is likely {'e': {...}}
+                data = results[0].data
+                if 'e' in data:
+                    return data['e']
+                return data
+            return None
+
         if not episode:
-             # Return None (200 OK with null body) or 404?
-             # Client expects None if not found usually.
              return None
         
         # Convert to dict if it's a Pydantic model
         if hasattr(episode, "model_dump"):
             return episode.model_dump()
+        if hasattr(episode, "dict"):
+             return episode.dict()
+        if hasattr(episode, "data"): # CypherResult
+            return episode.data
+            
         return episode
-    except AttributeError:
-        # Fallback if method doesn't exist on DB object
-        query = """
-        MATCH (e:Episode)
-        WHERE $session_id IN e.metadata.session_id OR e.metadata.session_id = $session_id
-        RETURN e
-        ORDER BY e.created_at DESC
-        LIMIT 1
-        """
-        # This is a guess at the schema.
-        # Actually, let's look at how get_episode_by_session_id was likely implemented.
-        # It probably looks up by session_id in metadata.
-        # But wait, the previous error said 'DBProxy' object has no attribute 'get_episode_by_session_id'.
-        # This means the CLIENT didn't have it. The original code used it, so RyugraphDB MUST have had it.
-        
-        episode = ryumem.db.get_episode_by_session_id(session_id)
-        return episode
-
     except Exception as e:
         logger.error(f"Error getting episode by session: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error getting episode by session: {str(e)}")
