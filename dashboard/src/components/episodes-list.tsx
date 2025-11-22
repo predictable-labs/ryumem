@@ -73,7 +73,7 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
     offset.current = 0;
     setHasMore(true);
     loadEpisodes(true);
-  }, [search, sortOrder, startDate, endDate, userId]);
+  }, [search, sortOrder, startDate, endDate, userId, loadEpisodes]);
 
   // Infinite scroll observer
   useEffect(() => {
@@ -423,7 +423,7 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
         {/* End Message */}
         {!hasMore && episodes.length > 0 && (
           <div className="text-center py-4 text-sm text-muted-foreground">
-            You've reached the end
+            You&apos;ve reached the end
           </div>
         )}
       </div>

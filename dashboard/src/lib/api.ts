@@ -124,8 +124,13 @@ export interface EntityTypesResponse {
 }
 
 export interface AgentInstruction {
-  instruction_text: string;
-  agent_type?: string;
+  base_instruction: string;
+  enhanced_instruction?: string;
+  query_augmentation_template?: string;
+  agent_type: string;
+  memory_enabled?: boolean;
+  tool_tracking_enabled?: boolean;
+  instruction_text?: string; // Kept for backward compatibility if needed
   instruction_type?: string;
   description?: string;
   user_id?: string;

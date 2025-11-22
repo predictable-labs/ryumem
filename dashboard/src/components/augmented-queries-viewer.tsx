@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api, AugmentedQuery } from '@/lib/api'
 import {
   Card,
@@ -47,25 +47,16 @@ export default function AugmentedQueriesViewer() {
   const [onlyAugmented, setOnlyAugmented] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
 
-  useEffect(() => {
-    loadUsers()
-    loadQueries()
-  }, [])
-
-  useEffect(() => {
-    loadQueries()
-  }, [selectedUser, onlyAugmented])
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       const users = await api.getUsers()
       setAvailableUsers(users)
     } catch (err) {
       console.error('Error loading users:', err)
     }
-  }
+  }, [])
 
-  const loadQueries = async () => {
+  const loadQueries = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
@@ -81,7 +72,16 @@ export default function AugmentedQueriesViewer() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [selectedUser, onlyAugmented])
+
+  useEffect(() => {
+    loadUsers()
+    loadQueries()
+  }, [loadUsers, loadQueries])
+
+  useEffect(() => {
+    loadQueries()
+  }, [loadQueries])
 
   const handleViewDetails = (query: AugmentedQuery, run: any) => {
     setSelectedRun({ query, run })

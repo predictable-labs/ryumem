@@ -90,7 +90,7 @@ export function EpisodeForm({ userId, onEpisodeAdded }: EpisodeFormProps) {
           </SelectContent>
         </Select>
         <p className="text-sm text-muted-foreground">
-          Select the type of content you're adding
+          Select the type of content you&apos;re adding
         </p>
       </div>
 
@@ -120,7 +120,7 @@ export function EpisodeForm({ userId, onEpisodeAdded }: EpisodeFormProps) {
             className="block w-full rounded-md bg-background px-3 py-2 text-left hover:bg-accent transition-colors"
             disabled={isLoading}
           >
-            "Alice works at Google as a Software Engineer in Mountain View."
+            &quot;Alice works at Google as a Software Engineer in Mountain View.&quot;
           </button>
           <button
             type="button"
@@ -128,7 +128,7 @@ export function EpisodeForm({ userId, onEpisodeAdded }: EpisodeFormProps) {
             className="block w-full rounded-md bg-background px-3 py-2 text-left hover:bg-accent transition-colors"
             disabled={isLoading}
           >
-            "Bob graduated from Stanford University in 2020..."
+            &quot;Bob graduated from Stanford University in 2020...&quot;
           </button>
           <button
             type="button"
@@ -136,7 +136,7 @@ export function EpisodeForm({ userId, onEpisodeAdded }: EpisodeFormProps) {
             className="block w-full rounded-md bg-background px-3 py-2 text-left hover:bg-accent transition-colors"
             disabled={isLoading}
           >
-            "Alice and Bob are colleagues and collaborate on ML projects."
+            &quot;Alice and Bob are colleagues and collaborate on ML projects.&quot;
           </button>
         </div>
       </div>

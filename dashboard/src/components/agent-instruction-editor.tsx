@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { api, type AgentInstructionResponse } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -39,12 +39,7 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
   const [editedQueryTemplate, setEditedQueryTemplate] = useState("")
   const [saving, setSaving] = useState(false)
 
-  // Load all cached instructions
-  useEffect(() => {
-    loadInstructions()
-  }, [agentType])
-
-  const loadInstructions = async () => {
+  const loadInstructions = useCallback(async () => {
     setLoading(true)
     setError(null)
 
@@ -62,7 +57,12 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
     } finally {
       setLoading(false)
     }
-  }
+  }, [agentType])
+
+  // Load all cached instructions
+  useEffect(() => {
+    loadInstructions()
+  }, [loadInstructions])
 
   const handleOpenDialog = (instruction: AgentInstructionResponse) => {
     setSelectedInstruction(instruction)

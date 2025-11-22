@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -59,7 +59,7 @@ export function ToolAnalyticsPanel({ userId, preselectedTool }: ToolAnalyticsPan
     loadTools();
   }, []);
 
-  const handleLoadToolMetrics = async (toolName: string) => {
+  const handleLoadToolMetrics = useCallback(async (toolName: string) => {
     setSelectedTool(toolName);
     setIsLoading(true);
 
@@ -72,9 +72,9 @@ export function ToolAnalyticsPanel({ userId, preselectedTool }: ToolAnalyticsPan
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [userId]);
 
-  const handleLoadUserPreferences = async () => {
+  const handleLoadUserPreferences = useCallback(async () => {
     if (!userId) return;
 
     setIsLoading(true);
@@ -87,21 +87,21 @@ export function ToolAnalyticsPanel({ userId, preselectedTool }: ToolAnalyticsPan
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [userId]);
 
   // Load user preferences on mount if userId is provided
   useEffect(() => {
     if (userId) {
       handleLoadUserPreferences();
     }
-  }, [userId]);
+  }, [userId, handleLoadUserPreferences]);
 
   // Auto-load tool metrics when preselected tool changes
   useEffect(() => {
     if (preselectedTool && preselectedTool !== selectedTool) {
       handleLoadToolMetrics(preselectedTool);
     }
-  }, [preselectedTool]);
+  }, [preselectedTool, selectedTool, handleLoadToolMetrics]);
 
   return (
     <div className="space-y-6">

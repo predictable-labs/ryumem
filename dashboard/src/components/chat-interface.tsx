@@ -160,7 +160,7 @@ export function ChatInterface({ userId }: ChatInterfaceProps) {
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold">Results for: "{results.query}"</h3>
+              <h3 className="text-lg font-semibold">Results for: &quot;{results.query}&quot;</h3>
               <p className="text-sm text-muted-foreground">
                 Found {results.count} results using {results.strategy} search
               </p>

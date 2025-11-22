@@ -51,8 +51,8 @@ const getNodeStyle = (type: string) => {
 };
 
 export function GraphVisualization({ data, onNodeClick, onEdgeClick }: GraphVisualizationProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNode, setSelectedNode] = useState<APIGraphNode | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<any | null>(null);
 
@@ -107,7 +107,7 @@ export function GraphVisualization({ data, onNodeClick, onEdgeClick }: GraphVisu
         fill: '#64748b',
         fontWeight: 500,
       },
-      data: edge,
+      data: edge as unknown as Record<string, unknown>,
     }));
 
     setNodes(flowNodes);
