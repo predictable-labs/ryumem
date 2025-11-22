@@ -78,7 +78,7 @@ export function Header() {
                             variant="ghost"
                             size="sm"
                             onClick={handleSignOut}
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10 dark:text-red-400 dark:bg-red-400/10 dark:hover:bg-red-400/20"
                         >
                             <LogOut className="mr-2 h-4 w-4" />
                             Sign Out

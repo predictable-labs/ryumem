@@ -45,7 +45,7 @@ export default function LoginPage() {
 
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4 md:p-8">
-      <Meteors number={30} />
+      <Meteors number={60} />
       <div className="z-10 w-full max-w-md">
         <div className="mb-8 flex flex-col items-center text-center">
           <div className="mb-4 rounded-xl bg-primary/10 p-3">
