@@ -7,9 +7,9 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import ryu as ryugraph
+import ryugraph
 
-from ryumem.core.models import (
+from ryumem_server.core.models import (
     CommunityEdge,
     CommunityNode,
     EntityEdge,
@@ -28,29 +28,25 @@ class RyugraphDB:
     node/edge CRUD operations, and embedding-based similarity search.
     """
 
-    def __init__(self, db_path: str, embedding_dimensions: int = 3072, read_only: bool = False):
+    def __init__(self, db_path: str, embedding_dimensions: int = 3072):
         """
         Initialize Ryugraph database connection.
 
         Args:
             db_path: Path to the ryugraph database directory
             embedding_dimensions: Dimension of embedding vectors (default: 3072 for text-embedding-3-large)
-            read_only: If True, open database in READ_ONLY mode (allows concurrent access)
         """
         self.db_path = db_path
         self.embedding_dimensions = embedding_dimensions
-        self.read_only = read_only
 
         # Create database and connection
-        self.db = ryugraph.Database(db_path, read_only=read_only)
+        self.db = ryugraph.Database(db_path, read_only=False)
         self.conn = ryugraph.Connection(self.db)
 
-        # Initialize schema only in read-write mode
-        if not read_only:
-            self.create_schema()
+        # Initialize schema
+        self.create_schema()
 
-        mode = "READ_ONLY" if read_only else "READ_WRITE"
-        logger.info(f"Initialized RyugraphDB at {db_path} with {embedding_dimensions}D embeddings in {mode} mode")
+        logger.info(f"Initialized RyugraphDB at {db_path} with {embedding_dimensions}D embeddings")
 
     def create_schema(self) -> None:
         """
@@ -83,13 +79,13 @@ class RyugraphDB:
             CREATE NODE TABLE IF NOT EXISTS AgentInstruction(
                 uuid STRING PRIMARY KEY,
                 agent_type STRING,
-                instruction_type STRING,
-                instruction_text STRING,
-                original_user_request STRING,
-                description STRING,
-                version INT64,
-                active BOOLEAN,
-                created_at TIMESTAMP
+                base_instruction STRING,
+                enhanced_instruction STRING,
+                query_augmentation_template STRING,
+                memory_enabled BOOLEAN,
+                tool_tracking_enabled BOOLEAN,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
             );
             """
         )
@@ -104,6 +100,21 @@ class RyugraphDB:
                 name_embedding FLOAT[{self.embedding_dimensions}],
                 mentions INT64,
                 created_at TIMESTAMP
+            );
+            """
+        )
+
+        # SystemConfig nodes for storing application configuration
+        self.execute(
+            """
+            CREATE NODE TABLE IF NOT EXISTS SystemConfig(
+                key STRING PRIMARY KEY,
+                value STRING,
+                category STRING,
+                data_type STRING,
+                is_sensitive BOOLEAN,
+                updated_at TIMESTAMP,
+                description STRING
             );
             """
         )
@@ -509,7 +520,7 @@ class RyugraphDB:
                 sessions = metadata.get('sessions', {})
                 if session_id in sessions:
                     # Convert to EpisodeNode
-                    from ryumem.core.models import EpisodeNode, EpisodeType
+                    from ryumem_server.core.models import EpisodeNode, EpisodeType
                     import math
 
                     # Helper to clean nan/None values
@@ -1379,6 +1390,147 @@ class RyugraphDB:
         """
 
         return self.execute(query)
+
+    # ===== SystemConfig Methods =====
+
+    def save_config(
+        self,
+        key: str,
+        value: str,
+        category: str,
+        data_type: str,
+        is_sensitive: bool = False,
+        description: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Save or update a system configuration value.
+
+        Args:
+            key: Configuration key (e.g., 'llm.provider')
+            value: Configuration value (stored as string, JSON for complex types)
+            category: Configuration category (e.g., 'llm', 'embedding', 'api_keys')
+            data_type: Data type ('string', 'int', 'float', 'bool', 'list')
+            is_sensitive: Whether this is sensitive data (for UI masking)
+            description: Human-readable description
+
+        Returns:
+            Result dictionary
+        """
+        from datetime import datetime, timezone
+
+        query = """
+        MERGE (c:SystemConfig {key: $key})
+        SET
+            c.value = $value,
+            c.category = $category,
+            c.data_type = $data_type,
+            c.is_sensitive = $is_sensitive,
+            c.updated_at = $updated_at,
+            c.description = $description
+        RETURN c.key AS key
+        """
+
+        params = {
+            "key": key,
+            "value": value,
+            "category": category,
+            "data_type": data_type,
+            "is_sensitive": is_sensitive,
+            "updated_at": datetime.now(timezone.utc),
+            "description": description,
+        }
+
+        return self.execute(query, params)
+
+    def get_config(self, key: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a system configuration value by key.
+
+        Args:
+            key: Configuration key
+
+        Returns:
+            Config dictionary or None
+        """
+        query = """
+        MATCH (c:SystemConfig {key: $key})
+        RETURN
+            c.key AS key,
+            c.value AS value,
+            c.category AS category,
+            c.data_type AS data_type,
+            c.is_sensitive AS is_sensitive,
+            c.updated_at AS updated_at,
+            c.description AS description
+        """
+
+        result = self.execute(query, {"key": key})
+        return result[0] if result else None
+
+    def get_all_configs(self) -> List[Dict[str, Any]]:
+        """
+        Get all system configuration values.
+
+        Returns:
+            List of config dictionaries
+        """
+        query = """
+        MATCH (c:SystemConfig)
+        RETURN
+            c.key AS key,
+            c.value AS value,
+            c.category AS category,
+            c.data_type AS data_type,
+            c.is_sensitive AS is_sensitive,
+            c.updated_at AS updated_at,
+            c.description AS description
+        ORDER BY c.category, c.key
+        """
+
+        return self.execute(query)
+
+    def get_configs_by_category(self, category: str) -> List[Dict[str, Any]]:
+        """
+        Get all configuration values for a specific category.
+
+        Args:
+            category: Configuration category
+
+        Returns:
+            List of config dictionaries
+        """
+        query = """
+        MATCH (c:SystemConfig {category: $category})
+        RETURN
+            c.key AS key,
+            c.value AS value,
+            c.category AS category,
+            c.data_type AS data_type,
+            c.is_sensitive AS is_sensitive,
+            c.updated_at AS updated_at,
+            c.description AS description
+        ORDER BY c.key
+        """
+
+        return self.execute(query, {"category": category})
+
+    def delete_config(self, key: str) -> Dict[str, Any]:
+        """
+        Delete a system configuration value.
+
+        Args:
+            key: Configuration key
+
+        Returns:
+            Result dictionary
+        """
+        query = """
+        MATCH (c:SystemConfig {key: $key})
+        DELETE c
+        RETURN $key AS deleted_key
+        """
+
+        return self.execute(query, {"key": key})
 
     def close(self) -> None:
         """Close the database connection"""

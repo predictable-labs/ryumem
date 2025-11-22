@@ -36,118 +36,6 @@ from ryumem import Ryumem
 
 logger = logging.getLogger(__name__)
 
-# Shared thread pool for blocking operations
-_thread_pool = ThreadPoolExecutor(max_workers=4)
-
-# Context variable for parent episode tracking (async-safe)
-# This allows tool executions to be linked to their triggering user query
-# Uses contextvars instead of threading.local for proper async context propagation
-_query_episode_context = contextvars.ContextVar('query_episode_id', default=None)
-
-# Fallback: Session-based storage for episode tracking
-# Used when contextvars don't propagate correctly across async boundaries
-# Key: (session_id, user_id), Value: episode_id
-# Protected by lock for thread safety
-_session_episode_map: Dict[tuple, str] = {}
-_session_episode_lock = threading.RLock()
-
-# Blacklist of Ryumem memory tools to prevent circular dependencies
-# NOTE: Commented out - no actual circular dependency risk with current design
-# Uncomment if you want to exclude memory tools from analytics
-# RYUMEM_TOOL_BLACKLIST = {
-#     "search_memory",
-#     "save_memory",
-#     "get_entity_context",
-# }
-RYUMEM_TOOL_BLACKLIST = set()  # Empty set - track all tools
-
-
-def set_current_query_episode(episode_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
-    """
-    Set the current query episode ID in context variable storage.
-
-    This is called when a user query is processed, allowing subsequent
-    tool executions to link back to the query that triggered them.
-
-    Uses dual storage: contextvars (primary) + session map (fallback)
-
-    Args:
-        episode_id: UUID of the user query episode
-        session_id: Optional session ID for fallback storage
-        user_id: Optional user ID for fallback storage
-    """
-    # Primary: Set in context variable
-    _query_episode_context.set(episode_id)
-
-    # Fallback: Store in session map for contexts where contextvars don't propagate
-    if session_id and user_id:
-        with _session_episode_lock:
-            _session_episode_map[(session_id, user_id)] = episode_id
-        logger.debug(f"Set query episode in both contextvar and session map: {episode_id}")
-    else:
-        logger.debug(f"Set query episode in contextvar only (no session/user): {episode_id}")
-
-
-def get_current_query_episode(session_id: Optional[str] = None, user_id: Optional[str] = None) -> Optional[str]:
-    """
-    Get the current query episode ID from context variable storage or session map.
-
-    Tries contextvars first, falls back to session map if not found.
-
-    Args:
-        session_id: Optional session ID for fallback lookup
-        user_id: Optional user ID for fallback lookup
-
-    Returns:
-        Episode ID of the current query, or None if not set
-    """
-    # Try contextvar first (primary mechanism)
-    episode_id = _query_episode_context.get()
-
-    if episode_id:
-        return episode_id
-
-    # Fallback: Try session map (thread-safe)
-    with _session_episode_lock:
-        # Try exact match first: (session_id, user_id)
-        if session_id and user_id:
-            episode_id = _session_episode_map.get((session_id, user_id))
-            if episode_id:
-                logger.debug(f"Retrieved query episode from session map (contextvar was None): {episode_id}")
-                return episode_id
-
-        # If session_id is None (tool_context doesn't provide it), try finding by user_id alone
-        # This happens when Google ADK's tool_context doesn't include session_id
-        if user_id and not session_id:
-            # Search for any entry with matching user_id
-            for (sid, uid), ep_id in _session_episode_map.items():
-                if uid == user_id:
-                    logger.debug(f"Retrieved query episode from session map by user_id only (session_id was None): {ep_id}")
-                    return ep_id
-
-    return None
-
-
-def clear_current_query_episode(session_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
-    """
-    Clear the current query episode from context variable storage and session map.
-
-    Args:
-        session_id: Optional session ID for clearing from session map
-        user_id: Optional user ID for clearing from session map
-    """
-    # Clear from contextvar
-    _query_episode_context.set(None)
-
-    # Clear from session map (thread-safe)
-    if session_id and user_id:
-        with _session_episode_lock:
-            _session_episode_map.pop((session_id, user_id), None)
-        logger.debug(f"Cleared query episode from both contextvar and session map")
-    else:
-        logger.debug("Cleared query episode from contextvar only")
-
-
 class ToolTracker:
     """
     Automatic tool usage tracker for Google ADK agents.
@@ -157,7 +45,6 @@ class ToolTracker:
 
     Args:
         ryumem: Ryumem instance for storing tool usage data
-        ryumem_customer_id: Customer/company identifier
         default_user_id: Default user ID to use when tool context doesn't provide one
         classification_model: LLM model to use for task classification
         summarize_large_outputs: Automatically summarize outputs >max_output_length
@@ -172,7 +59,6 @@ class ToolTracker:
     def __init__(
         self,
         ryumem: Ryumem,
-        ryumem_customer_id: str,
         default_user_id: Optional[str] = None,
         classification_model: str = "gpt-4o-mini",
         summarize_large_outputs: bool = True,
@@ -182,9 +68,9 @@ class ToolTracker:
         exclude_params: Optional[List[str]] = None,
         sampling_rate: float = 1.0,
         fail_open: bool = True,
+        llm_tool_description: bool = False,
     ):
         self.ryumem = ryumem
-        self.ryumem_customer_id = ryumem_customer_id
         self.default_user_id = default_user_id
         self.classification_model = classification_model
         self.summarize_large_outputs = summarize_large_outputs
@@ -194,6 +80,7 @@ class ToolTracker:
         self.exclude_params = exclude_params or ["password", "api_key", "secret", "token"]
         self.sampling_rate = sampling_rate
         self.fail_open = fail_open
+        self.llm_tool_description = llm_tool_description
         self._execution_count = 0
 
         # Background task management
@@ -201,12 +88,18 @@ class ToolTracker:
         self._background_tasks = set()    # Track background tasks
 
         logger.info(
-            f"Initialized ToolTracker for customer: {ryumem_customer_id}, "
+            f"Initialized ToolTracker "
             f"sampling: {sampling_rate*100}%"
         )
 
     def register_tools(self, tools: List[Dict[str, str]]) -> None:
-        """
+        """ess": true, "duration_ms": 0, "timestamp": "2025-11-20T10:16:39.548231", "input_params": {"guess": "AAAA"}, "output_summary": "{\'valid\': True, \'correct\': False, \'correct_positions\': 2, \'attempts_remaining\': 2, \'message\': \\"\'AAAA\' has 2 characters in the correct position. 2 attempts remaining.\\"}", "error": null}, {"tool_name": "validate_with_password", "success": true, "duration_ms": 0, "timestamp": "2025-11-20T10:16:43.805684", "input_params": {"guess": "BBBB"}, "output_summary": "{\'valid\': True, \'correct\': False, \'correct_positions\': 1, \'attempts_remaining\': 1, \'message\': \\"\'BBBB\' has 1 characters in the correct position. 1 attempts remaining.\\"}", "error": null}, {"tool_name": "get_hint", "success": true, "duration_ms": 0, "timestamp": "2025-11-20T10:16:47.868517", "input_params": {}, "output_summary": "{\'hint\': \\"Now try \'CCCC\' to check for C\'s. This will help you understand the character distribution.\\"}", "error": null}], "llm_saved_memory": ""}]}}'}]
+INFO - Tracked tool execution: validate_with_password - success in 0ms [in query: game_session_7770]
+INFO - Sending out request, model: gemini-2.0-flash-exp, backend: GoogleLLMVariant.GEMINI_API, stream: False
+INFO - Response received from the model.
+INFO - Saved agent response to episode a84642ff-d34c-4394-b196-ae019f203604 session game_ses
+
+
         Register tools in the database at startup.
 
         Only generates descriptions for new tools (doesn't re-process existing ones).
@@ -224,27 +117,27 @@ class ToolTracker:
                     continue
 
                 # Check if tool already exists
-                existing_tool = self.ryumem.db.get_tool_by_name(tool_name)
+                existing_tool = self.ryumem.get_tool_by_name(tool_name)
                 if existing_tool:
                     logger.debug(f"Tool already registered: {tool_name}")
                     continue
 
                 # New tool - generate enhanced description using LLM
                 enhanced_description = tool_description
-                if tool_description:
+                if tool_description and self.llm_tool_description:
                     enhanced_description = self._generate_tool_description(
                         tool_name=tool_name,
                         base_description=tool_description
                     )
 
                 # Create embedding for tool name
-                tool_embedding = self.ryumem.embedding_client.embed(tool_name)
+                embedding_response = self.ryumem.embed(tool_name)
 
                 # Save tool to database
-                self.ryumem.db.save_tool(
+                self.ryumem.save_tool(
                     tool_name=tool_name,
                     description=enhanced_description or f"Tool: {tool_name}",
-                    name_embedding=tool_embedding,
+                    name_embedding=embedding_response.embedding,
                 )
 
                 logger.debug(f"Registered new tool: {tool_name}")
@@ -373,14 +266,14 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             MATCH (e:Episode {uuid: $episode_id})
             RETURN e.metadata AS metadata
             """
-            result = self.ryumem.db.execute(query_fetch, {"episode_id": episode_id})
+            result = self.ryumem.execute(query_fetch, {"episode_id": episode_id})
 
             if not result:
                 logger.error(f"Episode {episode_id} not found")
                 return
 
-            # Parse existing metadata
-            current_metadata_str = result[0].get('metadata', '{}')
+            # Parse existing metadata (result is List[CypherResult])
+            current_metadata_str = result[0].data.get('metadata', '{}')
             metadata_dict = json.loads(current_metadata_str) if isinstance(current_metadata_str, str) else current_metadata_str
 
             # Parse into Pydantic model
@@ -401,7 +294,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                 RETURN e.uuid
                 """
 
-                self.ryumem.db.execute(query_update, {
+                self.ryumem.execute(query_update, {
                     "episode_id": episode_id,
                     "metadata": json.dumps(episode_metadata.model_dump())
                 })
@@ -436,29 +329,10 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             sanitized_params = self._sanitize_params(input_params)
             output_summary = self._summarize_output(output) if success else None
 
-            # Get parent query episode ID from multiple sources (priority order):
-            # 1. Context variable (primary - works for same async context)
-            # 2. Session map (fallback - works cross-context)
-            # 3. Runner instance (most reliable - always available via ToolTracker)
-            parent_episode_id = get_current_query_episode(session_id=session_id, user_id=user_id)
-
-            # If not found in context/session, try getting from runner instance
-            if parent_episode_id is None and hasattr(self, '_runner'):
-                parent_episode_id = getattr(self._runner, '_ryumem_query_episode', None)
-                if parent_episode_id:
-                    logger.debug(f"Retrieved query episode from runner instance: {parent_episode_id}")
-
-            # Defensive logging for debugging context propagation issues
-            if parent_episode_id is None:
-                logger.warning(
-                    f"⚠️  Tool execution '{tool_name}' has no parent query episode. "
-                    f"Session: {session_id}, User: {user_id}. "
-                    "This means the query context was not set or was cleared too early. "
-                    "Tool executions will not be tracked."
-                )
+            episode = self.ryumem.get_episode_by_session_id(session_id)
+            if episode is None:
+                logger.error("Failed to find episode related to session {session_id} to store tool execution")
                 return
-
-            logger.info(f"✓ Recording tool execution '{tool_name}' in query episode: {parent_episode_id}")
 
             # Build tool execution record
             tool_execution = {
@@ -477,9 +351,9 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
-                _thread_pool,
+                None,
                 lambda: self._update_episode_with_tool_execution(
-                    episode_id=parent_episode_id,
+                    episode_id=episode.uuid,
                     session_id=session_id,
                     tool_execution=tool_execution
                 )
@@ -488,7 +362,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             logger.info(
                 f"Tracked tool execution: {tool_name} "
                 f"- {'success' if success else 'failure'} in {duration_ms}ms "
-                f"[in query: {parent_episode_id}]"
+                f"[in query: {session_id}]"
             )
 
         except Exception as e:
@@ -593,110 +467,56 @@ Make it user-friendly and avoid technical jargon. Just return the description te
         _tool_name = tool_name or func.__name__
         _tool_description = tool_description or func.__doc__ or ""
 
-        # Check if function is async
-        is_async = inspect.iscoroutinefunction(func)
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            start_time = time.time()
+            success = True
+            error = None
+            output = None
 
-        if is_async:
-            @functools.wraps(func)
-            async def async_wrapper(*args, **kwargs):
-                start_time = time.time()
-                success = True
-                error = None
-                output = None
+            try:
+                output = func(*args, **kwargs)
+                return output
+            except Exception as e:
+                success = False
+                error = str(e)
+                raise
+            finally:
+                duration_ms = int((time.time() - start_time) * 1000)
 
+                # Extract user_id and session_id from kwargs if available
+                user_id = kwargs.get('user_id')
+                session_id = kwargs.get('session_id')
+
+                # Build input params
+                input_params = {
+                    k: v for k, v in kwargs.items()
+                    if k not in ['user_id', 'session_id']
+                }
+
+                # Track execution
                 try:
-                    output = await func(*args, **kwargs)
-                    return output
-                except Exception as e:
-                    success = False
-                    error = str(e)
-                    raise
-                finally:
-                    duration_ms = int((time.time() - start_time) * 1000)
+                    self.track_execution(
+                        tool_name=_tool_name,
+                        tool_description=_tool_description,
+                        input_params=input_params,
+                        output=output,
+                        success=success,
+                        error=error,
+                        duration_ms=duration_ms,
+                        user_id=user_id,
+                        session_id=session_id,
+                    )
+                except Exception as track_error:
+                    logger.error(f"Tracking failed for {_tool_name}: {track_error}")
+                    if not self.fail_open:
+                        raise
 
-                    # Extract user_id and session_id from kwargs if available
-                    user_id = kwargs.get('user_id')
-                    session_id = kwargs.get('session_id')
-
-                    # Build input params (exclude internal params)
-                    input_params = {
-                        k: v for k, v in kwargs.items()
-                        if k not in ['user_id', 'session_id']
-                    }
-
-                    # Track execution (fire and forget)
-                    try:
-                        self.track_execution(
-                            tool_name=_tool_name,
-                            tool_description=_tool_description,
-                            input_params=input_params,
-                            output=output,
-                            success=success,
-                            error=error,
-                            duration_ms=duration_ms,
-                            user_id=user_id,
-                            session_id=session_id,
-                        )
-                    except Exception as track_error:
-                        logger.error(f"Tracking failed for {_tool_name}: {track_error}")
-                        if not self.fail_open:
-                            raise
-
-            return async_wrapper
-
-        else:
-            @functools.wraps(func)
-            def sync_wrapper(*args, **kwargs):
-                start_time = time.time()
-                success = True
-                error = None
-                output = None
-
-                try:
-                    output = func(*args, **kwargs)
-                    return output
-                except Exception as e:
-                    success = False
-                    error = str(e)
-                    raise
-                finally:
-                    duration_ms = int((time.time() - start_time) * 1000)
-
-                    # Extract user_id and session_id from kwargs if available
-                    user_id = kwargs.get('user_id')
-                    session_id = kwargs.get('session_id')
-
-                    # Build input params
-                    input_params = {
-                        k: v for k, v in kwargs.items()
-                        if k not in ['user_id', 'session_id']
-                    }
-
-                    # Track execution
-                    try:
-                        self.track_execution(
-                            tool_name=_tool_name,
-                            tool_description=_tool_description,
-                            input_params=input_params,
-                            output=output,
-                            success=success,
-                            error=error,
-                            duration_ms=duration_ms,
-                            user_id=user_id,
-                            session_id=session_id,
-                        )
-                    except Exception as track_error:
-                        logger.error(f"Tracking failed for {_tool_name}: {track_error}")
-                        if not self.fail_open:
-                            raise
-
-            return sync_wrapper
+        return sync_wrapper
 
     def wrap_agent_tools(
         self,
         agent,
-        include_tools: Optional[List[str]] = None,
-        exclude_tools: Optional[List[str]] = None,
     ) -> int:
         """
         Wrap all tools in a Google ADK agent for automatic tracking.
@@ -717,11 +537,6 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             logger.warning("Agent has no tools to track")
             return 0
 
-        # Build exclusion list
-        excluded = set(RYUMEM_TOOL_BLACKLIST)
-        if exclude_tools:
-            excluded.update(exclude_tools)
-
         # Try to import FunctionTool (may not be available)
         try:
             from google.adk.tools import FunctionTool
@@ -738,21 +553,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             # Get the actual function to inspect
             func = tool.func if is_function_tool else tool
-
-            # Get tool name
             tool_name = getattr(func, '__name__', f'tool_{i}')
-
-            # Check blacklist
-            if tool_name in excluded:
-                logger.debug(f"Skipping blacklisted tool: {tool_name}")
-                continue
-
-            # Check whitelist if provided
-            if include_tools and tool_name not in include_tools:
-                logger.debug(f"Skipping non-whitelisted tool: {tool_name}")
-                continue
-
-            # Get tool description
             tool_description = getattr(func, '__doc__', None)
 
             # Update the agent's tool list based on type
@@ -773,11 +574,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             wrapped_count += 1
 
-        logger.info(
-            f"Tool tracking enabled: {wrapped_count} tools wrapped, "
-            f"{len(excluded)} excluded (Ryumem memory tools)"
-        )
-
+        logger.info(f"Tool tracking enabled: {wrapped_count} tools wrapped.")
         return wrapped_count
 
     def _wrap_run_async(
@@ -857,9 +654,6 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 def enable_tool_tracking(
     agent,
     ryumem: Ryumem,
-    ryumem_customer_id: Optional[str] = None,
-    include_tools: Optional[List[str]] = None,
-    exclude_tools: Optional[List[str]] = None,
     **tracker_kwargs
 ) -> ToolTracker:
     """
@@ -873,29 +667,10 @@ def enable_tool_tracking(
     Args:
         agent: Google ADK Agent instance
         ryumem: Ryumem instance for storage
-        ryumem_customer_id: Optional customer ID (uses ryumem's default if not provided)
-        include_tools: Optional whitelist of tool names to track
-        exclude_tools: Optional additional tools to exclude (beyond Ryumem tools)
         **tracker_kwargs: Additional arguments for ToolTracker
 
     Returns:
         ToolTracker instance for advanced usage
-
-    Example (DEPRECATED):
-        ```python
-        from google import genai
-        from ryumem.integrations import add_memory_to_agent, enable_tool_tracking
-
-        agent = genai.Agent(name="assistant", model="gemini-2.0-flash")
-        memory = add_memory_to_agent(agent, ryumem_customer_id="my_company")
-
-        # Old way (still works but deprecated)
-        tracker = enable_tool_tracking(
-            agent,
-            ryumem=memory.ryumem,
-            sampling_rate=0.1
-        )
-        ```
 
     Recommended (NEW):
         ```python
@@ -904,29 +679,21 @@ def enable_tool_tracking(
         # New simpler way - one function call!
         memory = add_memory_to_agent(
             agent,
-            ryumem_customer_id="my_company",
             track_tools=True,
             sampling_rate=0.1
         )
         ```
     """
-    # Determine customer ID
-    if ryumem_customer_id is None:
-        # Try to get from ryumem config or use default
-        ryumem_customer_id = "default_customer"
 
     # Create tracker
     tracker = ToolTracker(
         ryumem=ryumem,
-        ryumem_customer_id=ryumem_customer_id,
         **tracker_kwargs
     )
 
     # Use the new wrap_agent_tools method
     tracker.wrap_agent_tools(
         agent,
-        include_tools=include_tools,
-        exclude_tools=exclude_tools
     )
 
     return tracker

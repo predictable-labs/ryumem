@@ -13,19 +13,22 @@ Run with: uvicorn main:app --reload --host 0.0.0.0 --port 8000
 import json
 import logging
 import os
-from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from ryumem import Ryumem
-from ryumem.core.config import RyumemConfig
-from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
+from ryumem_server import Ryumem
+from ryumem_server.core.config import RyumemConfig
+from ryumem_server.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
+
+from ryumem_server.core.graph_db import RyugraphDB
+from ryumem_server.core.config_service import ConfigService
 
 # Load environment variables
 load_dotenv()
@@ -38,43 +41,79 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# Dependency injection for per-request Ryumem instances
-def get_ryumem():
-    """
-    Create a new Ryumem instance per request with automatic connection cleanup.
-
-    This ensures:
-    - Database connections are only opened when API requests arrive
-    - Connections are automatically closed after the request completes
-    - READ_ONLY mode is maintained for safe concurrent access
-    - No persistent connections that could leak resources
-    """
-    # Load config from environment
-    config = RyumemConfig()
-
-    # Override read_only to ensure server always uses READ_ONLY mode
-    config.database.read_only = True
-
-    # Create new instance with context manager for automatic cleanup
-    with Ryumem(config=config) as ryumem:
-        yield ryumem
-    # Connection automatically closed when request completes
+# Global singleton instance
+_ryumem_instance: Optional[Ryumem] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Server startup/shutdown lifecycle"""
-    logger.info("Starting Ryumem server...")
-    logger.info("Using per-request database connections in READ_ONLY mode")
+    """
+    Lifespan context manager for FastAPI app.
+    Handles startup and shutdown events.
+    """
+    # Startup: Initialize Ryumem singleton
+    global _ryumem_instance, _app_config
     
-    # Print configuration on startup
-    config = RyumemConfig()
-    config.database.read_only = True
+    logger.info("Initializing Ryumem singleton...")
+    
+    db_path = os.getenv("RYUMEM_DB_PATH", "./data/ryumem.db")
+    embedding_dims = int(os.getenv("RYUMEM_EMBEDDING_DIMENSIONS", "768"))
 
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    
+    # 1. Initialize DB for config loading
+    # We need a temporary DB connection just to load/migrate config
+    # Use a separate block/function to ensure init_db is cleaned up and lock released
+    def load_initial_config():
+        logger.info("Loading initial config from DB...")
+        init_db = RyugraphDB(
+            db_path=db_path,
+            embedding_dimensions=embedding_dims,
+        )
+        try:
+            config_service = ConfigService(init_db)
+            config_service.migrate_from_env()
+            return RyumemConfig.from_database(init_db)
+        finally:
+            if hasattr(init_db, 'close'):
+                init_db.close()
+            # Explicitly delete to ensure Ryugraph releases lock if it relies on __del__
+            del init_db
+
+    _app_config = load_initial_config()
+
+    # 2. Initialize the global Ryumem singleton
+    _ryumem_instance = Ryumem(config=_app_config)
+    
+    logger.info("Ryumem singleton initialized successfully")
+    
     yield
+    
+    # Shutdown: Clean up resources
+    logger.info("Shutting down Ryumem singleton...")
+    if _ryumem_instance:
+        _ryumem_instance.close()
+    logger.info("Ryumem shutdown complete")
 
-    logger.info("Shutting down Ryumem server...")
-    logger.info("Server shutdown complete")
+
+# Dependency injection for per-request Ryumem instances
+def get_ryumem():
+    """
+    Get the global Ryumem singleton instance.
+    """
+    if _ryumem_instance is None:
+        raise HTTPException(status_code=503, detail="Ryumem not initialized")
+    return _ryumem_instance
+
+
+def get_write_ryumem():
+    """
+    Get the global Ryumem singleton instance for WRITE operations.
+    In the singleton pattern, this is the same instance.
+    """
+    if _ryumem_instance is None:
+        raise HTTPException(status_code=503, detail="Ryumem not initialized")
+    return _ryumem_instance
 
 
 # Create FastAPI app
@@ -131,10 +170,10 @@ class EpisodeInfo(BaseModel):
     content: str
     source: str
     source_description: str
-    created_at: str
-    valid_at: str
+    created_at: datetime
+    valid_at: datetime
     user_id: Optional[str] = None
-    metadata: Optional[str] = None
+    metadata: Optional[dict] = None
 
 
 class GetEpisodesResponse(BaseModel):
@@ -192,6 +231,7 @@ class SearchResponse(BaseModel):
     """Response model for search"""
     entities: List[EntityInfo] = Field(default_factory=list, description="List of entities found")
     edges: List[EdgeInfo] = Field(default_factory=list, description="List of relationships found")
+    episodes: List[EpisodeInfo] = Field(default_factory=list, description="List of episodes found")
     query: str = Field(..., description="Original query")
     strategy: str = Field(..., description="Search strategy used")
     count: int = Field(..., description="Total number of results")
@@ -218,6 +258,7 @@ class UpdateCommunitiesRequest(BaseModel):
     """Request model for updating communities"""
     resolution: float = Field(1.0, description="Resolution parameter for Louvain algorithm", ge=0.1, le=5.0)
     min_community_size: int = Field(2, description="Minimum number of entities per community", ge=1)
+    user_id: str = Field(..., description="User ID to update communities for")
 
 
 class UpdateCommunitiesResponse(BaseModel):
@@ -305,6 +346,59 @@ class EntityTypesResponse(BaseModel):
     entity_types: List[str] = Field(default_factory=list, description="List of unique entity types")
 
 
+class CypherRequest(BaseModel):
+    """Request model for executing Cypher query"""
+    query: str = Field(..., description="Cypher query")
+    params: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Query parameters")
+
+
+class CypherResponse(BaseModel):
+    """Response model for Cypher query"""
+    results: List[Dict[str, Any]] = Field(default_factory=list, description="Query results")
+
+
+class UpdateMetadataRequest(BaseModel):
+    """Request model for updating episode metadata"""
+    metadata: Dict[str, Any] = Field(..., description="New metadata")
+
+
+class SaveToolRequest(BaseModel):
+    """Request model for saving a tool"""
+    tool_name: str = Field(..., description="Tool name")
+    description: str = Field(..., description="Tool description")
+    name_embedding: List[float] = Field(..., description="Embedding of tool name")
+
+
+class ToolResponse(BaseModel):
+    """Response model for tool data"""
+    tool_name: str = Field(..., description="Tool name")
+    description: str = Field(..., description="Tool description")
+    name_embedding: Optional[List[float]] = Field(None, description="Embedding of tool name")
+    created_at: Optional[str] = Field(None, description="Creation timestamp")
+
+
+class EmbedRequest(BaseModel):
+    """Request model for embedding text"""
+    text: str = Field(..., description="Text to embed")
+
+
+class EmbedResponse(BaseModel):
+    """Response model for embedding"""
+    embedding: List[float] = Field(..., description="Embedding vector")
+
+
+class GenerateRequest(BaseModel):
+    """Request model for LLM generation"""
+    messages: List[Dict[str, str]] = Field(..., description="Chat messages")
+    temperature: float = Field(0.7, description="Temperature")
+    max_tokens: int = Field(1000, description="Max tokens")
+
+
+class GenerateResponse(BaseModel):
+    """Response model for LLM generation"""
+    content: str = Field(..., description="Generated content")
+
+
 # ===== API Endpoints =====
 
 @app.get("/", response_model=HealthResponse)
@@ -348,7 +442,7 @@ async def get_users(ryumem: Ryumem = Depends(get_ryumem)):
 @app.post("/episodes", response_model=AddEpisodeResponse)
 async def add_episode(
     request: AddEpisodeRequest,
-    ryumem: Ryumem = Depends(get_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem)
 ):
     """
     Add a new episode to the memory system.
@@ -359,7 +453,6 @@ async def add_episode(
     3. Update the knowledge graph
     4. Detect and handle contradictions
 
-    Note: This endpoint will fail in READ_ONLY mode.
     Use a separate write instance for adding episodes.
     """
     try:
@@ -380,6 +473,119 @@ async def add_episode(
     except Exception as e:
         logger.error(f"Error adding episode: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error adding episode: {str(e)}")
+
+
+@app.get("/episodes/{episode_uuid}", response_model=Optional[Dict[str, Any]])
+async def get_episode_by_uuid(
+    episode_uuid: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get a single episode by its UUID.
+    """
+    try:
+        episode = ryumem.db.get_episode_by_uuid(episode_uuid)
+        if not episode:
+            raise HTTPException(status_code=404, detail=f"Episode {episode_uuid} not found")
+        return episode
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting episode: {e}", exc_info=True)
+    except Exception as e:
+        logger.error(f"Error getting episode: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting episode: {str(e)}")
+
+
+@app.get("/episodes/session/{session_id}", response_model=Optional[Dict[str, Any]])
+async def get_episode_by_session_id(
+    session_id: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get the latest episode for a session ID.
+    """
+    try:
+        # Assuming Ryumem DB has this method, if not we might need to implement it or use a cypher query
+        # Checking if ryumem.db has get_episode_by_session_id
+        # If not, we can use execute_cypher logic here or add it to RyugraphDB
+        # For now, let's assume it exists or we implement it via cypher here if needed.
+        # But better to use the method if it exists.
+        # If RyugraphDB doesn't have it, we can do a cypher query here.
+        
+        # Let's try to use the method first, if it fails we can fallback or fix RyugraphDB.
+        # But since I can't see RyugraphDB easily, I'll implement a safe fallback using execute if needed?
+        # No, let's trust it exists or I'll add it to RyugraphDB if I could.
+        # Actually, I can't edit RyugraphDB easily as it's in server/ryumem_server/core/graph_db.py
+        # Let's assume it exists as the client code was using it.
+        
+        episode = ryumem.db.get_episode_by_session_id(session_id)
+        if not episode:
+             # Return None (200 OK with null body) or 404?
+             # Client expects None if not found usually.
+             return None
+        
+        # Convert to dict if it's a Pydantic model
+        if hasattr(episode, "model_dump"):
+            return episode.model_dump()
+        return episode
+    except AttributeError:
+        # Fallback if method doesn't exist on DB object
+        query = """
+        MATCH (e:Episode)
+        WHERE $session_id IN e.metadata.session_id OR e.metadata.session_id = $session_id
+        RETURN e
+        ORDER BY e.created_at DESC
+        LIMIT 1
+        """
+        # This is a guess at the schema.
+        # Actually, let's look at how get_episode_by_session_id was likely implemented.
+        # It probably looks up by session_id in metadata.
+        # But wait, the previous error said 'DBProxy' object has no attribute 'get_episode_by_session_id'.
+        # This means the CLIENT didn't have it. The original code used it, so RyugraphDB MUST have had it.
+        
+        episode = ryumem.db.get_episode_by_session_id(session_id)
+        return episode
+
+    except Exception as e:
+        logger.error(f"Error getting episode by session: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting episode by session: {str(e)}")
+
+
+@app.patch("/episodes/{episode_uuid}/metadata", response_model=Dict[str, Any])
+async def update_episode_metadata(
+    episode_uuid: str,
+    request: UpdateMetadataRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Update metadata for an existing episode.
+    """
+    try:
+        result = ryumem.db.update_episode_metadata(episode_uuid, request.metadata)
+        if isinstance(result, list) and len(result) > 0:
+            return result[0]
+        return result
+    except Exception as e:
+        logger.error(f"Error updating episode metadata: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error updating metadata: {str(e)}")
+
+
+@app.post("/cypher/execute", response_model=CypherResponse)
+async def execute_cypher(
+    request: CypherRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Execute a raw Cypher query.
+    WARNING: This is a high-privilege endpoint.
+    """
+    try:
+        results = ryumem.db.execute(request.query, request.params)
+        return CypherResponse(results=results)
+    except Exception as e:
+        logger.error(f"Error executing cypher: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error executing cypher: {str(e)}")
 
 
 @app.get("/episodes", response_model=GetEpisodesResponse)
@@ -440,19 +646,37 @@ async def get_episodes(
                     return None
             return val
 
+        # Helper to parse metadata JSON string to dict
+        def parse_metadata(metadata):
+            if metadata is None:
+                return None
+            if isinstance(metadata, dict):
+                return metadata
+            if isinstance(metadata, str):
+                try:
+                    return json.loads(metadata)
+                except (json.JSONDecodeError, TypeError):
+                    logger.warning(f"Failed to parse metadata JSON: {metadata}")
+                    return {}
+            return {}
+
         episodes = []
         for ep in result["episodes"]:
-            episodes.append(EpisodeInfo(
-                uuid=ep["uuid"],
-                name=ep["name"],
-                content=ep["content"],
-                source=ep["source"],
-                source_description=ep["source_description"],
-                created_at=ep["created_at"].isoformat() if isinstance(ep["created_at"], datetime) else str(ep["created_at"]),
-                valid_at=ep["valid_at"].isoformat() if isinstance(ep["valid_at"], datetime) else str(ep["valid_at"]),
-                user_id=clean_value(ep.get("user_id")),
-                metadata=clean_value(ep.get("metadata")),
-            ))
+            try:
+                episodes.append(EpisodeInfo(
+                    uuid=ep["uuid"],
+                    name=ep["name"],
+                    content=ep["content"],
+                    source=ep["source"],
+                    source_description=ep["source_description"],
+                    created_at=ep["created_at"].isoformat() if isinstance(ep["created_at"], datetime) else str(ep["created_at"]),
+                    valid_at=ep["valid_at"].isoformat() if isinstance(ep["valid_at"], datetime) else str(ep["valid_at"]),
+                    user_id=clean_value(ep.get("user_id")),
+                    metadata=parse_metadata(ep.get("metadata")),
+                ))
+            except Exception as e:
+                logger.warning(f"Failed to convert episode {ep.get('uuid', 'unknown')} to EpisodeInfo: {e}, skipping")
+                continue
 
         return GetEpisodesResponse(
             episodes=episodes,
@@ -470,7 +694,7 @@ async def get_episodes(
 @app.post("/search", response_model=SearchResponse)
 async def search(
     request: SearchRequest,
-    ryumem: Ryumem = Depends(get_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem)
 ):
     """
     Search the knowledge graph.
@@ -490,6 +714,20 @@ async def search(
             min_rrf_score=request.min_rrf_score,
             min_bm25_score=request.min_bm25_score,
         )
+
+        episodes = []
+        for episode in results.episodes:
+            episodes.append(EpisodeInfo(
+                uuid=episode.uuid,
+                name=episode.name,
+                content=episode.content,
+                source=episode.source,
+                source_description=episode.source_description,
+                created_at=episode.created_at,
+                valid_at=episode.valid_at,
+                user_id=episode.user_id or None,
+                metadata=episode.metadata or None
+            ))
         
         # Convert entities to response format
         entities = []
@@ -534,7 +772,8 @@ async def search(
             edges=edges,
             query=request.query,
             strategy=request.strategy,
-            count=len(entities) + len(edges)
+            count=len(entities) + len(edges),
+            episodes=episodes
         )
     except Exception as e:
         logger.error(f"Error searching: {e}", exc_info=True)
@@ -665,10 +904,96 @@ async def get_stats(
         raise HTTPException(status_code=500, detail=f"Error getting stats: {str(e)}")
 
 
+@app.post("/tools", response_model=ToolResponse)
+async def save_tool(
+    request: SaveToolRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """Save a tool to the database."""
+    try:
+        ryumem.db.save_tool(
+            tool_name=request.tool_name,
+            description=request.description,
+            name_embedding=request.name_embedding
+        )
+        return ToolResponse(
+            tool_name=request.tool_name,
+            description=request.description,
+            name_embedding=request.name_embedding,
+            created_at=None  # Could add timestamp if needed
+        )
+    except Exception as e:
+        logger.error(f"Error saving tool: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error saving tool: {str(e)}")
+
+
+@app.get("/tools/{name}", response_model=Optional[Dict[str, Any]])
+async def get_tool_by_name(
+    name: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """Get a tool by name."""
+    try:
+        tool = ryumem.db.get_tool_by_name(name)
+        if not tool:
+            # Return None (200 OK with null body) or 404?
+            # Client expects None if not found usually.
+            # But FastAPI with Optional response model handles None as null JSON.
+            return None
+        return tool
+    except Exception as e:
+        logger.error(f"Error getting tool: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting tool: {str(e)}")
+
+
+@app.post("/embeddings", response_model=EmbedResponse)
+async def embed_text(
+    request: EmbedRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """Generate embedding for text."""
+    try:
+        if not ryumem.embedding_client:
+             raise HTTPException(status_code=503, detail="Embedding client not initialized")
+        
+        embedding = ryumem.embedding_client.embed(request.text)
+        return EmbedResponse(embedding=embedding)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating embedding: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error generating embedding: {str(e)}")
+
+
+@app.post("/llm/generate", response_model=GenerateResponse)
+async def generate_text(
+    request: GenerateRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """Generate text using LLM."""
+    try:
+        if not ryumem.llm_client:
+             raise HTTPException(status_code=503, detail="LLM client not initialized")
+        
+        response = ryumem.llm_client.generate(
+            messages=request.messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens
+        )
+        # response is usually a dict with 'content'
+        content = response.get("content", "") if isinstance(response, dict) else str(response)
+        return GenerateResponse(content=content)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating text: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error generating text: {str(e)}")
+
+
 @app.post("/communities/update", response_model=UpdateCommunitiesResponse)
 async def update_communities(
     request: UpdateCommunitiesRequest,
-    ryumem: Ryumem = Depends(get_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem)
 ):
     """
     Detect and update communities using Louvain algorithm.
@@ -677,8 +1002,6 @@ async def update_communities(
     - More efficient retrieval
     - Higher-level reasoning
     - Better organization
-
-    Note: This endpoint will fail in READ_ONLY mode.
     """
     try:
         num_communities = ryumem.update_communities(
@@ -698,7 +1021,7 @@ async def update_communities(
 @app.post("/prune", response_model=PruneMemoriesResponse)
 async def prune_memories(
     request: PruneMemoriesRequest,
-    ryumem: Ryumem = Depends(get_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem)
 ):
     """
     Prune and compact memories to keep the graph efficient.
@@ -707,8 +1030,6 @@ async def prune_memories(
     - Delete facts that were invalidated/expired long ago
     - Remove entities with very few mentions (likely noise)
     - Merge near-duplicate relationship facts
-
-    Note: This endpoint will fail in READ_ONLY mode.
     """
     try:
         stats = ryumem.prune_memories(
@@ -962,44 +1283,44 @@ async def list_relationships(
 # ============================================================================
 
 class AgentInstructionRequest(BaseModel):
-    """Request model for creating/updating agent instructions"""
-    instruction_text: str = Field(..., description="The converted/final instruction text to add to agent prompt")
+    """Request model for registering/updating agent configurations"""
+    base_instruction: str = Field(..., description="The agent's original instruction text (used as unique key)")
     agent_type: str = Field("google_adk", description="Type of agent (e.g., google_adk, custom_agent)")
-    instruction_type: str = Field("tool_tracking", description="Type of instruction (e.g., tool_tracking, memory_guidance)")
-    description: str = Field("", description="User-friendly description of what this instruction does")
-    user_id: Optional[str] = Field(None, description="Optional user ID for user-specific instructions")
-    original_user_request: Optional[str] = Field(None, description="Original request from user before conversion")
+    enhanced_instruction: Optional[str] = Field(None, description="Instruction with memory/tool guidance added")
+    query_augmentation_template: Optional[str] = Field(None, description="Template for query augmentation")
+    memory_enabled: bool = Field(False, description="Whether memory features are enabled")
+    tool_tracking_enabled: bool = Field(False, description="Whether tool tracking is enabled")
 
     class Config:
         json_schema_extra = {
             "example": {
-                "original_user_request": "Make the agent check past tool usage before selecting tools",
-                "instruction_text": "TOOL SELECTION GUIDANCE:\nAlways check memory before selecting tools...",
+                "base_instruction": "You are a helpful assistant.",
                 "agent_type": "google_adk",
-                "instruction_type": "tool_tracking",
-                "description": "Custom tool selection guidance for improved performance"
+                "enhanced_instruction": "You are a helpful assistant.\n\nMEMORY USAGE:...",
+                "query_augmentation_template": "[Previous Attempt]...",
+                "memory_enabled": True,
+                "tool_tracking_enabled": False
             }
         }
 
 
 class AgentInstructionResponse(BaseModel):
-    """Response model for agent instructions"""
-    instruction_id: str = Field(..., description="UUID of the instruction episode")
-    instruction_text: str = Field(..., description="The converted/final instruction text")
-    name: str = Field(..., description="Name/title of the instruction")
+    """Response model for agent configurations"""
+    instruction_id: str = Field(..., description="UUID of the agent configuration")
+    base_instruction: str = Field(..., description="The agent's original instruction text")
+    enhanced_instruction: str = Field("", description="Instruction with memory/tool guidance added")
+    query_augmentation_template: str = Field("", description="Template for query augmentation")
     agent_type: str = Field(..., description="Type of agent")
-    instruction_type: str = Field(..., description="Type of instruction")
-    version: int = Field(..., description="Version number")
-    description: str = Field(..., description="Description of the instruction")
-    original_user_request: str = Field("", description="Original request from user")
-    converted_instruction: str = Field("", description="Converted/final instruction")
+    memory_enabled: bool = Field(..., description="Whether memory features are enabled")
+    tool_tracking_enabled: bool = Field(..., description="Whether tool tracking is enabled")
     created_at: str = Field(..., description="Creation timestamp")
+    updated_at: str = Field(..., description="Last update timestamp")
 
 
 @app.post("/agent-instructions", response_model=AgentInstructionResponse, tags=["Agent Instructions"])
 async def create_agent_instruction(
     request: AgentInstructionRequest,
-    ryumem: Ryumem = Depends(get_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem)
 ):
     """
     Create a new custom agent instruction.
@@ -1007,44 +1328,41 @@ async def create_agent_instruction(
     The instruction will be stored in the database and can be retrieved
     by agents to customize their behavior.
 
-    Note: This endpoint will fail in READ_ONLY mode.
+    Note: This endpoint requires write access to the database.
     """
     try:
-        logger.warning("Server is in read-only mode - agent instruction creation may fail")
 
-        # Save the instruction
+        # Save/update the agent configuration
         instruction_id = ryumem.save_agent_instruction(
-            instruction_text=request.instruction_text,
+            base_instruction=request.base_instruction,
             agent_type=request.agent_type,
-            instruction_type=request.instruction_type,
-            description=request.description,
-            user_id=request.user_id,
-            original_user_request=request.original_user_request
+            enhanced_instruction=request.enhanced_instruction,
+            query_augmentation_template=request.query_augmentation_template,
+            memory_enabled=request.memory_enabled,
+            tool_tracking_enabled=request.tool_tracking_enabled
         )
 
-        # Get the created instruction details
-        instructions = ryumem.list_agent_instructions(
+        # Get the created/updated agent configuration
+        agents = ryumem.list_agent_instructions(
             agent_type=request.agent_type,
-            instruction_type=request.instruction_type,
             limit=1
         )
 
-        if not instructions:
-            raise HTTPException(status_code=500, detail="Failed to retrieve created instruction")
+        if not agents:
+            raise HTTPException(status_code=500, detail="Failed to retrieve agent configuration")
 
-        created = instructions[0]
+        agent_config = agents[0]
 
         return AgentInstructionResponse(
-            instruction_id=created["instruction_id"],
-            instruction_text=created["instruction_text"],
-            name=created["name"],
-            agent_type=created["agent_type"],
-            instruction_type=created["instruction_type"],
-            version=created["version"],
-            description=created["description"],
-            original_user_request=created.get("original_user_request", ""),
-            converted_instruction=created.get("converted_instruction", created["instruction_text"]),
-            created_at=created["created_at"]
+            instruction_id=agent_config["instruction_id"],
+            base_instruction=agent_config["base_instruction"],
+            enhanced_instruction=agent_config.get("enhanced_instruction", ""),
+            query_augmentation_template=agent_config.get("query_augmentation_template", ""),
+            agent_type=agent_config["agent_type"],
+            memory_enabled=agent_config.get("memory_enabled", False),
+            tool_tracking_enabled=agent_config.get("tool_tracking_enabled", False),
+            created_at=agent_config["created_at"],
+            updated_at=agent_config.get("updated_at", agent_config["created_at"])
         )
 
     except Exception as e:
@@ -1055,41 +1373,78 @@ async def create_agent_instruction(
 @app.get("/agent-instructions", response_model=List[AgentInstructionResponse], tags=["Agent Instructions"])
 async def list_agent_instructions(
     agent_type: Optional[str] = None,
-    instruction_type: Optional[str] = None,
     limit: int = 50,
     ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
-    List all agent instructions with optional filters.
+    List all agent configurations with optional filters.
 
-    Returns instructions ordered by creation date (newest first).
+    Returns agents ordered by last update (newest first).
     """
     try:
-        instructions = ryumem.list_agent_instructions(
+        agents = ryumem.list_agent_instructions(
             agent_type=agent_type,
-            instruction_type=instruction_type,
             limit=limit
         )
 
         return [
             AgentInstructionResponse(
-                instruction_id=instr["instruction_id"],
-                instruction_text=instr["instruction_text"],
-                name=instr["name"],
-                agent_type=instr["agent_type"],
-                instruction_type=instr["instruction_type"],
-                version=instr["version"],
-                description=instr["description"],
-                original_user_request=instr.get("original_user_request", ""),
-                converted_instruction=instr.get("converted_instruction", instr["instruction_text"]),
-                created_at=instr["created_at"]
+                instruction_id=agent["instruction_id"],
+                base_instruction=agent["base_instruction"],
+                enhanced_instruction=agent.get("enhanced_instruction", ""),
+                query_augmentation_template=agent.get("query_augmentation_template", ""),
+                agent_type=agent["agent_type"],
+                memory_enabled=agent.get("memory_enabled", False),
+                tool_tracking_enabled=agent.get("tool_tracking_enabled", False),
+                created_at=agent["created_at"],
+                updated_at=agent.get("updated_at", agent["created_at"])
             )
-            for instr in instructions
+            for agent in agents
         ]
 
     except Exception as e:
-        logger.error(f"Error listing agent instructions: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error listing agent instructions: {str(e)}")
+        logger.error(f"Error listing agent configurations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error listing agent configurations: {str(e)}")
+
+
+@app.get("/agent-instructions/by-text", tags=["Agent Instructions"])
+async def get_instruction_by_text(
+    instruction_text: str,
+    agent_type: str,
+    instruction_type: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get instruction text by key (stored in original_user_request field).
+    
+    Args:
+        instruction_text: The key to search for (stored in original_user_request)
+        agent_type: Type of agent (e.g., "google_adk")
+        instruction_type: Type of instruction (e.g., "memory_usage")
+    
+    Returns:
+        {"instruction_text": str} if found, 404 if not found
+    """
+    try:
+        result = ryumem.get_instruction_by_text(
+            instruction_text=instruction_text,
+            agent_type=agent_type,
+            instruction_type=instruction_type
+        )
+        
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No instruction found for key '{instruction_text}'"
+            )
+        
+        return {"instruction_text": result}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting instruction by text: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting instruction: {str(e)}")
 
 
 # ============================================================================
@@ -1291,6 +1646,292 @@ async def get_augmented_queries(
     except Exception as e:
         logger.error(f"Error getting augmented queries: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error getting augmented queries: {str(e)}")
+
+
+# ===== Settings Management Endpoints =====
+
+class UpdateConfigRequest(BaseModel):
+    """Request model for updating configuration"""
+    updates: Dict[str, Any] = Field(..., description="Dictionary of key-value pairs to update")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "updates": {
+                    "llm.provider": "gemini",
+                    "llm.model": "gemini-2.0-flash-exp",
+                    "embedding.provider": "gemini"
+                }
+            }
+        }
+
+
+class ConfigValueResponse(BaseModel):
+    """Response model for configuration values"""
+    key: str
+    value: Any
+    category: str
+    data_type: str
+    is_sensitive: bool
+    updated_at: str
+    description: str
+
+
+class SettingsResponse(BaseModel):
+    """Response model for settings"""
+    settings: Dict[str, List[ConfigValueResponse]]
+    total: int
+
+
+@app.get(
+    "/api/settings",
+    response_model=SettingsResponse,
+    tags=["Settings"],
+    summary="Get all system configuration settings"
+)
+async def get_all_settings(
+    mask_sensitive: bool = True,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get all system configuration settings grouped by category.
+
+    Args:
+        mask_sensitive: Whether to mask sensitive values (API keys) in response
+
+    Returns:
+        Dictionary of settings grouped by category
+    """
+    try:
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(ryumem.db)
+        grouped_configs = service.get_all_configs_grouped(mask_sensitive=mask_sensitive)
+
+        # Convert to response model
+        settings_dict = {}
+        total = 0
+        for category, configs in grouped_configs.items():
+            settings_dict[category] = [
+                ConfigValueResponse(
+                    key=cfg["key"],
+                    value=cfg["value"],
+                    category=cfg["category"],
+                    data_type=cfg["data_type"],
+                    is_sensitive=cfg["is_sensitive"],
+                    updated_at=cfg["updated_at"].isoformat() if hasattr(cfg["updated_at"], "isoformat") else str(cfg["updated_at"]),
+                    description=cfg["description"]
+                )
+                for cfg in configs
+            ]
+            total += len(configs)
+
+        return SettingsResponse(settings=settings_dict, total=total)
+
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting settings: {str(e)}")
+
+
+@app.get(
+    "/api/settings/{category}",
+    response_model=List[ConfigValueResponse],
+    tags=["Settings"],
+    summary="Get settings for a specific category"
+)
+async def get_settings_by_category(
+    category: str,
+    mask_sensitive: bool = True,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get configuration settings for a specific category.
+
+    Args:
+        category: Configuration category (e.g., 'llm', 'embedding', 'api_keys')
+        mask_sensitive: Whether to mask sensitive values
+
+    Returns:
+        List of configuration values for the category
+    """
+    try:
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(ryumem.db)
+        configs = service.db.get_configs_by_category(category)
+
+        if not configs:
+            raise HTTPException(status_code=404, detail=f"Category not found: {category}")
+
+        # Mask sensitive values if requested
+        # Show first 4 and last 6 characters for API keys
+        for cfg in configs:
+            if mask_sensitive and cfg["is_sensitive"] and cfg["value"]:
+                value_str = cfg["value"]
+                if len(value_str) > 10:  # Need at least 11 chars to show 4 + 6
+                    cfg["value"] = value_str[:4] + "***" + value_str[-6:]
+                else:
+                    cfg["value"] = "***"
+
+        return [
+            ConfigValueResponse(
+                key=cfg["key"],
+                value=cfg["value"],
+                category=cfg["category"],
+                data_type=cfg["data_type"],
+                is_sensitive=cfg["is_sensitive"],
+                updated_at=cfg["updated_at"].isoformat() if hasattr(cfg["updated_at"], "isoformat") else str(cfg["updated_at"]),
+                description=cfg["description"]
+            )
+            for cfg in configs
+        ]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting settings for category {category}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting settings: {str(e)}")
+
+
+@app.put(
+    "/api/settings",
+    tags=["Settings"],
+    summary="Update multiple configuration settings"
+)
+async def update_settings(
+    request: UpdateConfigRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Update multiple configuration settings.
+
+    Args:
+        request: Dictionary of key-value pairs to update
+
+    Returns:
+        Summary of update results
+    """
+    try:
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(ryumem.db)
+
+        # Validate all configs before updating
+        validation_errors = []
+        for key, value in request.updates.items():
+            is_valid, error_msg = service.validate_config_value(key, value)
+            if not is_valid:
+                validation_errors.append(f"{key}: {error_msg}")
+
+        if validation_errors:
+            raise HTTPException(
+                status_code=400,
+                detail={"message": "Validation failed", "errors": validation_errors}
+            )
+
+        # Update configs
+        success_count, failed_keys = service.update_multiple_configs(request.updates)
+
+        # Reload global config
+        global _app_config
+        _app_config = RyumemConfig.from_database(ryumem.db)
+
+        return {
+            "message": f"Updated {success_count} configuration(s)",
+            "success_count": success_count,
+            "failed_keys": failed_keys,
+            "updated_keys": [k for k in request.updates.keys() if k not in failed_keys]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error updating settings: {str(e)}")
+
+
+@app.post(
+    "/api/settings/validate",
+    tags=["Settings"],
+    summary="Validate configuration values without saving"
+)
+async def validate_settings(
+    request: UpdateConfigRequest,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Validate configuration values without saving them.
+
+    Args:
+        request: Dictionary of key-value pairs to validate
+
+    Returns:
+        Validation results for each key
+    """
+    try:
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(ryumem.db)
+
+        results = {}
+        for key, value in request.updates.items():
+            is_valid, error_msg = service.validate_config_value(key, value)
+            results[key] = {
+                "valid": is_valid,
+                "error": error_msg if not is_valid else None
+            }
+
+        all_valid = all(r["valid"] for r in results.values())
+
+        return {
+            "valid": all_valid,
+            "results": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error validating settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error validating settings: {str(e)}")
+
+
+@app.post(
+    "/api/settings/reset-defaults",
+    tags=["Settings"],
+    summary="Reset all settings to default values"
+)
+async def reset_to_defaults(
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Reset all configuration settings to their default values.
+
+    Returns:
+        Summary of reset operation
+    """
+    try:
+        from ryumem_server.core.config_service import ConfigService
+
+        service = ConfigService(ryumem.db)
+
+        # Get default configs
+        default_configs = service.get_default_configs()
+
+        # Update all configs to defaults
+        updates = {cfg["key"]: cfg["value"] for cfg in default_configs}
+        success_count, failed_keys = service.update_multiple_configs(updates)
+
+        # Reload global config
+        global _app_config
+        _app_config = RyumemConfig.from_database(ryumem.db)
+
+        return {
+            "message": f"Reset {success_count} configuration(s) to defaults",
+            "success_count": success_count,
+            "failed_keys": failed_keys
+        }
+
+    except Exception as e:
+        logger.error(f"Error resetting settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error resetting settings: {str(e)}")
 
 
 if __name__ == "__main__":

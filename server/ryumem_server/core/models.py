@@ -41,13 +41,13 @@ class EpisodeNode(BaseModel):
     Each episode captures a message, JSON, or text at a point in time.
     """
     uuid: str = Field(default_factory=lambda: str(uuid4()))
-    name: str = Field(default='', description='Name/title of the episode')
-    content: str = Field(default='', description='Raw episode data/content')
+    name: str = Field(description='Name/title of the episode')
+    content: str = Field(description='Raw episode data/content')
     content_embedding: list[float] | None = Field(
         default=None,
         description='Embedding vector for the episode content'
     )
-    source: EpisodeType = Field(default=EpisodeType.text, description='Source type of episode')
+    source: EpisodeType = Field(description='Source type of episode')
     source_description: str = Field(default='', description='Description of the data source')
     created_at: datetime = Field(default_factory=datetime.utcnow)
     valid_at: datetime = Field(
@@ -76,14 +76,6 @@ class EpisodeNode(BaseModel):
                 "user_id": "user_123",
             }
         }
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """Support dictionary-style .get() access."""
-        return getattr(self, key, default)
-
-    def __getitem__(self, key: str) -> Any:
-        """Support dictionary-style [] access."""
-        return getattr(self, key)
 
 
 class EntityNode(BaseModel):
@@ -349,69 +341,5 @@ class RyumemConfig(BaseModel):
                 "openai_api_key": "sk-...",
                 "llm_model": "gpt-4",
                 "embedding_model": "text-embedding-3-large"
-            }
-        }
-
-
-# Client SDK response models
-
-class ToolNode(BaseModel):
-    """Represents a tool in the system."""
-    tool_name: str = Field(description='Name of the tool')
-    description: str = Field(description='Description of what the tool does')
-    name_embedding: list[float] | None = Field(
-        default=None,
-        description='Embedding vector for the tool name'
-    )
-    created_at: datetime | None = Field(default=None, description='When the tool was registered')
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "tool_name": "search_memory",
-                "description": "Search through memory for relevant information",
-                "name_embedding": [0.1, 0.2, 0.3]
-            }
-        }
-
-
-class CypherResult(BaseModel):
-    """Generic container for Cypher query results."""
-    data: dict[str, Any] = Field(default_factory=dict, description='Result data from query')
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "data": {"uuid": "123", "name": "John", "count": 5}
-            }
-        }
-
-
-class EmbeddingResponse(BaseModel):
-    """Response from embedding generation."""
-    embedding: list[float] = Field(description='The embedding vector')
-    model: str | None = Field(default=None, description='Model used for embedding')
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "embedding": [0.1, 0.2, 0.3],
-                "model": "text-embedding-3-large"
-            }
-        }
-
-
-class LLMResponse(BaseModel):
-    """Response from LLM generation."""
-    content: str = Field(description='Generated text content')
-    model: str | None = Field(default=None, description='Model used for generation')
-    tokens_used: int | None = Field(default=None, description='Number of tokens used')
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "content": "This is the generated response",
-                "model": "gpt-4",
-                "tokens_used": 150
             }
         }

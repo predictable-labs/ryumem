@@ -109,14 +109,14 @@ from ryumem import Ryumem
 # Prerequisites:
 # 1. Install Ollama: https://ollama.ai
 # 2. Start Ollama: ollama serve
-# 3. Pull a model: ollama pull llama3.2:3b
+# 3. Pull a model: ollama pull qwen2.5:7b
 
 # Initialize with Ollama for local LLM inference
 ryumem = Ryumem(
     db_path="./data/memory.db",
     llm_provider="ollama",  # Use local Ollama instead of OpenAI
-    llm_model="llama3.2:3b",  # Local model (fast, good quality)
-    ollama_base_url="http://localhost:11434",  # Default Ollama URL
+    llm_model="qwen2.5:7b",  # Local model (fast, good quality)
+    ollama_base_url="http://100.108.18.43:11434",  # Default Ollama URL
     openai_api_key="sk-...",  # Still required for embeddings
 )
 
@@ -128,7 +128,7 @@ ryumem.add_episode(
 ```
 
 **Recommended Ollama models:**
-- `llama3.2:3b` - Fast inference, good quality (recommended for development)
+- `qwen2.5:7b` - Fast inference, good quality (recommended for development)
 - `mistral:7b` - Excellent reasoning capabilities
 - `qwen2.5:7b` - Great for structured output and JSON
 - `llama3.1:8b` - Balanced performance and quality
@@ -282,29 +282,32 @@ Ryumem now implements the **complete** Combined Conceptual Architecture from the
 
 ### Environment Variables
 
-Create a `.env` file:
+Ryumem uses environment variables for configuration. You can set these in your shell or use a `.env` file in your working directory.
+
+**For Examples:**
+Check `examples/.env.example` for a template when running scripts in the `examples/` directory.
+
+**For Server:**
+Check `server/.env.example` for a template when running the API server.
+
+**Common Variables:**
 
 ```bash
 # OpenAI API Key (required for embeddings, and for LLM if using OpenAI)
 OPENAI_API_KEY=sk-...
 
 # LLM Provider (optional, default: openai)
-RYUMEM_LLM_PROVIDER=openai  # or "ollama" for local inference
+RYUMEM_LLM_PROVIDER=openai  # or "ollama", "gemini", "litellm"
 
 # Ollama settings (when using llm_provider="ollama")
-RYUMEM_OLLAMA_BASE_URL=http://localhost:11434
-RYUMEM_LLM_MODEL=llama3.2:3b  # Ollama model name
+RYUMEM_LLM_OLLAMA_BASE_URL=http://100.108.18.43:11434
+RYUMEM_LLM_MODEL=qwen2.5:7b
 
 # OpenAI settings (when using llm_provider="openai")
-RYUMEM_LLM_MODEL=gpt-4  # OpenAI model name
+RYUMEM_LLM_MODEL=gpt-4o
 
-# Other optional settings (with defaults)
+# Database Path
 RYUMEM_DB_PATH=./data/memory.db
-RYUMEM_EMBEDDING_MODEL=text-embedding-3-large
-RYUMEM_EMBEDDING_DIMENSIONS=3072
-RYUMEM_ENTITY_SIMILARITY_THRESHOLD=0.7
-RYUMEM_RELATIONSHIP_SIMILARITY_THRESHOLD=0.8
-RYUMEM_MAX_CONTEXT_EPISODES=5
 ```
 
 ### Programmatic Configuration
@@ -325,8 +328,8 @@ ryumem = Ryumem(
 ryumem = Ryumem(
     db_path="./data/memory.db",
     llm_provider="ollama",
-    llm_model="llama3.2:3b",
-    ollama_base_url="http://localhost:11434",
+    llm_model="qwen2.5:7b",
+    ollama_base_url="http://100.108.18.43:11434",
     openai_api_key="sk-...",  # Still needed for embeddings
 )
 
@@ -334,7 +337,7 @@ ryumem = Ryumem(
 config = RyumemConfig(
     db_path="./data/memory.db",
     llm_provider="ollama",
-    llm_model="llama3.2:3b",
+    llm_model="qwen2.5:7b",
     openai_api_key="sk-...",
 )
 ryumem = Ryumem(config=config)
@@ -514,12 +517,12 @@ memory.save_memory(
 
 **Why Ryumem > mem0?**
 
-| Feature | mem0 | Ryumem |
-|---------|------|--------|
-| Setup Code | ~20 lines | **1 line** |
-| Custom Functions | Must write | **Auto-generated** |
-| Memory Type | Flat | **Knowledge Graph** |
-| Local LLMs | Limited | **Full Ollama Support** |
+| Feature          | mem0       | Ryumem                  |
+| ---------------- | ---------- | ----------------------- |
+| Setup Code       | ~20 lines  | **1 line**              |
+| Custom Functions | Must write | **Auto-generated**      |
+| Memory Type      | Flat       | **Knowledge Graph**     |
+| Local LLMs       | Limited    | **Full Ollama Support** |
 
 See [docs/GOOGLE_ADK_INTEGRATION.md](docs/GOOGLE_ADK_INTEGRATION.md) for the complete guide.
 

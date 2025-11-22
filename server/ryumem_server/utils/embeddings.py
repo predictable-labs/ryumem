@@ -10,7 +10,7 @@ from typing import List
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from ryumem.utils.cache import embedding_cache
+from ryumem_server.utils.cache import embedding_cache
 
 logger = logging.getLogger(__name__)
 

@@ -137,19 +137,11 @@ Always personalize responses based on what you remember about the specific user.
     vprint("\n2. Adding memory to agent (ONE LINE!)...")
     # This is all you need - no custom functions!
     # Using the server's database path so you can view the graph in the dashboard!
-    # Auto-detects GOOGLE_API_KEY and uses Gemini for both LLM and embeddings!
-    # If OPENAI_API_KEY is set, uses OpenAI for embeddings (better quality)
+    # Enable memory with tool tracking
     memory = add_memory_to_agent(
         agent,
-        ryumem_customer_id="demo_company",  # Your company identifier
-        user_id="alice",  # User identifier for memory isolation
-        db_path="./data/memory.db",  # Shared with dashboard server
-        track_tools=True,
+        enable_tool_tracking=True,
         track_queries=True,
-        # Optional: Use Ollama for LLM (uncomment below to override Gemini)
-        llm_provider="ollama",
-        llm_model="qwen2.5:7b",
-        ollama_base_url="http://100.108.18.43:11434",
     )
     vprint("   ✓ Memory enabled! Agent now has 3 auto-generated tools:")
     vprint("     - search_memory(query, user_id, limit)")

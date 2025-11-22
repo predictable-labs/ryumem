@@ -13,9 +13,9 @@ from uuid import uuid4
 import networkx as nx
 from networkx.algorithms import community as nx_community
 
-from ryumem.core.graph_db import RyugraphDB
-from ryumem.core.models import CommunityNode
-from ryumem.utils.llm import LLMClient
+from ryumem_server.core.graph_db import RyugraphDB
+from ryumem_server.core.models import CommunityNode
+from ryumem_server.utils.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 

@@ -12,8 +12,8 @@ RECOMMENDED MODELS FOR RYUMEM:
 1. qwen2.5:7b (BEST) - Excellent for structured JSON output
    Install: ollama pull qwen2.5:7b
 
-2. llama3.2:3b (FAST) - Good balance of speed and quality
-   Install: ollama pull llama3.2:3b
+2. qwen2.5:7b (FAST) - Good balance of speed and quality
+   Install: ollama pull qwen2.5:7b
 
 3. mistral:7b (QUALITY) - Best reasoning, good JSON support
    Install: ollama pull mistral:7b
@@ -54,7 +54,7 @@ def main():
     print("\n1. Initializing Ryumem with Ollama...")
 
     # RECOMMENDED: Use qwen2.5:7b for best JSON structured output
-    # You can also try: llama3.2:3b (faster) or mistral:7b (better reasoning)
+    # You can also try: qwen2.5:7b (faster) or mistral:7b (better reasoning)
     model_name = os.getenv("RYUMEM_OLLAMA_MODEL", "qwen2.5:7b")
 
     print(f"   Model: {model_name} (local)")
@@ -65,7 +65,7 @@ def main():
         db_path="./data/memory.db",
         llm_provider="ollama",  # Use Ollama instead of OpenAI
         llm_model=model_name,  # Local Ollama model
-        ollama_base_url=os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://localhost:11434"),  # Default Ollama URL
+        ollama_base_url=os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://100.108.18.43:11434"),  # Default Ollama URL
         openai_api_key=os.getenv("OPENAI_API_KEY"),  # Still needed for embeddings
         embedding_model="text-embedding-3-large",
     )
@@ -127,7 +127,7 @@ def main():
     print("Ollama example completed successfully!")
     print("\n💡 Model Recommendations:")
     print("  🏆 qwen2.5:7b - BEST for structured JSON output (recommended)")
-    print("  ⚡ llama3.2:3b - FASTEST, good for quick inference")
+    print("  ⚡ qwen2.5:7b - FASTEST, good for quick inference")
     print("  🧠 mistral:7b - BEST reasoning, good JSON support")
     print("\n  To switch models, set environment variable:")
     print("  export RYUMEM_OLLAMA_MODEL=qwen2.5:7b")

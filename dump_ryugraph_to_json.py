@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-import ryu as ryugraph
+import ryugraph
 
 
 def serialize_value(value: Any) -> Any:
@@ -252,7 +252,7 @@ def main():
     if len(sys.argv) > 1:
         db_path = sys.argv[1]
     else:
-        db_path = "./data/memory.db"
+        db_path = "./server/data/ryumem.db"
 
     if len(sys.argv) > 2:
         output_file = sys.argv[2]
