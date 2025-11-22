@@ -2,6 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { api, ConfigValue } from '@/lib/api';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Check, AlertCircle, Save, RotateCcw } from "lucide-react";
 
 type Category = 'api_keys' | 'llm' | 'embedding' | 'entity_extraction' | 'search' | 'tool_tracking' | 'community';
 
@@ -16,7 +24,7 @@ interface ChangedFields {
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Category>('api_keys');
   const [settings, setSettings] = useState<Record<string, ConfigValue[]>>({});
-  const [originalSettings, setOriginalSettings] = useState<SettingsState>({}); // Track original values
+  const [originalSettings, setOriginalSettings] = useState<SettingsState>({});
   const [localSettings, setLocalSettings] = useState<SettingsState>({});
   const [changedFields, setChangedFields] = useState<ChangedFields>({});
   const [loading, setLoading] = useState(true);
@@ -30,17 +38,16 @@ export default function SettingsPage() {
   const loadSettings = async () => {
     try {
       setLoading(true);
-      const response = await api.getSettings(false); // Don't mask for editing
+      const response = await api.getSettings(false);
       setSettings(response.settings);
 
-      // Initialize local state and original state
       const initial: SettingsState = {};
       Object.values(response.settings).flat().forEach(cfg => {
         initial[cfg.key] = cfg.value;
       });
       setLocalSettings(initial);
-      setOriginalSettings(initial); // Store original for comparison
-      setChangedFields({}); // Clear changed fields on load
+      setOriginalSettings(initial);
+      setChangedFields({});
     } catch (error) {
       console.error('Failed to load settings:', error);
       setMessage({ type: 'error', text: 'Failed to load settings' });
@@ -52,8 +59,6 @@ export default function SettingsPage() {
   const handleChange = (key: string, value: any) => {
     setLocalSettings(prev => ({ ...prev, [key]: value }));
 
-    // Check if value is actually different from original
-    // Need to handle type coercion (e.g., "10" vs 10, "true" vs true)
     const originalValue = originalSettings[key];
     const isActuallyChanged = !areValuesEqual(value, originalValue);
 
@@ -62,32 +67,26 @@ export default function SettingsPage() {
       if (isActuallyChanged) {
         newChangedFields[key] = true;
       } else {
-        // Remove from changed fields if value matches original
         delete newChangedFields[key];
       }
       return newChangedFields;
     });
   };
 
-  // Helper function to compare values accounting for type coercion
   const areValuesEqual = (a: any, b: any): boolean => {
-    // Handle null/undefined
     if (a === b) return true;
     if (a == null || b == null) return false;
 
-    // Handle booleans (including string representations)
     if (typeof a === 'boolean' || typeof b === 'boolean') {
       const aBool = a === true || a === 'true';
       const bBool = b === true || b === 'true';
       return aBool === bBool;
     }
 
-    // Handle numbers (including string representations)
     if (typeof a === 'number' || typeof b === 'number') {
       return Number(a) === Number(b);
     }
 
-    // Handle strings
     return String(a) === String(b);
   };
 
@@ -95,7 +94,6 @@ export default function SettingsPage() {
     try {
       setSaving(true);
 
-      // Get only changed values
       const updates: Record<string, any> = {};
       Object.keys(changedFields).forEach(key => {
         if (changedFields[key]) {
@@ -103,21 +101,15 @@ export default function SettingsPage() {
         }
       });
 
-      // Handle provider-specific field cleanup
-      // If LLM provider is not Ollama, set Ollama URL to default (not empty)
       if (updates['llm.provider'] && updates['llm.provider'] !== 'ollama') {
         updates['llm.ollama_base_url'] = 'http://100.108.18.43:11434';
       } else if (localSettings['llm.provider'] !== 'ollama' && !updates['llm.ollama_base_url']) {
-        // Provider wasn't changed but it's still not Ollama - set to default
         updates['llm.ollama_base_url'] = 'http://100.108.18.43:11434';
       }
 
-      // Handle provider-specific field cleanup
-      // If LLM provider is not Ollama, set Ollama URL to default (not empty)
       if (updates['embedding.provider'] && updates['embedding.provider'] !== 'ollama') {
         updates['embedding.ollama_base_url'] = 'http://100.108.18.43:11434';
       } else if (localSettings['embedding.provider'] !== 'ollama' && !updates['embedding.ollama_base_url']) {
-        // Provider wasn't changed but it's still not Ollama - set to default
         updates['embedding.ollama_base_url'] = 'http://100.108.18.43:11434';
       }
 
@@ -132,10 +124,7 @@ export default function SettingsPage() {
         text: `Successfully updated ${result.success_count} setting(s)`
       });
 
-      // Clear changed fields
       setChangedFields({});
-
-      // Reload to get fresh data
       await loadSettings();
 
       setTimeout(() => setMessage(null), 3000);
@@ -150,26 +139,31 @@ export default function SettingsPage() {
   const renderField = (cfg: ConfigValue) => {
     const value = localSettings[cfg.key] ?? cfg.value;
     const isChanged = changedFields[cfg.key];
-    const baseClasses = `mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm ${isChanged ? 'bg-yellow-50 border-yellow-400' : ''}`;
 
     if (cfg.data_type === 'bool') {
       return (
-        <input
-          type="checkbox"
-          checked={value === true || value === 'true'}
-          onChange={(e) => handleChange(cfg.key, e.target.checked)}
-          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-        />
+        <div className="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            id={cfg.key}
+            checked={value === true || value === 'true'}
+            onChange={(e) => handleChange(cfg.key, e.target.checked)}
+            className="h-4 w-4 rounded border-input bg-background text-primary focus:ring-ring"
+          />
+          <Label htmlFor={cfg.key} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+            {value ? 'Enabled' : 'Disabled'}
+          </Label>
+        </div>
       );
     }
 
     if (cfg.is_sensitive) {
       return (
-        <input
+        <Input
           type="password"
           value={value || ''}
           onChange={(e) => handleChange(cfg.key, e.target.value)}
-          className={baseClasses}
+          className={isChanged ? 'border-yellow-500 bg-yellow-500/10' : ''}
           placeholder="Enter API key"
         />
       );
@@ -187,37 +181,41 @@ export default function SettingsPage() {
 
       if (options.length > 0) {
         return (
-          <select
+          <Select
             value={value || ''}
-            onChange={(e) => handleChange(cfg.key, e.target.value)}
-            className={baseClasses}
+            onValueChange={(val) => handleChange(cfg.key, val)}
           >
-            {options.map(opt => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
+            <SelectTrigger className={isChanged ? 'border-yellow-500 bg-yellow-500/10' : ''}>
+              <SelectValue placeholder="Select option" />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map(opt => (
+                <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         );
       }
     }
 
     if (cfg.data_type === 'int' || cfg.data_type === 'float') {
       return (
-        <input
+        <Input
           type="number"
           value={value ?? ''}
           onChange={(e) => handleChange(cfg.key, cfg.data_type === 'int' ? parseInt(e.target.value) : parseFloat(e.target.value))}
-          className={baseClasses}
+          className={isChanged ? 'border-yellow-500 bg-yellow-500/10' : ''}
           step={cfg.data_type === 'float' ? '0.1' : '1'}
         />
       );
     }
 
     return (
-      <input
+      <Input
         type="text"
         value={value || ''}
         onChange={(e) => handleChange(cfg.key, e.target.value)}
-        className={baseClasses}
+        className={isChanged ? 'border-yellow-500 bg-yellow-500/10' : ''}
       />
     );
   };
@@ -237,101 +235,26 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading settings...</div>
+        <div className="flex flex-col items-center gap-2">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <div className="text-muted-foreground">Loading settings...</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-0 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">System Settings</h1>
-          <p className="mt-2 text-sm text-gray-600">
+    <div className="container mx-auto p-6 max-w-6xl">
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">System Settings</h1>
+          <p className="mt-2 text-muted-foreground">
             Configure Ryumem system settings. Changes are applied immediately after saving.
           </p>
         </div>
-
-        {message && (
-          <div className={`mb-6 p-4 rounded-md ${message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-            {message.text}
-          </div>
-        )}
-
-        {hasChanges && (
-          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-md flex items-center justify-between">
-            <span className="text-yellow-800">You have unsaved changes</span>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-            >
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
-          <nav className="-mb-px flex space-x-8 overflow-x-auto">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-              >
-                {tab.label}
-                {settings[tab.id]?.some(cfg => changedFields[cfg.key]) && (
-                  <span className="ml-2 inline-block w-2 h-2 bg-yellow-400 rounded-full"></span>
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
-
-        {/* Settings Form */}
-        <div className="bg-white shadow rounded-lg p-6">
-          {settings[activeTab] ? (
-            <div className="space-y-6">
-              {settings[activeTab].map(cfg => {
-                // Conditional rendering: Hide Ollama URL if provider is not Ollama
-                if (cfg.key === 'llm.ollama_base_url' && localSettings['llm.provider'] !== 'ollama') {
-                  return null;
-                }
-
-                if (cfg.key === 'embedding.ollama_base_url' && localSettings['embedding.provider'] !== 'ollama') {
-                  return null;
-                }
-
-                return (
-                  <div key={cfg.key}>
-                    <label className="block text-sm font-medium text-gray-700">
-                      {cfg.key.split('.').pop()?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                      {changedFields[cfg.key] && (
-                        <span className="ml-2 text-xs text-yellow-600">(modified)</span>
-                      )}
-                    </label>
-                    <p className="text-xs text-gray-500 mt-1">{cfg.description}</p>
-                    <div className="mt-2">
-                      {renderField(cfg)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-center text-gray-500 py-8">
-              No settings available for this category
-            </div>
-          )}
-        </div>
-
-        {/* Action Buttons */}
-        <div className="mt-6 flex justify-between">
-          <button
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
             onClick={() => {
               if (confirm('Are you sure you want to reset all settings to defaults? This cannot be undone.')) {
                 api.resetSettingsToDefaults().then(() => {
@@ -340,20 +263,88 @@ export default function SettingsPage() {
                 });
               }
             }}
-            className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
           >
-            Reset to Defaults
-          </button>
-
-          <button
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Reset Defaults
+          </Button>
+          <Button
             onClick={handleSave}
             disabled={!hasChanges || saving}
-            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? 'Saving...' : 'Save All Changes'}
-          </button>
+            {saving ? (
+              <>Saving...</>
+            ) : (
+              <>
+                <Save className="mr-2 h-4 w-4" />
+                Save Changes
+              </>
+            )}
+          </Button>
         </div>
       </div>
+
+      {message && (
+        <Alert className={`mb-6 ${message.type === 'success' ? 'border-green-500/50 text-green-600 dark:text-green-400' : 'border-destructive/50 text-destructive'}`}>
+          {message.type === 'success' ? <Check className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+          <AlertDescription>
+            {message.text}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {hasChanges && (
+        <Alert className="mb-6 border-yellow-500/50 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            You have unsaved changes. Don't forget to save them.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <Card>
+        <CardContent className="p-6">
+          <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as Category)} className="space-y-6">
+            <TabsList className="w-full justify-start overflow-x-auto h-auto p-1">
+              {tabs.map(tab => (
+                <TabsTrigger key={tab.id} value={tab.id} className="relative">
+                  {tab.label}
+                  {settings[tab.id]?.some(cfg => changedFields[cfg.key]) && (
+                    <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-yellow-500" />
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
+            {settings[activeTab] ? (
+              <div className="space-y-6">
+                {settings[activeTab].map(cfg => {
+                  if (cfg.key === 'llm.ollama_base_url' && localSettings['llm.provider'] !== 'ollama') return null;
+                  if (cfg.key === 'embedding.ollama_base_url' && localSettings['embedding.provider'] !== 'ollama') return null;
+
+                  return (
+                    <div key={cfg.key} className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        {cfg.key.split('.').pop()?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        {changedFields[cfg.key] && (
+                          <span className="text-xs text-yellow-600 dark:text-yellow-400 font-normal">(modified)</span>
+                        )}
+                      </Label>
+                      <p className="text-sm text-muted-foreground">{cfg.description}</p>
+                      <div>
+                        {renderField(cfg)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center text-muted-foreground py-8">
+                No settings available for this category
+              </div>
+            )}
+          </Tabs>
+        </CardContent>
+      </Card>
     </div>
   );
 }

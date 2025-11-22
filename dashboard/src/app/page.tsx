@@ -176,7 +176,7 @@ export default function Home() {
               </div>
               <Link
                 href="/settings"
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-background border border-border rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
               >
                 <Cog className="h-4 w-4" />
                 System Settings
