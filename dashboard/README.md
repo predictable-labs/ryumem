@@ -7,12 +7,14 @@ Built with **Next.js 14**, **TypeScript**, and **shadcn/ui**.
 ## Features
 
 ✨ **Dashboard Features**:
+- 🔐 **Secure Login** - API Key authentication with secure session management
 - 📝 **Add Episodes** - Store new memories with automatic entity & relationship extraction
 - 🔍 **Query Interface** - Search the knowledge graph with multiple strategies
+- ⚙️ **System Settings** - Configure LLM providers, search strategies, and more
 - 📊 **Real-time Stats** - View counts of episodes, entities, relationships, and communities
-- 🎨 **Modern UI** - Beautiful interface built with shadcn/ui components
+- 🎨 **Cook Design System** - Beautiful, modern UI with "Meteors" and glassmorphism effects
 - ⚡ **Fast & Responsive** - Optimized Next.js performance
-- 🌓 **Dark Mode Ready** - Built-in dark mode support
+- 🌓 **Dark Mode Ready** - Built-in light/dark mode support
 
 ## Screenshots
 
@@ -93,7 +95,14 @@ npm run lint
 
 ### Using the Dashboard
 
-#### 1. Add Episodes
+#### 1. Login
+
+1. Open the dashboard at http://localhost:3000
+2. Enter your Ryumem API Key (starts with `ryu_`)
+   - If you don't have one, ask your administrator to register your customer ID via the API.
+3. Click "Sign in" to access the dashboard.
+
+#### 2. Add Episodes
 
 Navigate to the "Add Episodes" tab:
 
@@ -106,7 +115,7 @@ Navigate to the "Add Episodes" tab:
 - Click on example buttons to quickly populate the form
 - Try different types of information (people, places, organizations, relationships)
 
-#### 2. Query Knowledge Graph
+#### 3. Query Knowledge Graph
 
 Navigate to the "Chat & Query" tab:
 
@@ -124,7 +133,7 @@ Navigate to the "Chat & Query" tab:
 - Try natural language questions
 - Experiment with different search strategies
 
-#### 3. Monitor Statistics
+#### 4. Monitor Statistics
 
 The stats panel shows real-time metrics:
 - **Episodes**: Total memories stored
@@ -240,8 +249,8 @@ class RyumemAPI {
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
+| Variable              | Description           | Default               |
+| --------------------- | --------------------- | --------------------- |
 | `NEXT_PUBLIC_API_URL` | Ryumem API server URL | http://localhost:8000 |
 
 **Note:** All variables prefixed with `NEXT_PUBLIC_` are exposed to the browser.
