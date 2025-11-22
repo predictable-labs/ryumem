@@ -231,8 +231,8 @@ class RyumemAPI {
     }
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `HTTP ${response.status}: ${response.statusText}`);
+      const error = await response.json();
+      throw new Error(`${error.detail.message}: ${error.detail.errors.join(',')}` || `HTTP ${response.status}: ${response.statusText}`);
     }
 
     return response.json();

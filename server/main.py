@@ -31,6 +31,7 @@ from ryumem_server.core.metadata_models import EpisodeMetadata, QueryRun, ToolEx
 
 from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.core.graph_db import RyugraphDB
+from ryumem_server.core.config_service import ConfigService
 
 # Load environment variables
 load_dotenv()
