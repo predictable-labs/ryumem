@@ -60,6 +60,48 @@ Ryumem implements the Combined Conceptual Architecture from the Zep paper:
 └─────────────────────────┘
 ```
 
+## Authentication & Multi-tenancy
+
+Ryumem is designed as a multi-tenant system from the ground up, supporting secure isolation between customers and users.
+
+### API Keys & Customers
+- **Customers**: Top-level tenants (e.g., companies, organizations). Each customer has their own isolated data.
+- **API Keys**: Access is controlled via API keys that start with `ryu_`.
+- **Registration**: New customers can register via the `/register` endpoint to receive an API key.
+
+### Isolation Levels
+1. **Customer Level**: Strict isolation. Data from one customer is never accessible to another. Enforced via API keys.
+2. **User Level**: Logical separation within a customer. Use `user_id` to scope memories to specific end-users.
+3. **Session/Agent Level**: Further scoping via `session_id` or `agent_id` for specific interaction contexts.
+
+## Full Stack Setup
+
+Ryumem consists of two main components:
+1. **API Server**: FastAPI backend that manages the knowledge graph.
+2. **Dashboard**: Next.js frontend for visualization and management.
+
+### Quick Start (Local Development)
+
+1. **Start the Server**:
+   ```bash
+   cd server
+   pip install -r requirements.txt
+   cp .env.example .env  # Configure your DB path
+   uvicorn main:app --reload
+   ```
+
+2. **Start the Dashboard**:
+   ```bash
+   cd dashboard
+   npm install
+   cp env.template .env.local
+   npm run dev
+   ```
+
+3. **Access**:
+   - Dashboard: http://localhost:3000
+   - API Docs: http://localhost:8000/docs
+
 ## Installation
 
 ```bash

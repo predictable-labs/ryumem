@@ -5,6 +5,8 @@ FastAPI server providing RESTful API endpoints for Ryumem - Bi-temporal Knowledg
 ## Features
 
 ✨ **API Endpoints**:
+- 🔐 **Authentication** - Secure API key access (Bearer Token)
+- 🆕 **POST /register** - Register new customers and get API keys
 - 📝 **POST /episodes** - Add new episodes (memories)
 - 🔍 **POST /search** - Search and query the knowledge graph
 - 👤 **GET /entity/{name}** - Get comprehensive entity context
@@ -58,11 +60,31 @@ The server will be available at:
 
 ### API Examples
 
-#### 1. Add an Episode
+#### 1. Register a Customer (Get API Key)
+
+```bash
+curl -X POST "http://localhost:8000/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_id": "my_company"
+  }'
+```
+
+Response:
+```json
+{
+  "customer_id": "my_company",
+  "api_key": "ryu_abc123...",
+  "message": "Customer registered successfully"
+}
+```
+
+#### 2. Add an Episode
 
 ```bash
 curl -X POST "http://localhost:8000/episodes" \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: ryu_abc123..." \
   -d '{
     "content": "Alice works at Google as a Software Engineer in Mountain View.",
     "user_id": "user_123",
@@ -79,11 +101,12 @@ Response:
 }
 ```
 
-#### 2. Search the Knowledge Graph
+#### 3. Search the Knowledge Graph
 
 ```bash
 curl -X POST "http://localhost:8000/search" \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: ryu_abc123..." \
   -d '{
     "query": "Where does Alice work?",
     "user_id": "user_123",
@@ -219,12 +242,12 @@ These provide:
 
 ### Environment Variables
 
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `RYUMEM_DB_PATH` | Database file path | ./data/ryumem.db | ✅ Yes |
-| `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | http://localhost:3000 | No |
-| `HOST` | Server host | 0.0.0.0 | No |
-| `PORT` | Server port | 8000 | No |
+| Variable         | Description                            | Default               | Required |
+| ---------------- | -------------------------------------- | --------------------- | -------- |
+| `RYUMEM_DB_PATH` | Database file path                     | ./data/ryumem.db      | ✅ Yes    |
+| `CORS_ORIGINS`   | Allowed CORS origins (comma-separated) | http://localhost:3000 | No       |
+| `HOST`           | Server host                            | 0.0.0.0               | No       |
+| `PORT`           | Server port                            | 8000                  | No       |
 
 
 ### Creating a Ryumem Database

@@ -52,7 +52,7 @@ class Ryumem:
     def _get_headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            headers["X-API-Key"] = self.api_key
         return headers
 
     def _post(self, endpoint: str, json: Dict = None) -> Any:

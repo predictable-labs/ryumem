@@ -42,12 +42,14 @@ class Ryumem:
     def __init__(
         self,
         config: Optional[RyumemConfig] = None,
+        db_path: Optional[str] = None,
     ):
         """
         Initialize Ryumem instance.
 
         Args:
             config: RyumemConfig instance (if not provided, loads from env)
+            db_path: Optional override for database path
 
         Example:
             # From environment variables (.env file)
@@ -63,11 +65,18 @@ class Ryumem:
             config.llm.provider = "openai"
             config.llm.model = "gpt-4o-mini"
             ryumem = Ryumem(config=config)
+            
+            # With explicit db_path (overrides config)
+            ryumem = Ryumem(db_path="./data/customer_1.db")
         """
         # Load or create config
         if config is None:
             # Load from environment by default
             config = RyumemConfig()
+
+        # Override db_path if provided
+        if db_path:
+            config.database.db_path = db_path
 
         self.config = config
 
@@ -86,6 +95,22 @@ class Ryumem:
             db_path=config.database.db_path,
             embedding_dimensions=config.embedding.dimensions,
         )
+
+        # Initialize ConfigService and migrate/load configs
+        from ryumem_server.core.config_service import ConfigService
+        self.config_service = ConfigService(self.db)
+        
+        # Migrate from .env if needed (populates DB with defaults/env values)
+        self.config_service.migrate_from_env()
+        
+        # Reload config from database to get any persisted overrides
+        # This ensures we use the database as the source of truth
+        db_config = self.config_service.load_config_from_database()
+        
+        # Merge DB config with runtime overrides (like db_path)
+        # We keep the db_path from the initial config as it's not stored in DB
+        db_config.database.db_path = config.database.db_path
+        self.config = db_config
 
         # Initialize LLM client based on provider
         if config.llm.provider == "litellm":

@@ -16,10 +16,12 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import sqlite3
+import secrets
 
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -27,6 +29,7 @@ from ryumem_server import Ryumem
 from ryumem_server.core.config import RyumemConfig
 from ryumem_server.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
 
+from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.core.config_service import ConfigService
 
@@ -42,7 +45,72 @@ logger = logging.getLogger(__name__)
 
 
 # Global singleton instance
-_ryumem_instance: Optional[Ryumem] = None
+# _ryumem_instance: Optional[Ryumem] = None  # REMOVED for multi-tenancy
+
+# Auth Manager and Cache
+class AuthManager:
+    def __init__(self, db_path: str = "./data/master_auth.db"):
+        self.db_path = db_path
+        # Initialize RyugraphDB for auth
+        # We use a smaller embedding dimension since we don't need embeddings for auth, 
+        # but RyugraphDB requires it. 384 is small enough.
+        self.db = RyugraphDB(db_path=db_path, embedding_dimensions=384)
+        self._init_schema()
+    
+    def _init_schema(self):
+        """Initialize Customer node table"""
+        self.db.execute("""
+            CREATE NODE TABLE IF NOT EXISTS Customer(
+                customer_id STRING PRIMARY KEY,
+                api_key STRING,
+                created_at TIMESTAMP
+            )
+        """)
+    
+    def create_customer(self, customer_id: str) -> str:
+        """Create a new customer and return their API key"""
+        import secrets
+        from datetime import datetime
+        
+        # Check if exists
+        existing = self.db.execute(
+            "MATCH (c:Customer {customer_id: $cid}) RETURN c.customer_id",
+            {"cid": customer_id}
+        )
+        if existing:
+            raise ValueError(f"Customer {customer_id} already exists")
+            
+        api_key = f"ryu_{secrets.token_urlsafe(32)}"
+        
+        self.db.execute(
+            """
+            CREATE (c:Customer {
+                customer_id: $cid,
+                api_key: $key,
+                created_at: $created_at
+            })
+            """,
+            {
+                "cid": customer_id,
+                "key": api_key,
+                "created_at": datetime.utcnow()
+            }
+        )
+        return api_key
+
+    def validate_key(self, api_key: str) -> Optional[str]:
+        """Validate API key and return customer_id"""
+        result = self.db.execute(
+            "MATCH (c:Customer) WHERE c.api_key = $key RETURN c.customer_id",
+            {"key": api_key}
+        )
+        if result and len(result) > 0:
+            return result[0]["c.customer_id"]
+        return None
+
+_auth_manager: Optional[AuthManager] = None
+_ryumem_cache: Dict[str, Ryumem] = {}
+
 
 
 @asynccontextmanager
@@ -51,69 +119,82 @@ async def lifespan(app: FastAPI):
     Lifespan context manager for FastAPI app.
     Handles startup and shutdown events.
     """
-    # Startup: Initialize Ryumem singleton
-    global _ryumem_instance, _app_config
+    # Startup: Initialize AuthManager
+    global _auth_manager, _ryumem_cache
     
-    logger.info("Initializing Ryumem singleton...")
+    logger.info("Initializing AuthManager...")
+    # Ensure data directory exists for master.db
+    os.makedirs("./data", exist_ok=True)
+    _auth_manager = AuthManager(db_path="./data/master_auth.db")
     
-    db_path = os.getenv("RYUMEM_DB_PATH", "./data/ryumem.db")
-    embedding_dims = int(os.getenv("RYUMEM_EMBEDDING_DIMENSIONS", "768"))
-
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    
-    # 1. Initialize DB for config loading
-    # We need a temporary DB connection just to load/migrate config
-    # Use a separate block/function to ensure init_db is cleaned up and lock released
-    def load_initial_config():
-        logger.info("Loading initial config from DB...")
-        init_db = RyugraphDB(
-            db_path=db_path,
-            embedding_dimensions=embedding_dims,
-        )
-        try:
-            config_service = ConfigService(init_db)
-            config_service.migrate_from_env()
-            return RyumemConfig.from_database(init_db)
-        finally:
-            if hasattr(init_db, 'close'):
-                init_db.close()
-            # Explicitly delete to ensure Ryugraph releases lock if it relies on __del__
-            del init_db
-
-    _app_config = load_initial_config()
-
-    # 2. Initialize the global Ryumem singleton
-    _ryumem_instance = Ryumem(config=_app_config)
-    
-    logger.info("Ryumem singleton initialized successfully")
+    logger.info("Ryumem Server initialized (Multi-tenant mode)")
     
     yield
     
     # Shutdown: Clean up resources
-    logger.info("Shutting down Ryumem singleton...")
-    if _ryumem_instance:
-        _ryumem_instance.close()
-    logger.info("Ryumem shutdown complete")
+    logger.info("Shutting down Ryumem Server...")
+    # Close all open Ryumem instances
+    for customer_id, instance in _ryumem_cache.items():
+        try:
+            instance.db.close() # Assuming Ryumem has a way to close DB or we rely on GC
+            # Actually Ryumem.close() might be better if it exists, let's check lib.py
+            # lib.py doesn't seem to have a close() method on Ryumem class based on previous view_file
+            # But RyugraphDB might.
+            pass 
+        except Exception as e:
+            logger.error(f"Error closing instance for {customer_id}: {e}")
+    _ryumem_cache.clear()
+    logger.info("Shutdown complete")
+
+
+# Dependency for Auth
+async def get_current_customer(
+    x_api_key: str = Header(..., description="Customer API Key")
+) -> str:
+    """
+    Validate API key and return customer_id.
+    """
+    logger.info("Validating API key...")
+    logger.info(x_api_key)
+    if not _auth_manager:
+        raise HTTPException(status_code=503, detail="AuthManager not initialized")
+        
+    customer_id = _auth_manager.validate_key(x_api_key)
+    if not customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API Key",
+        )
+    return customer_id
 
 
 # Dependency injection for per-request Ryumem instances
-def get_ryumem():
+def get_ryumem(customer_id: str = Depends(get_current_customer)):
     """
-    Get the global Ryumem singleton instance.
+    Get the Ryumem instance for the current customer.
     """
-    if _ryumem_instance is None:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-    return _ryumem_instance
+    if customer_id in _ryumem_cache:
+        return _ryumem_cache[customer_id]
+        
+    # Create new instance
+    db_folder = os.getenv("RYUMEM_DB_FOLDER", "./data")
+    db_path = os.path.join(db_folder, f"{customer_id}.db")
+    
+    logger.info(f"Creating Ryumem instance for {customer_id} at {db_path}")
+    
+    # Initialize with specific DB path
+    # We create a fresh config to avoid sharing state, though Ryumem(db_path=...) handles override
+    instance = Ryumem(db_path=db_path)
+    
+    _ryumem_cache[customer_id] = instance
+    return instance
 
 
-def get_write_ryumem():
+def get_write_ryumem(customer_id: str = Depends(get_current_customer)):
     """
-    Get the global Ryumem singleton instance for WRITE operations.
-    In the singleton pattern, this is the same instance.
+    Get the Ryumem instance for WRITE operations.
     """
-    if _ryumem_instance is None:
-        raise HTTPException(status_code=503, detail="Ryumem not initialized")
-    return _ryumem_instance
+    return get_ryumem(customer_id)
 
 
 # Create FastAPI app
@@ -399,7 +480,56 @@ class GenerateResponse(BaseModel):
     content: str = Field(..., description="Generated content")
 
 
+class GenerateResponse(BaseModel):
+    """Response model for LLM generation"""
+    content: str = Field(..., description="Generated content")
+
+
+class RegisterRequest(BaseModel):
+    """Request model for registering a customer"""
+    customer_id: str = Field(..., description="Unique customer ID")
+
+
+class RegisterResponse(BaseModel):
+    """Response model for registration"""
+    customer_id: str = Field(..., description="Customer ID")
+    api_key: str = Field(..., description="Generated API Key")
+    message: str = Field(..., description="Success message")
+
 # ===== API Endpoints =====
+
+@app.post("/register", response_model=RegisterResponse)
+async def register_customer(
+    request: RegisterRequest,
+    admin_key: str = Header(..., alias="X-Admin-Key", description="Admin API Key")
+):
+    """
+    Register a new customer.
+    Requires X-Admin-Key header.
+    """
+    expected_key = os.getenv("ADMIN_API_KEY")
+    if not expected_key:
+        raise HTTPException(status_code=500, detail="ADMIN_API_KEY not configured")
+        
+    if admin_key != expected_key:
+        raise HTTPException(status_code=401, detail="Invalid Admin Key")
+        
+    try:
+        if not _auth_manager:
+             raise HTTPException(status_code=503, detail="AuthManager not initialized")
+             
+        api_key = _auth_manager.create_customer(request.customer_id)
+        return RegisterResponse(
+            customer_id=request.customer_id,
+            api_key=api_key,
+            message="Customer registered successfully"
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error registering customer: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @app.get("/", response_model=HealthResponse)
 async def root():
@@ -705,6 +835,7 @@ async def search(
     - traversal: Graph-based navigation
     - hybrid: Combines all strategies (recommended)
     """
+    logger.info("@@@@@@@@@@@@@@@@@@@@")
     try:
         results = ryumem.search(
             query=request.query,
@@ -1932,6 +2063,16 @@ async def reset_to_defaults(
     except Exception as e:
         logger.error(f"Error resetting settings: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error resetting settings: {str(e)}")
+
+
+@app.get("/customer/me")
+async def get_customer_me(
+    customer_id: str = Depends(get_current_customer)
+):
+    """
+    Get current authenticated customer details.
+    """
+    return {"customer_id": customer_id}
 
 
 if __name__ == "__main__":

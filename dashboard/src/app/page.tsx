@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User, History, Cog } from "lucide-react";
+import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User, History, Cog, LogOut } from "lucide-react";
 import { EpisodesList } from "@/components/episodes-list";
 import { EpisodeFormModal } from "@/components/episode-form-modal";
 import { ChatInterface } from "@/components/chat-interface";
@@ -47,22 +47,23 @@ export default function Home() {
 
   // Load users on mount
   useEffect(() => {
-    const loadUsers = async () => {
+    const loadData = async () => {
       setIsLoadingUsers(true);
       try {
         const usersList = await api.getUsers();
+
         setUsers(usersList);
         if (usersList.length > 0) {
           setUserId(usersList[0]); // Set first user as default
         }
       } catch (error) {
-        console.error("Failed to load users:", error);
+        console.error("Failed to load initial data:", error);
       } finally {
         setIsLoadingUsers(false);
       }
     };
 
-    loadUsers();
+    loadData();
   }, []);
 
   const handleEpisodeAdded = () => {
@@ -135,22 +136,8 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+    <div className="min-h-0">
       <div className="container mx-auto p-6 max-w-7xl">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Brain className="h-8 w-8 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-4xl font-bold tracking-tight">RyuMem Dashboard</h1>
-              <p className="text-muted-foreground">
-                Bi-temporal Knowledge Graph Memory System
-              </p>
-            </div>
-          </div>
-        </div>
 
         {/* User Selector */}
         <Card className="mb-6">
@@ -189,7 +176,7 @@ export default function Home() {
               </div>
               <Link
                 href="/settings"
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-background border border-border rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
               >
                 <Cog className="h-4 w-4" />
                 System Settings
@@ -378,24 +365,8 @@ export default function Home() {
             </Card>
           </TabsContent>
         </Tabs>
-
-        {/* Footer Info */}
-        <div className="mt-12 text-center text-sm text-muted-foreground">
-          <p>
-            Powered by{" "}
-            <a
-              href="https://github.com/predictable-labs/ryumem"
-              className="underline hover:text-primary"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Ryumem
-            </a>{" "}
-            - Memory layer for your agentic workflow.
-          </p>
-        </div>
       </div>
-    </main>
+    </div>
   );
 }
 

@@ -138,8 +138,14 @@ Always personalize responses based on what you remember about the specific user.
     # This is all you need - no custom functions!
     # Using the server's database path so you can view the graph in the dashboard!
     # Enable memory with tool tracking
+    
+    # Initialize Ryumem instance first
+    from ryumem import Ryumem
+    ryumem = Ryumem(api_key=os.getenv("GOOGLE_API_KEY"))
+    
     memory = add_memory_to_agent(
         agent,
+        ryumem_instance=ryumem,
         enable_tool_tracking=True,
         track_queries=True,
     )
@@ -239,9 +245,7 @@ Personalize recommendations based on what you know about the user."""
     # Enable memory with SAME user_id - so Alice's memories are shared across agents!
     # IMPORTANT: Reuse the same Ryumem instance to avoid database connection conflicts
     travel_memory = RyumemGoogleADK(
-        ryumem_customer_id="demo_company",
         ryumem=memory.ryumem,  # Reuse existing Ryumem instance
-        user_id="alice"  # Same user - Alice's memories
     )
     travel_agent.tools.extend(travel_memory.tools)
     vprint("   ✓ Travel agent created with access to Alice's memory")

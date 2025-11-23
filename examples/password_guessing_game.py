@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 import logging
 import random
 from typing import Dict, List
+from ryumem import Ryumem
 
 # Configure logging
 logging.basicConfig(
@@ -293,8 +294,14 @@ If the user wants a hint, use get_hint.""",
     print()
 
     # ⭐ Add memory + tool tracking + query augmentation
+    # Using a valid API key registered for demo_company_v2
+    ryumem = Ryumem(
+        api_key="ryu_sywtp0foYYd7lVlEX8uW3oWfidVo4XF24V5iiI1fHNc",
+    )
+    
     memory = add_memory_to_agent(
         password_agent,
+        ryumem_instance=ryumem,
         enable_tool_tracking=True,
     )
 
