@@ -127,7 +127,7 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     from ryumem import Ryumem
     # Using a valid API key registered for demo_company_v2
     ryumem = Ryumem(
-        api_key="ryu_yaYi2MhZ5TJTUetyMBSBvUS3XPJb1ZKHITfC_e_s81I",
+        api_key="ryu_sywtp0foYYd7lVlEX8uW3oWfidVo4XF24V5iiI1fHNc",
     )
     
     memory = add_memory_to_agent(

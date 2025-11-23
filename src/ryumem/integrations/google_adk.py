@@ -419,7 +419,7 @@ def add_memory_to_agent(
 
     # Enable tool tracking if requested
     if enable_tool_tracking:
-        _register_and_track_tools(agent, ryumem, memory, tool_tracking_kwargs)
+        _register_and_track_tools(agent, ryumem_instance, memory, tool_tracking_kwargs)
 
     # Build enhanced instruction with memory/tool guidance
     base_instruction = agent.instruction or ""
@@ -445,7 +445,7 @@ def add_memory_to_agent(
     query_augmentation_template = DEFAULT_AUGMENTATION_TEMPLATE if (track_queries and augment_queries) else ""
 
     try:
-        ryumem.save_agent_instruction(
+        ryumem_instance.save_agent_instruction(
             base_instruction=base_instruction,
             agent_type="google_adk",
             enhanced_instruction=enhanced_instruction,
