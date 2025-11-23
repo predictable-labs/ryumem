@@ -34,7 +34,7 @@ export default function NumberTicker({
     () =>
       springValue.on("change", (latest) => {
         if (ref.current) {
-          const num = Number(latest.toFixed(0));
+          const num = Number(Number(latest).toFixed(0));
           // Format large numbers (1000+ becomes 1k, 1000000+ becomes 1m)
           if (num >= 1_000_000) {
             ref.current.textContent = (num / 1_000_000).toFixed(2).replace(/\.?0+$/, '') + 'm';
