@@ -296,7 +296,7 @@ export default function SettingsPage() {
         <Alert className="mb-6 border-yellow-500/50 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            You have unsaved changes. Don't forget to save them.
+            You have unsaved changes. Don&apos;t forget to save them.
           </AlertDescription>
         </Alert>
       )}
