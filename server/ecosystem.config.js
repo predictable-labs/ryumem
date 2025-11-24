@@ -4,7 +4,7 @@ module.exports = {
       name: 'ryumem-server',
       cwd: './',
       script: '.venv/bin/python',
-      args: '-m uvicorn main:app --host 0.0.0.0 --port 8000',
+      args: '-m uvicorn main:app --host 0.0.0.0 --port 8001',
       interpreter: 'none',
       instances: 1,
       autorestart: true,
