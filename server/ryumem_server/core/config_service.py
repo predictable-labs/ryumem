@@ -439,7 +439,7 @@ class ConfigService:
         configs.extend([
             {
                 "key": "system.cors_origins",
-                "value": "http://localhost:3000,http://localhost:3001",
+                "value": "http://localhost:3000,http://localhost:3001,https://app.ryumem.io",
                 "category": "system",
                 "data_type": "string",
                 "is_sensitive": False,
