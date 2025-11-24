@@ -42,7 +42,7 @@ class Ryumem:
         """
         import os
         if server_url is None:
-            server_url = os.getenv("RYUMEM_API_URL", "http://localhost:8000")
+            server_url = os.getenv("RYUMEM_API_URL", "https://api.ryumem.io")
 
         self.base_url = server_url.rstrip('/')
         self.api_key = api_key
