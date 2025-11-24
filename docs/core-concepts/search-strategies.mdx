@@ -1,0 +1,34 @@
+---
+title: Search Strategies
+description: "Ryumem supports four search strategies for flexible retrieval."
+---
+
+## Strategies
+
+1.  **Semantic Search**: Embedding similarity using `text-embedding-3-large`.
+2.  **BM25 Keyword Search**: Traditional keyword/lexical matching.
+3.  **Graph Traversal**: Navigate relationships with BFS.
+4.  **Hybrid**: Combines all three using RRF fusion (recommended).
+
+## Features
+
+All strategies benefit from:
+-   **Temporal Decay**: Recent facts score higher (configurable).
+-   **Update-Awareness Boost**: 20% boost for facts modified in last 7 days.
+
+## Usage
+
+```python
+# Try different strategies
+results = ryumem.search("AI researchers", group_id="user_123", strategy="semantic")
+results = ryumem.search("machine learning", group_id="user_123", strategy="bm25")
+results = ryumem.search("tech companies", group_id="user_123", strategy="hybrid")
+
+# Customize temporal decay
+results = ryumem.search(
+    query="recent news",
+    group_id="user_123",
+    strategy="hybrid",
+    # Override temporal decay settings
+)
+```

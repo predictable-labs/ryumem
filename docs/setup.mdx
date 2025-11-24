@@ -1,0 +1,76 @@
+---
+title: Setup
+description: "Get started with Ryumem in minutes."
+---
+
+## Installation
+
+Install Ryumem from PyPI:
+
+```bash
+pip install ryumem
+```
+
+## Getting an API Key
+
+Ryumem uses a hosted service for production deployments. To get your API key:
+
+<Note>
+Contact **contact@predictable.sh** to request an API key for the Ryumem hosted service.
+</Note>
+
+Your API key will start with `ryu_` and should be kept secure. Never commit it to version control.
+
+## Quick Start
+
+Initialize Ryumem with your API key:
+
+```python
+from ryumem import Ryumem
+
+# Initialize with your Ryumem API key
+ryumem = Ryumem(
+    api_key="ryu_...",
+)
+
+# Add your first memory episode
+ryumem.add_episode(
+    content="Alice works at Google in Mountain View as a Software Engineer.",
+    group_id="user_123",
+)
+
+# Add a related episode
+ryumem.add_episode(
+    content="Bob is Alice's colleague and recently moved to Meta.",
+    group_id="user_123",
+)
+
+# Search your memories
+results = ryumem.search(
+    query="Where does Alice work?",
+    group_id="user_123",
+)
+
+print(results)
+```
+
+<Warning>
+For self-hosted deployments, contact **contact@predictable.sh**.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Tutorial" icon="rocket" href="/quickstart">
+    Build your first memory-enabled agent in 5 minutes
+  </Card>
+  <Card title="Google ADK Integration" icon="plug" href="/integrations/google-adk">
+    Add memory to Google ADK agents with one line
+  </Card>
+  <Card title="Core Concepts" icon="brain" href="/core-concepts/episodes">
+    Understand how Ryumem works
+  </Card>
+  <Card title="Examples" icon="code" href="/examples/basic-usage">
+    See real-world usage examples
+  </Card>
+</CardGroup>

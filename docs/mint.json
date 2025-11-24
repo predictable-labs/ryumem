@@ -1,0 +1,84 @@
+{
+    "name": "Ryumem",
+    "favicon": "favicon.ico",
+    "colors": {
+        "primary": "#6366F1",
+        "light": "#818CF8",
+        "dark": "#4F46E5",
+        "background": {
+            "light": "#FFFFFF",
+            "dark": "#0F172A"
+        },
+        "anchors": {
+            "from": "#6366F1",
+            "to": "#8B5CF6"
+        }
+    },
+    "topbar": {
+        "style": "gradient"
+    },
+    "topbarLinks": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/predictable/ryumem"
+        }
+    ],
+    "topbarCtaButton": {
+        "name": "Get API Key",
+        "url": "mailto:contact@predictable.sh"
+    },
+    "anchors": [
+        {
+            "name": "Examples",
+            "icon": "code",
+            "url": "examples"
+        },
+        {
+            "name": "GitHub",
+            "icon": "github",
+            "url": "https://github.com/predictable/ryumem"
+        }
+    ],
+    "navigation": [
+        {
+            "group": "Getting Started",
+            "pages": [
+                "introduction",
+                "quickstart",
+                "setup"
+            ]
+        },
+        {
+            "group": "Core Concepts",
+            "pages": [
+                "core-concepts/episodes",
+                "core-concepts/multi-tenancy",
+                "core-concepts/bi-temporal-graph",
+                "core-concepts/search-strategies",
+                "core-concepts/community-detection",
+                "core-concepts/memory-pruning"
+            ]
+        },
+        {
+            "group": "Integrations",
+            "pages": [
+                "integrations/google-adk"
+            ]
+        },
+        {
+            "group": "Examples & Guides",
+            "pages": [
+                "examples/basic-usage"
+            ]
+        }
+    ],
+    "footerSocials": {
+        "github": "https://github.com/predictable/ryumem",
+        "email": "mailto:contact@predictable.sh"
+    },
+    "feedback": {
+        "thumbsRating": true,
+        "suggestEdit": true,
+        "raiseIssue": true
+    }
+}

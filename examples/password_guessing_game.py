@@ -296,6 +296,7 @@ If the user wants a hint, use get_hint.""",
     # ⭐ Add memory + tool tracking + query augmentation
     # Using a valid API key registered for demo_company_v2
     ryumem = Ryumem(
+        server_url="https://app.ryumem.io/api"
         api_key="ryu_sywtp0foYYd7lVlEX8uW3oWfidVo4XF24V5iiI1fHNc",
     )
     

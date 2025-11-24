@@ -1,0 +1,187 @@
+---
+title: Google ADK Integration
+description: "Add memory to Google ADK agents with one line of code."
+---
+
+Ryumem provides **zero-boilerplate integration** for Google's Agent Developer Kit, automatically adding memory tools to your agents.
+
+## Quick Start
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install ryumem google-adk
+    ```
+  </Step>
+
+  <Step title="Initialize Ryumem">
+    ```python
+    from ryumem import Ryumem
+
+    ryumem = Ryumem(api_key="ryu_...")
+    ```
+  </Step>
+
+  <Step title="Add Memory to Agent">
+    ```python
+    from google.adk.agents import Agent
+    from ryumem.integrations import add_memory_to_agent
+
+    # Create your agent
+    agent = Agent(
+        name="assistant",
+        model="gemini-2.0-flash-exp",
+        instruction="You are a helpful assistant with memory."
+    )
+
+    # Enable memory - that's it! 🎉
+    memory = add_memory_to_agent(
+        agent,
+        ryumem_instance=ryumem,
+        enable_tool_tracking=True,  # Auto-track tool executions
+    )
+    ```
+  </Step>
+</Steps>
+
+The agent now has 3 auto-generated memory tools:
+- **`search_memory()`** - Find relevant information from past conversations
+- **`save_memory()`** - Store new information for later retrieval
+- **`get_entity_context()`** - Get comprehensive context about specific entities
+
+<Note>
+All tool executions are automatically logged when `enable_tool_tracking=True`, creating a complete history of what your agent has done.
+</Note>
+
+## Automatic Query Tracking & Augmentation
+
+Wrap your runner to automatically track user queries and augment them with relevant historical context:
+
+```python
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from ryumem.integrations import wrap_runner_with_tracking
+
+# Setup session
+session_service = InMemorySessionService()
+await session_service.create_session(
+    app_name="my_app",
+    user_id="user_123",
+    session_id="session_456"
+)
+
+# Create runner
+runner = Runner(
+    agent=agent,
+    app_name="my_app",
+    session_service=session_service
+)
+
+# Wrap for auto-tracking and query augmentation 🚀
+runner = wrap_runner_with_tracking(
+    runner,
+    memory,
+    augment_queries=True,       # Enable query augmentation
+    similarity_threshold=0.3,   # Match queries with 30%+ similarity
+    top_k_similar=5             # Use top 5 similar past queries
+)
+```
+
+### What This Does
+
+When `augment_queries=True`:
+1. **Tracks user queries** as episodes automatically
+2. **Finds similar past queries** using semantic search
+3. **Augments new queries** with context from similar past conversations
+4. **Links queries to tool executions** hierarchically
+
+<Tip>
+Query augmentation helps agents learn from past interactions. If a user asks "What's the weather in London?" and later asks "How about London today?", the second query gets enriched with context from the first.
+</Tip>
+
+## Tool Tracking
+
+When `enable_tool_tracking=True`, all tool executions are automatically logged:
+
+```python
+memory = add_memory_to_agent(
+    agent,
+    ryumem_instance=ryumem,
+    enable_tool_tracking=True,  # Track all tool calls
+)
+```
+
+This creates a complete audit trail of:
+- Which tools were called
+- What parameters were used
+- What results were returned
+- When they were executed
+
+Perfect for debugging, analytics, and improving agent performance over time.
+
+## Entity Extraction Control
+
+Control whether to extract entities and relationships from memories:
+
+```python
+memory = add_memory_to_agent(
+    agent,
+    ryumem_instance=ryumem,
+    extract_entities=False,  # Default: save tokens by skipping extraction
+)
+```
+
+- **`extract_entities=False`** (default): Store episodes but skip entity extraction (saves 30-50% tokens)
+- **`extract_entities=True`**: Full knowledge graph extraction (entities, relationships, contradictions)
+
+You can override this per memory save:
+
+```python
+# The agent can choose to extract entities for important memories
+memory.save_memory(
+    content="Critical information requiring full extraction",
+    extract_entities=True
+)
+```
+
+## Complete Example
+
+See a full working example in the repository:
+
+<CardGroup cols={2}>
+  <Card title="Simple Tool Tracking Demo" icon="wand-magic-sparkles" href="/examples/simple-tool-tracking">
+    Basic example with auto-tracking and query augmentation
+  </Card>
+  <Card title="Password Guessing Game" icon="gamepad" href="/examples/password-game">
+    Advanced demo showing how query augmentation helps agents learn
+  </Card>
+</CardGroup>
+
+## API Reference
+
+### `add_memory_to_agent()`
+
+Adds memory tools to a Google ADK agent.
+
+**Parameters:**
+- `agent` - The Google ADK Agent instance
+- `ryumem_instance` - Initialized Ryumem instance
+- `enable_tool_tracking` (bool, optional) - Auto-track all tool executions. Default: `False`
+- `extract_entities` (bool, optional) - Extract entities/relationships. Default: `False`
+
+**Returns:**
+- Memory instance with methods: `search_memory()`, `save_memory()`, `get_entity_context()`
+
+### `wrap_runner_with_tracking()`
+
+Wraps a Google ADK Runner to track queries and optionally augment them with history.
+
+**Parameters:**
+- `runner` - Google ADK Runner instance
+- `memory` - Memory instance from `add_memory_to_agent()`
+- `augment_queries` (bool) - Enable query augmentation. Default: `False`
+- `similarity_threshold` (float) - Minimum similarity for augmentation (0.0-1.0). Default: `0.3`
+- `top_k_similar` (int) - Number of similar past queries to use. Default: `5`
+
+**Returns:**
+- Wrapped runner with automatic query tracking

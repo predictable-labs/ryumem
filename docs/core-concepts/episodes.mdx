@@ -1,0 +1,33 @@
+---
+title: Episodes
+description: "Episodes are the fundamental unit of ingestion in Ryumem."
+---
+
+Every piece of information starts as an episode.
+
+## Adding Episodes
+
+You can add episodes from various sources:
+
+```python
+# Text episode
+ryumem.add_episode(
+    content="Alice graduated from Stanford in 2018.",
+    group_id="user_123",
+    source="text",
+)
+
+# Message episode (conversational)
+ryumem.add_episode(
+    content="user: Where did you go to school?\nassistant: I went to MIT.",
+    group_id="user_123",
+    source="message",
+)
+
+# JSON episode (structured data)
+ryumem.add_episode(
+    content='{"person": "Bob", "company": "Meta", "role": "Engineer"}',
+    group_id="user_123",
+    source="json",
+)
+```

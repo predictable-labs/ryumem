@@ -1,0 +1,21 @@
+---
+title: Community Detection
+description: "Automatically cluster related entities into communities."
+---
+
+Ryumem uses the Louvain algorithm to cluster related entities into communities. Each community gets an LLM-generated summary describing the common theme and relationships.
+
+## Usage
+
+```python
+# Detect communities periodically
+num_communities = ryumem.update_communities("user_123")
+print(f"Created {num_communities} communities")
+
+# Fine-tune clustering
+num_communities = ryumem.update_communities(
+    "user_123",
+    resolution=1.5,  # Higher = more fine-grained communities
+    min_community_size=3,  # Minimum entities per community
+)
+```

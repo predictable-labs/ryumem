@@ -1,0 +1,98 @@
+---
+title: Ryumem
+description: "Add intelligent, long-term memory to your AI agents with one line of code."
+---
+
+# Knowledge Graph Memory for AI Agents
+
+Ryumem is a **bi-temporal knowledge graph memory system** that gives your AI agents intelligent, long-term memory with automatic tool tracking and query augmentation.
+
+<CardGroup cols={2}>
+  <Card title="5-Minute Quickstart" icon="rocket" href="/quickstart">
+    Build your first memory-enabled agent
+  </Card>
+  <Card title="One-Line Integration" icon="plug" href="/integrations/google-adk">
+    Add memory to Google ADK agents instantly
+  </Card>
+  <Card title="Core Concepts" icon="brain" href="/core-concepts/episodes">
+    Understand how Ryumem works
+  </Card>
+  <Card title="GitHub" icon="github" href="https://github.com/predictable/ryumem">
+    View the source code and examples
+  </Card>
+</CardGroup>
+
+<Note>
+**SDK Documentation**: This documentation covers the Ryumem Python SDK for adding memory to your AI agents. For self-hosted server deployment, contact **contact@predictable.sh**.
+</Note>
+
+## Why Ryumem?
+
+<AccordionGroup>
+  <Accordion icon="bolt" title="One-Line Setup">
+    Add memory to Google ADK agents with a single function call. No configuration, no boilerplate - just instant memory.
+
+    ```python
+    memory = add_memory_to_agent(agent, ryumem_instance=ryumem)
+    ```
+  </Accordion>
+
+  <Accordion icon="wand-magic-sparkles" title="Automatic Tool Tracking">
+    Every tool execution is automatically logged with parameters, results, and timestamps. Perfect for debugging and analytics.
+
+    ```python
+    memory = add_memory_to_agent(agent, ryumem_instance=ryumem, enable_tool_tracking=True)
+    ```
+  </Accordion>
+
+  <Accordion icon="sparkles" title="Query Augmentation">
+    New queries are automatically enriched with context from similar past conversations, helping agents learn and improve over time.
+
+    ```python
+    runner = wrap_runner_with_tracking(runner, memory, augment_queries=True)
+    ```
+  </Accordion>
+
+  <Accordion icon="brain" title="Knowledge Graph Memory">
+    Unlike flat memory systems, Ryumem builds a knowledge graph with entities and relationships, enabling intelligent retrieval and reasoning.
+  </Accordion>
+
+  <Accordion icon="clock" title="Temporal Awareness">
+    Tracks when facts were valid (valid_at) and when they were recorded (created_at), automatically handling contradictions and outdated information.
+  </Accordion>
+
+  <Accordion icon="magnifying-glass" title="Hybrid Search">
+    Combines semantic search (embeddings), keyword search (BM25), and graph traversal for the most relevant results.
+  </Accordion>
+
+  <Accordion icon="users" title="Built-in Multi-Tenancy">
+    Isolate memories by user, session, agent, or any custom grouping - perfect for production applications.
+  </Accordion>
+
+  <Accordion icon="gauge-high" title="Production Ready">
+    Hosted service handles scaling, embeddings, and LLM inference - you just focus on building your agent.
+  </Accordion>
+</AccordionGroup>
+
+## Key Features
+
+<CardGroup cols={3}>
+  <Card title="Episode-Based Storage" icon="layer-group">
+    Store conversations and facts as episodes that get automatically parsed into knowledge graphs
+  </Card>
+  <Card title="Smart Retrieval" icon="magnifying-glass">
+    Semantic + keyword + graph traversal search with temporal decay scoring
+  </Card>
+  <Card title="Auto-Deduplication" icon="fingerprint">
+    Embedding-based entity resolution prevents duplicate memories
+  </Card>
+  <Card title="Contradiction Handling" icon="code-compare">
+    Automatically detects and resolves conflicting facts
+  </Card>
+  <Card title="Community Detection" icon="diagram-project">
+    Clusters related entities using Louvain algorithm for better context
+  </Card>
+  <Card title="Memory Pruning" icon="broom">
+    Removes expired and obsolete information automatically
+  </Card>
+</CardGroup>

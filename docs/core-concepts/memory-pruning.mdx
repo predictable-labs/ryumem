@@ -1,0 +1,29 @@
+---
+title: Memory Pruning
+description: "Keep your knowledge graph efficient and compact."
+---
+
+Ryumem allows you to prune old or redundant data to maintain performance and reduce token usage.
+
+## Features
+
+-   Remove facts expired > N days ago.
+-   Delete low-value entities (< 2 mentions, > 30 days old).
+-   Merge near-duplicate facts (95%+ similarity).
+
+## Usage
+
+```python
+# Prune old/redundant data periodically
+stats = ryumem.prune_memories("user_123")
+print(f"Pruning results: {stats}")
+# Output: {'expired_edges_deleted': 15, 'entities_deleted': 3, 'edges_merged': 8}
+
+# Customize pruning aggressiveness
+stats = ryumem.prune_memories(
+    "user_123",
+    expired_cutoff_days=60,  # Delete facts expired > 60 days ago
+    min_mentions=3,  # Keep only entities with 3+ mentions
+    compact_redundant=True,  # Merge near-duplicate facts
+)
+```

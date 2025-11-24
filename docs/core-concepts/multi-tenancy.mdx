@@ -1,0 +1,31 @@
+---
+title: Multi-Tenancy
+description: "Ryumem supports multiple levels of isolation for secure data management."
+---
+
+Ryumem is designed as a multi-tenant system from the ground up, supporting secure isolation between customers and users.
+
+## Isolation Levels
+
+1.  **Customer Level**: Strict isolation. Data from one customer is never accessible to another. Enforced via API keys.
+2.  **User Level**: Logical separation within a customer. Use `user_id` to scope memories to specific end-users.
+3.  **Session/Agent Level**: Further scoping via `session_id` or `agent_id` for specific interaction contexts.
+
+## Usage
+
+```python
+ryumem.add_episode(
+    content="...",
+    group_id="organization_1",      # Organization level
+    user_id="user_123",             # User level
+    agent_id="agent_assistant",     # Agent level
+    session_id="session_xyz",       # Session level
+)
+
+# Search within specific scope
+results = ryumem.search(
+    query="...",
+    group_id="organization_1",
+    user_id="user_123",             # Optional: filter by user
+)
+```

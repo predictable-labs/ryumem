@@ -1,0 +1,145 @@
+---
+title: Basic Usage
+description: "Learn how to use the core features of Ryumem."
+---
+
+This guide demonstrates the fundamental operations in Ryumem: initialization, adding episodes, and performing searches.
+
+## Initialize Ryumem
+
+First, import and initialize Ryumem with your API key:
+
+```python
+from ryumem import Ryumem
+
+# Initialize with your Ryumem API key
+ryumem = Ryumem(
+    api_key="ryu_...",
+)
+```
+
+<Note>
+Need an API key? Contact **contact@predictable.sh** to get started.
+</Note>
+
+## Add Episodes
+
+Episodes are the fundamental unit of memory in Ryumem. Each episode contains content that gets parsed into entities and relationships:
+
+```python
+# Add your first episode
+ryumem.add_episode(
+    content="Alice works at Google in Mountain View as a Software Engineer.",
+    group_id="user_123",
+)
+
+# Add a related episode
+ryumem.add_episode(
+    content="Bob is Alice's colleague and recently moved to Meta.",
+    group_id="user_123",
+)
+```
+
+<Tip>
+The `group_id` parameter is used for multi-tenancy. Use it to isolate memories by user, session, or any other grouping.
+</Tip>
+
+## Search Memories
+
+Ryumem supports multiple search strategies. The hybrid strategy combines semantic search, keyword search (BM25), and graph traversal:
+
+```python
+# Search using hybrid strategy
+results = ryumem.search(
+    query="Where does Alice work?",
+    group_id="user_123",
+    strategy="hybrid",  # Combines semantic + BM25 + graph traversal
+    limit=10,
+)
+
+# Display entities found
+for entity in results.entities:
+    score = results.scores.get(entity.uuid, 0.0)
+    print(f"{entity.name} ({entity.entity_type}) - Score: {score:.3f}")
+
+# Display relationships (edges) found
+for edge in results.edges:
+    print(f"Relationship: {edge.fact}")
+```
+
+### Search Strategies
+
+- **`semantic`** - Uses embeddings for meaning-based search
+- **`bm25`** - Traditional keyword-based search
+- **`graph_traversal`** - Explores connected entities
+- **`hybrid`** - Combines all three methods (recommended)
+
+Learn more in [Search Strategies](/core-concepts/search-strategies).
+
+## Get Entity Context
+
+Retrieve comprehensive information about a specific entity:
+
+```python
+# Get all context for an entity
+context = ryumem.get_entity_context(
+    entity_name="Alice",
+    group_id="user_123",
+)
+
+print(f"Entity: {context['entity']['name']}")
+print(f"Type: {context['entity']['entity_type']}")
+print(f"Relationships: {context['relationship_count']}")
+```
+
+## Complete Example
+
+Here's a complete working example:
+
+```python
+from ryumem import Ryumem
+
+# Initialize
+ryumem = Ryumem(api_key="ryu_...")
+
+# Add knowledge
+ryumem.add_episode(
+    content="Alice works at Google in Mountain View as a Software Engineer.",
+    group_id="user_123",
+)
+
+ryumem.add_episode(
+    content="Bob is Alice's colleague and recently moved to Meta.",
+    group_id="user_123",
+)
+
+# Search
+results = ryumem.search(
+    query="Where does Alice work?",
+    group_id="user_123",
+    strategy="hybrid",
+    limit=10,
+)
+
+# Process results
+for entity in results.entities:
+    score = results.scores.get(entity.uuid, 0.0)
+    print(f"{entity.name} - {score:.3f}")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Episodes" icon="book" href="/core-concepts/episodes">
+    Learn more about episodes and how they're processed
+  </Card>
+  <Card title="Search Strategies" icon="magnifying-glass" href="/core-concepts/search-strategies">
+    Deep dive into search methods
+  </Card>
+  <Card title="Google ADK Integration" icon="plug" href="/integrations/google-adk">
+    Add memory to AI agents
+  </Card>
+  <Card title="Multi-Tenancy" icon="users" href="/core-concepts/multi-tenancy">
+    Isolate memories by user or session
+  </Card>
+</CardGroup>

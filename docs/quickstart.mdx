@@ -1,0 +1,334 @@
+---
+title: Quickstart
+description: "Build your first memory-enabled AI agent in 5 minutes."
+---
+
+This quickstart will guide you through building a Google ADK agent with automatic memory, tool tracking, and query augmentation - all with just a few lines of code.
+
+## Prerequisites
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install ryumem google-adk python-dotenv
+    ```
+  </Step>
+
+  <Step title="Get API Keys">
+    You'll need two API keys:
+
+    **Ryumem API Key** (for memory)
+    - Contact **contact@predictable.sh** to request access
+    - Your key will start with `ryu_`
+
+    **Google API Key** (for Gemini)
+    - Get one from [Google AI Studio](https://aistudio.google.com/app/apikey)
+    - Starts with your project identifier
+  </Step>
+
+  <Step title="Set Environment Variables">
+    Create a `.env` file in your project:
+
+    ```bash
+    GOOGLE_API_KEY=your_google_api_key
+    ```
+
+    Keep your Ryumem API key secure - you'll pass it directly in the code.
+  </Step>
+</Steps>
+
+## Building Your First Agent
+
+Let's build a weather assistant that remembers conversations and automatically tracks what it does.
+
+### 1. Create the Agent Tools
+
+First, define some simple tools for our agent:
+
+```python
+from google.adk.tools import FunctionTool
+
+def get_weather_report(city: str) -> dict:
+    """Get the current weather for a specified city."""
+    if city.lower() == "london":
+        return {
+            "status": "success",
+            "report": "Cloudy with 18°C and chance of rain."
+        }
+    elif city.lower() == "paris":
+        return {
+            "status": "success",
+            "report": "Sunny with 25°C."
+        }
+    else:
+        return {
+            "status": "error",
+            "error_message": f"Weather info for '{city}' not available."
+        }
+
+def analyze_sentiment(text: str) -> dict:
+    """Analyze the sentiment of text."""
+    if "good" in text.lower() or "sunny" in text.lower():
+        return {"sentiment": "positive", "confidence": 0.8}
+    elif "rain" in text.lower() or "bad" in text.lower():
+        return {"sentiment": "negative", "confidence": 0.7}
+    else:
+        return {"sentiment": "neutral", "confidence": 0.6}
+
+# Wrap as ADK tools
+weather_tool = FunctionTool(func=get_weather_report)
+sentiment_tool = FunctionTool(func=analyze_sentiment)
+```
+
+### 2. Create the Agent with Memory
+
+Now create your agent and add memory with ONE line:
+
+```python
+import os
+from dotenv import load_dotenv
+from google.adk.agents import Agent
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from ryumem import Ryumem
+from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+
+# Load environment variables
+load_dotenv()
+
+# Create the agent
+agent = Agent(
+    model="gemini-2.0-flash-exp",
+    name="weather_assistant",
+    instruction="""You are a helpful assistant that provides weather information
+    and analyzes sentiment. Use get_weather_report for weather queries and
+    analyze_sentiment for feedback.""",
+    tools=[weather_tool, sentiment_tool]
+)
+
+# ⭐ Add memory in ONE line!
+ryumem = Ryumem(api_key="ryu_...")
+
+memory = add_memory_to_agent(
+    agent,
+    ryumem_instance=ryumem,
+    enable_tool_tracking=True,  # Automatically track all tool calls
+)
+```
+
+<Note>
+The agent now has 3 additional memory tools that it can use automatically: `search_memory()`, `save_memory()`, and `get_entity_context()`.
+</Note>
+
+### 3. Enable Query Tracking & Augmentation
+
+Wrap your runner to automatically track queries and augment them with history:
+
+```python
+import asyncio
+from google.genai import types
+
+async def main():
+    # Setup session
+    session_service = InMemorySessionService()
+    await session_service.create_session(
+        app_name="weather_app",
+        user_id="user_123",
+        session_id="session_456"
+    )
+
+    # Create runner
+    runner = Runner(
+        agent=agent,
+        app_name="weather_app",
+        session_service=session_service
+    )
+
+    # ⭐ Wrap for automatic query tracking and augmentation!
+    runner = wrap_runner_with_tracking(
+        runner,
+        memory,
+        augment_queries=True,      # Enable query augmentation
+        similarity_threshold=0.3,  # Match queries with 30%+ similarity
+        top_k_similar=5            # Use top 5 similar queries for context
+    )
+
+    # Run queries
+    queries = [
+        "What's the weather in London?",
+        "That sounds nice!",
+        "How about Paris?"
+    ]
+
+    for query in queries:
+        print(f"\n👤 User: {query}")
+
+        content = types.Content(
+            role='user',
+            parts=[types.Part(text=query)]
+        )
+
+        # Run the agent - everything tracked automatically!
+        events = runner.run(
+            user_id="user_123",
+            session_id="session_456",
+            new_message=content
+        )
+
+        # Get response
+        for event in events:
+            if event.is_final_response():
+                response = event.content.parts[0].text
+                print(f"🤖 Agent: {response}")
+
+# Run it!
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### 4. Run Your Agent
+
+Save the code as `my_first_agent.py` and run:
+
+```bash
+python my_first_agent.py
+```
+
+You should see output like:
+
+```
+👤 User: What's the weather in London?
+🤖 Agent: The weather in London is currently cloudy with a temperature
+of 18 degrees Celsius and there's a chance of rain.
+
+👤 User: That sounds nice!
+🤖 Agent: I'm glad you think so! The weather seems pleasant despite the
+chance of rain.
+
+👤 User: How about Paris?
+🤖 Agent: The weather in Paris is sunny with a temperature of 25 degrees
+Celsius. Much warmer and sunnier than London!
+```
+
+## What Just Happened?
+
+Behind the scenes, Ryumem:
+
+1. **Tracked all tool executions** - Every call to `get_weather_report()` and `analyze_sentiment()` was logged
+2. **Stored user queries** - All three questions were saved as episodes
+3. **Augmented queries** - Later queries got context from earlier similar ones
+4. **Linked everything hierarchically** - Queries are linked to their tool executions
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Full Example Code" icon="code" href="/examples/simple-tool-tracking">
+    See the complete annotated example
+  </Card>
+  <Card title="Google ADK Integration" icon="plug" href="/integrations/google-adk">
+    Learn all the integration features
+  </Card>
+  <Card title="Core Concepts" icon="brain" href="/core-concepts/episodes">
+    Understand how Ryumem works
+  </Card>
+  <Card title="Query Augmentation" icon="wand-magic-sparkles" href="/integrations/query-augmentation">
+    Deep dive into query augmentation
+  </Card>
+</CardGroup>
+
+## Full Code
+
+Here's the complete working example:
+
+```python
+import os
+import asyncio
+from dotenv import load_dotenv
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.genai import types
+from ryumem import Ryumem
+from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+
+load_dotenv()
+
+# Define tools
+def get_weather_report(city: str) -> dict:
+    if city.lower() == "london":
+        return {"status": "success", "report": "Cloudy with 18°C"}
+    elif city.lower() == "paris":
+        return {"status": "success", "report": "Sunny with 25°C"}
+    return {"status": "error", "error_message": f"No data for {city}"}
+
+def analyze_sentiment(text: str) -> dict:
+    if "good" in text.lower() or "sunny" in text.lower():
+        return {"sentiment": "positive", "confidence": 0.8}
+    elif "rain" in text.lower():
+        return {"sentiment": "negative", "confidence": 0.7}
+    return {"sentiment": "neutral", "confidence": 0.6}
+
+weather_tool = FunctionTool(func=get_weather_report)
+sentiment_tool = FunctionTool(func=analyze_sentiment)
+
+# Create agent
+agent = Agent(
+    model="gemini-2.0-flash-exp",
+    name="weather_assistant",
+    instruction="You provide weather info and analyze sentiment.",
+    tools=[weather_tool, sentiment_tool]
+)
+
+# Add memory
+ryumem = Ryumem(api_key="ryu_...")
+memory = add_memory_to_agent(
+    agent,
+    ryumem_instance=ryumem,
+    enable_tool_tracking=True,
+)
+
+async def main():
+    session_service = InMemorySessionService()
+    await session_service.create_session(
+        app_name="weather_app",
+        user_id="user_123",
+        session_id="session_456"
+    )
+
+    runner = Runner(
+        agent=agent,
+        app_name="weather_app",
+        session_service=session_service
+    )
+
+    runner = wrap_runner_with_tracking(
+        runner,
+        memory,
+        augment_queries=True,
+        similarity_threshold=0.3,
+        top_k_similar=5
+    )
+
+    queries = [
+        "What's the weather in London?",
+        "That sounds nice!",
+        "How about Paris?"
+    ]
+
+    for query in queries:
+        print(f"\n👤 User: {query}")
+        content = types.Content(role='user', parts=[types.Part(text=query)])
+        events = runner.run(user_id="user_123", session_id="session_456", new_message=content)
+
+        for event in events:
+            if event.is_final_response():
+                print(f"🤖 Agent: {event.content.parts[0].text}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+<Tip>
+This complete example is available in the repository as `examples/simple_tool_tracking_demo.py`.
+</Tip>
