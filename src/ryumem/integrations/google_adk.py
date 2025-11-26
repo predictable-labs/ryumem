@@ -429,16 +429,14 @@ def _find_similar_query_episodes(
     memory: RyumemGoogleADK,
     user_id: str,
     session_id: str,
-    similarity_threshold: float,
-    top_k: int
 ) -> List[Dict[str, Any]]:
     """Find and filter similar query episodes above threshold."""
     search_results = memory.ryumem.search(
         query=query_text,
         user_id=user_id,
         session_id=session_id,
-        strategy="semantic",
-        limit=top_k if top_k > 0 else 100
+        strategy=memory.ryumem.config.tool_tracking.similarity_strategy,
+        limit=memory.ryumem.config.tool_tracking.top_k_similar
     )
 
     if not search_results.episodes:
@@ -456,7 +454,7 @@ def _find_similar_query_episodes(
             score = 1.0
 
         # Filter by threshold and source type
-        if score >= similarity_threshold and episode.source == EpisodeType.message:
+        if score >= memory.ryumem.config.tool_tracking.similarity_threshold and episode.source == EpisodeType.message:
             similar_queries.append({
                 "content": episode.content,
                 "score": score,
@@ -464,7 +462,7 @@ def _find_similar_query_episodes(
                 "metadata": episode.metadata,
             })
 
-    logger.info(f"Found {len(similar_queries)} similar queries above threshold {similarity_threshold}")
+    logger.info(f"Found {len(similar_queries)} similar queries above threshold {memory.ryumem.config.tool_tracking.similarity_threshold}")
     return similar_queries
 
 
@@ -536,8 +534,6 @@ def _augment_query_with_history(
     memory: RyumemGoogleADK,
     user_id: str,
     session_id: str,
-    similarity_threshold: float = 0.1,
-    top_k: int = 5,
 ) -> str:
     """
     Augment an incoming query with historical context from similar past queries.
@@ -558,13 +554,13 @@ def _augment_query_with_history(
     """
     try:
         similar_queries = _find_similar_query_episodes(
-            query_text, memory, user_id, session_id, similarity_threshold, top_k
+            query_text, memory, user_id, session_id
         )
 
         if not similar_queries:
             return query_text
 
-        augmented_query = _build_context_section(query_text, similar_queries, memory, top_k)
+        augmented_query = _build_context_section(query_text, similar_queries, memory)
 
         logger.info(f"Augmented query with {len(similar_queries)} similar queries")
         return augmented_query
@@ -630,9 +626,6 @@ def _create_query_episode(
     session_id: str,
     run_id: str,
     augmented_query_text: str,
-    augment_queries: bool,
-    similarity_threshold: float,
-    top_k_similar: int,
     memory: RyumemGoogleADK
 ) -> str:
     """Create episode for user query with metadata."""
@@ -652,8 +645,6 @@ def _create_query_episode(
     # Create episode metadata with sessions map
     episode_metadata = EpisodeMetadata(integration="google_adk")
     episode_metadata.add_query_run(session_id, query_run)
-
-    print(memory.ryumem.config)
 
     query_episode_id = memory.ryumem.add_episode(
         content=query_text,
@@ -675,9 +666,6 @@ def _prepare_query_and_episode(
     user_id: str,
     session_id: str,
     memory: RyumemGoogleADK,
-    augment_queries: bool,
-    similarity_threshold: float,
-    top_k_similar: int,
     original_runner
 ):
     """
@@ -690,9 +678,6 @@ def _prepare_query_and_episode(
         user_id: User identifier
         session_id: Session identifier
         memory: RyumemGoogleADK instance
-        augment_queries: Whether to augment with historical context
-        similarity_threshold: Minimum similarity for augmentation
-        top_k_similar: Number of similar queries to use
         original_runner: The runner instance for storing context
 
     Returns:
@@ -712,9 +697,9 @@ def _prepare_query_and_episode(
     augmented_message = new_message
 
     # Augment query with historical context if enabled
-    if augment_queries:
+    if memory.ryumem.config.tool_tracking.augment_queries:
         augmented_query_text = _augment_query_with_history(
-            query_text, memory, user_id, session_id, similarity_threshold, top_k_similar
+            query_text, memory, user_id, session_id
         )
 
         # Update message if context was added (query text might be same but context added)
@@ -760,17 +745,8 @@ def _prepare_query_and_episode(
             session_id=session_id,
             run_id=run_id,
             augmented_query_text=augmented_query_text,
-            augment_queries=augment_queries,
-            similarity_threshold=similarity_threshold,
-            top_k_similar=top_k_similar,
             memory=memory
         )
-
-    # Store context on runner instance for tool tracker
-    original_runner._ryumem_current_run_id = run_id
-    original_runner._ryumem_query_episode = query_episode_id
-    original_runner._ryumem_session_id = session_id
-    original_runner._ryumem_user_id = user_id
 
     return original_query_text, augmented_message, query_episode_id, run_id
 
@@ -869,14 +845,7 @@ def wrap_runner_with_tracking(
         )
 
     memory: RyumemGoogleADK = agent_with_memory._ryumem_memory
-
-    # Get config from memory's ryumem instance
-    track_queries = memory.ryumem.config.tool_tracking.track_queries
-    augment_queries = memory.ryumem.config.tool_tracking.augment_queries
-    similarity_threshold = memory.ryumem.config.tool_tracking.similarity_threshold
-    top_k_similar = memory.ryumem.config.tool_tracking.top_k_similar
-
-    if not track_queries:
+    if not memory.ryumem.config.tool_tracking.track_queries:
         return original_runner
 
     # NOTE: Google ADK's Runner.run() internally calls run_async() in a thread.
@@ -893,9 +862,6 @@ def wrap_runner_with_tracking(
                 user_id=user_id,
                 session_id=session_id,
                 memory=memory,
-                augment_queries=augment_queries,
-                similarity_threshold=similarity_threshold,
-                top_k_similar=top_k_similar,
                 original_runner=original_runner
             )
 
@@ -936,10 +902,5 @@ def wrap_runner_with_tracking(
         memory.tracker._runner = original_runner
         logger.debug("Stored runner reference in tool tracker for episode ID lookup")
 
-    augmentation_status = "enabled" if augment_queries else "disabled"
-    logger.info(f"Runner wrapped for query tracking (augmentation: {augmentation_status})")
-
     return original_runner
 
-
-# Removed old complex instruction saving logic - now handled directly in add_memory_to_agent
