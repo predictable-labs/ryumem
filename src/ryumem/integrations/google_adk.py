@@ -653,13 +653,15 @@ def _create_query_episode(
     episode_metadata = EpisodeMetadata(integration="google_adk")
     episode_metadata.add_query_run(session_id, query_run)
 
+    print(memory.ryumem.config)
+
     query_episode_id = memory.ryumem.add_episode(
         content=query_text,
         user_id=user_id,
         session_id=session_id,
         source="message",
         metadata=episode_metadata.model_dump(),
-        extract_entities=memory.extract_entities
+        extract_entities=memory.ryumem.config.entity_extraction.enabled
     )
 
     _insert_run_information_in_episode(query_episode_id, run_id, session_id, query_run, memory)

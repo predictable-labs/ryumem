@@ -114,20 +114,26 @@ class LLMConfig(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="RYUMEM_LLM_",
-        env_nested_delimiter="__"
+        env_nested_delimiter="__",
+        populate_by_name=True,
+        extra="ignore"
     )
 
 
 class EmbeddingConfig(BaseSettings):
     """Embedding configuration"""
 
-    provider: Literal["openai", "gemini", "litellm"] = Field(
+    provider: Literal["openai", "gemini", "litellm", "ollama"] = Field(
         default="gemini",
-        description="Embedding provider: 'openai', 'gemini', or 'litellm'"
+        description="Embedding provider: 'openai', 'gemini', 'litellm', or 'ollama'"
     )
     model: str = Field(
         default="text-embedding-004",
         description="Embedding model to use"
+    )
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama server URL for embeddings"
     )
     dimensions: int = Field(
         default=768,

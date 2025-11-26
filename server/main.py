@@ -561,16 +561,15 @@ async def get_config(ryumem: Ryumem = Depends(get_ryumem)):
     try:
         # Get config from the instance
         config = ryumem.config
-        
-        # Convert to dict, handling secrets
+
+        # Convert to dict
         config_dict = config.model_dump()
-        
-        # Mask secrets
-        if config_dict.get("llm", {}).get("openai_api_key"):
-            config_dict["llm"]["openai_api_key"] = "***"
-        if config_dict.get("llm", {}).get("gemini_api_key"):
-            config_dict["llm"]["gemini_api_key"] = "***"
-            
+
+        # Manually remove sensitive keys to ensure they don't leak to client
+        if 'llm' in config_dict:
+            config_dict['llm'].pop('openai_api_key', None)
+            config_dict['llm'].pop('gemini_api_key', None)
+
         return config_dict
     except Exception as e:
         logger.error(f"Error getting config: {e}")

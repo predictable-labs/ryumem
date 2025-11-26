@@ -74,8 +74,13 @@ class Ryumem:
             top_k_similar: Override for tool_tracking.top_k_similar
         """
         import os
-        if server_url is None:
-            server_url = os.getenv("RYUMEM_API_URL", "https://api.ryumem.io")
+        if not server_url:
+            server_url = os.getenv("RYUMEM_API_URL") or "https://api.ryumem.io"
+        if api_key is None:
+            api_key = os.getenv("RYUMEM_API_KEY", "")
+
+        if not server_url.startswith("http://") and not server_url.startswith("https://"):
+            server_url = f"http://{server_url}"
 
         self.base_url = server_url.rstrip('/')
         self.api_key = api_key
