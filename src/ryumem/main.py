@@ -32,6 +32,7 @@ class Ryumem:
         self,
         server_url: Optional[str] = None,
         api_key: Optional[str] = None,
+        config_ttl: int = 300,  # 5 minutes default
     ):
         """
         Initialize Ryumem client.
@@ -39,6 +40,7 @@ class Ryumem:
         Args:
             server_url: URL of the Ryumem server. If None, checks RYUMEM_API_URL env var, defaults to http://localhost:8000
             api_key: Optional API key for authentication
+            config_ttl: Time-to-live for cached config in seconds (default: 300)
         """
         import os
         if server_url is None:
@@ -46,6 +48,9 @@ class Ryumem:
 
         self.base_url = server_url.rstrip('/')
         self.api_key = api_key
+        self._config_ttl = config_ttl
+        self._config_cache: Optional[RyumemConfig] = None
+        self._config_cache_time: Optional[float] = None
 
         logger.info(f"Ryumem Client initialized (server: {self.base_url})")
 

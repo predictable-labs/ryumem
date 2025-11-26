@@ -43,44 +43,17 @@ class ToolTracker:
     Captures tool executions, classifies tasks using LLM, and stores
     everything in the knowledge graph for later analysis.
 
+    All configuration is read from the ryumem instance's config.
+
     Args:
-        ryumem: Ryumem instance for storing tool usage data
-        default_user_id: Default user ID to use when tool context doesn't provide one
-        classification_model: LLM model to use for task classification
-        summarize_large_outputs: Automatically summarize outputs >max_output_length
-        max_output_length: Maximum length for output storage (chars)
-        max_context_messages: Number of recent messages to include for classification
-        sanitize_pii: Remove PII (emails, phones) from stored data
-        exclude_params: List of parameter names to exclude from storage
-        sampling_rate: Fraction of tool calls to track (0.0-1.0)
-        fail_open: If True, tool executes even if tracking fails
+        ryumem: Ryumem instance for storing tool usage data (contains config)
     """
 
     def __init__(
         self,
         ryumem: Ryumem,
-        default_user_id: Optional[str] = None,
-        classification_model: str = "gpt-4o-mini",
-        summarize_large_outputs: bool = True,
-        max_output_length: int = 1000,
-        max_context_messages: int = 5,
-        sanitize_pii: bool = True,
-        exclude_params: Optional[List[str]] = None,
-        sampling_rate: float = 1.0,
-        fail_open: bool = True,
-        llm_tool_description: bool = False,
     ):
         self.ryumem = ryumem
-        self.default_user_id = default_user_id
-        self.classification_model = classification_model
-        self.summarize_large_outputs = summarize_large_outputs
-        self.max_output_length = max_output_length
-        self.max_context_messages = max_context_messages
-        self.sanitize_pii = sanitize_pii
-        self.exclude_params = exclude_params or ["password", "api_key", "secret", "token"]
-        self.sampling_rate = sampling_rate
-        self.fail_open = fail_open
-        self.llm_tool_description = llm_tool_description
         self._execution_count = 0
 
         # Background task management
@@ -89,7 +62,7 @@ class ToolTracker:
 
         logger.info(
             f"Initialized ToolTracker "
-            f"sampling: {sampling_rate*100}%"
+            f"sampling: {self.ryumem.config.tool_tracking.sample_rate*100}%"
         )
 
     def register_tools(self, tools: List[Dict[str, str]]) -> None:
@@ -124,7 +97,7 @@ INFO - Saved agent response to episode a84642ff-d34c-4394-b196-ae019f203604 sess
 
                 # New tool - generate enhanced description using LLM
                 enhanced_description = tool_description
-                if tool_description and self.llm_tool_description:
+                if tool_description and self.ryumem.config.tool_tracking.enhance_descriptions:
                     enhanced_description = self._generate_tool_description(
                         tool_name=tool_name,
                         base_description=tool_description
@@ -144,7 +117,7 @@ INFO - Saved agent response to episode a84642ff-d34c-4394-b196-ae019f203604 sess
 
         except Exception as e:
             logger.error(f"Failed to register tools: {e}")
-            if not self.fail_open:
+            if not self.ryumem.config.tool_tracking.ignore_errors:
                 raise
 
     def _generate_tool_description(self, tool_name: str, base_description: str) -> str:
@@ -188,11 +161,11 @@ Make it user-friendly and avoid technical jargon. Just return the description te
     def _should_track(self) -> bool:
         """Determine if this execution should be tracked based on sampling rate."""
         import random
-        return random.random() < self.sampling_rate
+        return random.random() < self.ryumem.config.tool_tracking.sample_rate
 
     def _sanitize_value(self, value: Any) -> Any:
         """Remove PII from values if sanitization is enabled."""
-        if not self.sanitize_pii:
+        if not self.ryumem.config.tool_tracking.sanitize_pii:
             return value
 
         if not isinstance(value, str):
@@ -217,10 +190,11 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
     def _sanitize_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Sanitize parameters by excluding sensitive fields and removing PII."""
+        exclude_params = ["password", "api_key", "secret", "token"]
         sanitized = {}
         for key, value in params.items():
             # Skip excluded parameters
-            if key.lower() in [p.lower() for p in self.exclude_params]:
+            if key.lower() in [p.lower() for p in exclude_params]:
                 sanitized[key] = "[REDACTED]"
                 continue
 
@@ -232,16 +206,17 @@ Make it user-friendly and avoid technical jargon. Just return the description te
     def _summarize_output(self, output: Any) -> str:
         """Summarize large outputs to reduce storage size."""
         output_str = str(output)
+        max_length = self.ryumem.config.tool_tracking.max_output_chars
 
-        if len(output_str) <= self.max_output_length:
+        if len(output_str) <= max_length:
             return self._sanitize_value(output_str)
 
-        if self.summarize_large_outputs:
+        if self.ryumem.config.tool_tracking.summarize_outputs:
             # Truncate and add indicator
-            truncated = output_str[:self.max_output_length]
+            truncated = output_str[:max_length]
             return self._sanitize_value(f"{truncated}... [truncated, total length: {len(output_str)}]")
 
-        return self._sanitize_value(output_str[:self.max_output_length])
+        return self._sanitize_value(output_str[:max_length])
 
     def _update_episode_with_tool_execution(
         self,
@@ -307,7 +282,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
         except Exception as e:
             logger.error(f"Failed to update episode with tool execution: {e}")
-            if not self.fail_open:
+            if not self.ryumem.config.tool_tracking.ignore_errors:
                 raise
 
     async def _store_tool_execution_async(
@@ -367,7 +342,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
         except Exception as e:
             logger.error(f"Failed to store tool execution: {e}")
-            if not self.fail_open:
+            if not self.ryumem.config.tool_tracking.ignore_errors:
                 raise
 
     def _store_tool_execution_sync(self, *args, **kwargs) -> None:
@@ -509,7 +484,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                     )
                 except Exception as track_error:
                     logger.error(f"Tracking failed for {_tool_name}: {track_error}")
-                    if not self.fail_open:
+                    if not self.ryumem.config.tool_tracking.ignore_errors:
                         raise
 
         return sync_wrapper
@@ -644,7 +619,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                     )
                 except Exception as track_error:
                     logger.error(f"Tracking failed for {tool_name}: {track_error}")
-                    if not self.fail_open:
+                    if not self.ryumem.config.tool_tracking.ignore_errors:
                         raise
 
         # Replace the method

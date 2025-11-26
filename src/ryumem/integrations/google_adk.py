@@ -2,21 +2,36 @@
 Google ADK Integration for Ryumem.
 
 This module provides zero-boilerplate memory integration with Google's Agent Developer Kit.
-Automatically adds memory tools (search_memory, save_memory) to your agent.
 
-Example:
+Example - Basic Memory:
     ```python
     from google import genai
+    from ryumem import Ryumem
     from ryumem.integrations import add_memory_to_agent
 
-    agent = genai.Agent(
-        name="assistant",
-        model="gemini-2.0-flash",
-        instruction="You are a helpful assistant with memory."
-    )
+    ryumem = Ryumem()
+    agent = genai.Agent(model="gemini-2.0-flash")
 
-    # One line to enable memory
-    add_memory_to_agent(agent)
+    # Add memory capabilities (modifies agent in-place)
+    agent = add_memory_to_agent(agent, ryumem)
+
+    # Agent now has search_memory and save_memory tools
+    ```
+
+Example - With Query Tracking:
+    ```python
+    from google import genai
+    from ryumem import Ryumem
+    from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+
+    ryumem = Ryumem()
+    agent = genai.Agent(model="gemini-2.0-flash")
+    agent = add_memory_to_agent(agent, ryumem)
+
+    runner = genai.Runner(agent=agent)
+    runner = wrap_runner_with_tracking(runner, agent)
+
+    # Runner now tracks queries and augments them with history
     ```
 """
 
@@ -77,29 +92,25 @@ class RyumemGoogleADK:
     This class creates search and save functions that are automatically
     registered as tools with Google ADK agents, eliminating boilerplate code.
 
+    All configuration is read from the ryumem instance's config.
+
     Args:
-        ryumem: Initialized Ryumem instance
-        extract_entities: Enable entity/relationship extraction (default: False)
-        memory_enabled: Enable memory tools (default: True)
+        agent: Google ADK Agent instance
+        ryumem: Initialized Ryumem instance (contains config)
+        tool_tracker: Optional ToolTracker for monitoring tool usage
     """
 
     def __init__(
         self,
         agent: Any,
         ryumem: Ryumem,
-        extract_entities: bool = False,
-        memory_enabled: bool = True,
-        enhance_instruction: bool = True,
         tool_tracker: Optional['ToolTracker'] = None
     ):
         self.agent = agent
         self.ryumem = ryumem
-        self.extract_entities = extract_entities
-        self.memory_enabled = memory_enabled
-        self.enhance_instruction = enhance_instruction
         self.tool_tracker = tool_tracker
 
-        logger.info(f"Initialized RyumemGoogleADK extract_entities: {extract_entities}")
+        logger.info(f"Initialized RyumemGoogleADK extract_entities: {ryumem.config.entity_extraction.enabled}")
 
     def search_memory(self, query: str, session_id: str, user_id: str, limit: int = 5) -> Dict[str, Any]:
         """
@@ -251,11 +262,11 @@ class RyumemGoogleADK:
         """
 
         tools = []
-        if self.memory_enabled:
+        if self.ryumem.config.agent.memory_enabled:
             tools.append(self.search_memory)
             tools.append(self.save_memory)
 
-        if self.extract_entities:
+        if self.ryumem.config.entity_extraction.enabled:
             tools.append(self.get_entity_context)
 
         return tools
@@ -297,95 +308,42 @@ from typing import Optional
 def add_memory_to_agent(
     agent,
     ryumem_instance: Ryumem,
-    extract_entities: Optional[bool] = None,
-    memory_enabled: Optional[bool] = None,
-    enhance_agent_instruction: Optional[bool] = None,
-    enable_tool_tracking: Optional[bool] = None,
-    tool_tracking_sample_rate: Optional[float] = None,
-    tool_tracking_summarize_outputs: Optional[bool] = None,
-    tool_tracking_max_output_chars: Optional[int] = None,
-    tool_tracking_sanitize_pii: Optional[bool] = None,
-    tool_tracking_enhance_descriptions: Optional[bool] = None,
-    ignore_tracking_errors: Optional[bool] = None,
-    track_queries: Optional[bool] = None,
-    augment_queries: Optional[bool] = None,
-    similarity_threshold: Optional[float] = None,
-    top_k_similar: Optional[int] = None,
-) -> RyumemGoogleADK:
+):
     """
     Add Ryumem memory capabilities to a Google ADK agent.
-    
-    This function:
-    1. Fetches configuration from the Ryumem server (if available).
-    2. Applies local overrides if provided.
-    3. Wraps the agent with memory and tool tracking capabilities.
+
+    Modifies the agent in-place by:
+    - Adding search_memory and save_memory tools
+    - Enhancing instructions with memory usage guidance
+    - Storing RyumemGoogleADK interface as agent._ryumem_memory
+
+    All configuration comes from the Ryumem instance's config.
+
+    Args:
+        agent: Google ADK Agent to enhance
+        ryumem_instance: Ryumem instance (contains all config)
+
+    Returns:
+        The same agent object (for chaining)
+
+    Example:
+        ryumem = Ryumem()  # Config from env/database
+        agent = genai.Agent(model="gemini-2.0-flash")
+        agent = add_memory_to_agent(agent, ryumem)
     """
     import os
     from .tool_tracker import ToolTracker
 
-    # 1. Fetch server configuration
-    try:
-        server_config = ryumem_instance.get_config()
-    except Exception as e:
-        logger.warning(f"Failed to fetch config from server: {e}. Using defaults.")
-        server_config = None
-
-    # 2. Resolve Configuration (Local > Server > Default)
-    
-    # Helper to resolve value
-    def resolve(local_val, config_path, default_val):
-        if local_val is not None:
-            return local_val
-        if server_config:
-            # Navigate dot-notation path (e.g. "agent.memory_enabled")
-            parts = config_path.split('.')
-            curr = server_config
-            try:
-                for part in parts:
-                    curr = getattr(curr, part)
-                return curr
-            except AttributeError:
-                pass
-        return default_val
-
-    # Agent Configs
-    final_extract_entities = resolve(extract_entities, "entity_extraction.enabled", False)
-    final_memory_enabled = resolve(memory_enabled, "agent.memory_enabled", True)
-    final_enhance_instruction = resolve(enhance_agent_instruction, "agent.enhance_agent_instruction", True)
-    
-    # Tool Tracking Configs
-    final_track_tools = resolve(enable_tool_tracking, "tool_tracking.track_tools", True)
-    final_sample_rate = resolve(tool_tracking_sample_rate, "tool_tracking.sample_rate", 1.0)
-    final_summarize = resolve(tool_tracking_summarize_outputs, "tool_tracking.summarize_outputs", True)
-    final_max_chars = resolve(tool_tracking_max_output_chars, "tool_tracking.max_output_chars", 1000)
-    final_sanitize = resolve(tool_tracking_sanitize_pii, "tool_tracking.sanitize_pii", True)
-    final_enhance_desc = resolve(tool_tracking_enhance_descriptions, "tool_tracking.enhance_descriptions", False)
-    final_ignore_errors = resolve(ignore_tracking_errors, "tool_tracking.ignore_errors", True)
-    
-    # Query Tracking Configs
-    final_track_queries = resolve(track_queries, "tool_tracking.track_queries", True)
-    final_augment_queries = resolve(augment_queries, "tool_tracking.augment_queries", True)
-    final_sim_threshold = resolve(similarity_threshold, "tool_tracking.similarity_threshold", 0.3)
-    final_top_k = resolve(top_k_similar, "tool_tracking.top_k_similar", 5)
-
-    # 3. Initialize Tool Tracker if enabled
+    # Initialize Tool Tracker if enabled
     tool_tracker = None
-    if final_track_tools:
+    if ryumem_instance.config.tool_tracking.track_tools:
         try:
-            tool_tracker = ToolTracker(
-                ryumem=ryumem_instance,
-                sampling_rate=final_sample_rate,
-                summarize_large_outputs=final_summarize,
-                max_output_length=final_max_chars,
-                sanitize_pii=final_sanitize,
-                llm_tool_description=final_enhance_desc,
-                fail_open=final_ignore_errors
-            )
-            
+            tool_tracker = ToolTracker(ryumem=ryumem_instance)
+
             # Wrap agent tools
             tool_tracker.wrap_agent_tools(agent)
             logger.info(f"Tool tracking enabled for agent: {agent.name if hasattr(agent, 'name') else 'unnamed'}")
-            
+
             # Register tools
             if hasattr(agent, 'tools'):
                 tools_to_register = [
@@ -398,29 +356,18 @@ def add_memory_to_agent(
                 if tools_to_register:
                     tool_tracker.register_tools(tools_to_register)
                     logger.info(f"Registered {len(tools_to_register)} tools in database")
-                    
+
         except Exception as e:
             logger.error(f"Failed to initialize tool tracking: {e}")
-            if not final_ignore_errors:
+            if not ryumem_instance.config.tool_tracking.ignore_errors:
                 raise
 
-    # 4. Create memory integration
+    # Create memory integration
     memory = RyumemGoogleADK(
         agent=agent,
         ryumem=ryumem_instance,
-        extract_entities=final_extract_entities,
-        memory_enabled=final_memory_enabled,
-        enhance_instruction=final_enhance_instruction,
         tool_tracker=tool_tracker
     )
-
-    # Store query tracking configuration
-    memory._query_tracking_config = {
-        'track_queries': final_track_queries,
-        'augment_queries': final_augment_queries,
-        'similarity_threshold': final_sim_threshold,
-        'top_k_similar': final_top_k,
-    }
 
     # 5. Auto-inject tools into agent
     if not hasattr(agent, 'tools'):
@@ -431,26 +378,29 @@ def add_memory_to_agent(
     agent.tools.extend(memory.tools)
     logger.info(f"Added {len(memory.tools)} memory tools to agent")
 
-    # 6. Build enhanced instruction
+    # Build enhanced instruction
     base_instruction = agent.instruction or ""
     enhanced_instruction = base_instruction
 
-    if final_enhance_instruction:
+    if ryumem_instance.config.agent.enhance_agent_instruction:
         instruction_parts = []
         if base_instruction:
             instruction_parts.append(base_instruction)
 
-        if final_memory_enabled:
+        if ryumem_instance.config.agent.memory_enabled:
             instruction_parts.append(DEFAULT_MEMORY_BLOCK)
 
-        if final_track_tools:
+        if ryumem_instance.config.tool_tracking.track_tools:
             instruction_parts.append(DEFAULT_TOOL_BLOCK)
 
         enhanced_instruction = "\n\n".join(instruction_parts)
         agent.instruction = enhanced_instruction
 
-    # 7. Register agent configuration
-    query_augmentation_template = DEFAULT_AUGMENTATION_TEMPLATE if (final_track_queries and final_augment_queries) else ""
+    # Register agent configuration
+    query_augmentation_template = DEFAULT_AUGMENTATION_TEMPLATE if (
+        ryumem_instance.config.tool_tracking.track_queries and
+        ryumem_instance.config.tool_tracking.augment_queries
+    ) else ""
 
     try:
         ryumem_instance.save_agent_instruction(
@@ -458,8 +408,8 @@ def add_memory_to_agent(
             agent_type="google_adk",
             enhanced_instruction=enhanced_instruction,
             query_augmentation_template=query_augmentation_template,
-            memory_enabled=final_memory_enabled,
-            tool_tracking_enabled=final_track_tools
+            memory_enabled=ryumem_instance.config.agent.memory_enabled,
+            tool_tracking_enabled=ryumem_instance.config.tool_tracking.track_tools
         )
         logger.info("Registered agent configuration in database")
     except Exception as e:
@@ -468,7 +418,10 @@ def add_memory_to_agent(
     # Store augmentation prompt locally
     memory._augmentation_prompt = query_augmentation_template or DEFAULT_AUGMENTATION_TEMPLATE
 
-    return memory
+    # Store memory interface on agent and return agent (builder pattern)
+    agent._ryumem_memory = memory
+
+    return agent
 
 
 def _find_similar_query_episodes(
@@ -881,51 +834,46 @@ def _save_agent_response_to_episode(
 
 def wrap_runner_with_tracking(
     original_runner,
-    memory: RyumemGoogleADK,
-    track_queries: bool = True,
-    augment_queries: bool = True,
-    similarity_threshold: float = 0.3,
-    top_k_similar: int = 5,
+    agent_with_memory,
 ):
     """
-    Wrap a Google ADK Runner to automatically track user queries as episodes
-    and optionally augment queries with historical context.
+    Wrap a Google ADK runner with query tracking and augmentation.
 
-    This wrapper intercepts both runner.run() and runner.run_async() calls to:
-    1. Augment incoming queries with similar past queries and their tool usage (if enabled)
-    2. Create episodes for user queries before they're processed by the agent
-    3. Link tool executions to these query episodes for hierarchical tracking
+    Modifies the runner in-place by:
+    - Intercepting queries before they reach the agent
+    - Augmenting queries with historical context
+    - Tracking queries and responses as episodes
+
+    All configuration comes from the agent's ryumem instance.
 
     Args:
-        original_runner: The original Google ADK Runner instance
-        memory: RyumemGoogleADK instance for storing episodes
-        track_queries: Whether to track user queries (default: True)
-        augment_queries: Whether to augment queries with historical context (default: True)
-        similarity_threshold: Minimum similarity score for query matching (0.0-1.0, default: 0.3)
-        top_k_similar: Number of similar queries to consider for augmentation (default: 5, -1 for all)
+        original_runner: Google ADK Runner instance
+        agent_with_memory: Agent that has been enhanced with add_memory_to_agent()
 
     Returns:
-        Wrapped runner with query tracking and augmentation enabled for both sync and async methods
+        The same runner object (for chaining)
 
     Example:
-        ```python
-        runner = Runner(agent=agent, app_name="my_app", session_service=session_service)
-
-        # Enable query tracking and augmentation
-        runner = wrap_runner_with_tracking(
-            runner,
-            memory,
-            augment_queries=True,      # Enable augmentation
-            similarity_threshold=0.3,  # Match queries with 30%+ similarity
-            top_k_similar=5            # Use top 5 similar queries
+        ryumem = Ryumem()
+        agent = add_memory_to_agent(genai.Agent(...), ryumem)
+        runner = genai.Runner(agent=agent)
+        runner = wrap_runner_with_tracking(runner, agent)
+    """
+    # Extract memory interface from agent
+    if not hasattr(agent_with_memory, '_ryumem_memory'):
+        raise ValueError(
+            "agent_with_memory must be an agent enhanced with add_memory_to_agent(). "
+            f"Got {type(agent_with_memory)} without ._ryumem_memory attribute."
         )
 
-        # Use runner normally - works with both sync and async
-        runner.run(user_id="user123", session_id="session456", new_message=content)
-        # OR
-        await runner.run_async(user_id="user123", session_id="session456", new_message=content)
-        ```
-    """
+    memory: RyumemGoogleADK = agent_with_memory._ryumem_memory
+
+    # Get config from memory's ryumem instance
+    track_queries = memory.ryumem.config.tool_tracking.track_queries
+    augment_queries = memory.ryumem.config.tool_tracking.augment_queries
+    similarity_threshold = memory.ryumem.config.tool_tracking.similarity_threshold
+    top_k_similar = memory.ryumem.config.tool_tracking.top_k_similar
+
     if not track_queries:
         return original_runner
 
