@@ -296,7 +296,8 @@ If the user wants a hint, use get_hint.""",
     # ⭐ Add memory + tool tracking + query augmentation
     # Using a valid API key registered for demo_company_v2
     ryumem = Ryumem(
-        api_key="ryu_sywtp0foYYd7lVlEX8uW3oWfidVo4XF24V5iiI1fHNc",
+        api_key="ryu_7jKaQ8FFV7h0GeOa6LoOWVjoledYhiOBG437srnSaFo",
+        server_url="http://localhost:8000",
     )
     
     memory = add_memory_to_agent(

@@ -553,6 +553,30 @@ async def health():
     )
 
 
+@app.get("/config")
+async def get_config(ryumem: Ryumem = Depends(get_ryumem)):
+    """
+    Get the full configuration for the current Ryumem instance.
+    """
+    try:
+        # Get config from the instance
+        config = ryumem.config
+        
+        # Convert to dict, handling secrets
+        config_dict = config.model_dump()
+        
+        # Mask secrets
+        if config_dict.get("llm", {}).get("openai_api_key"):
+            config_dict["llm"]["openai_api_key"] = "***"
+        if config_dict.get("llm", {}).get("gemini_api_key"):
+            config_dict["llm"]["gemini_api_key"] = "***"
+            
+        return config_dict
+    except Exception as e:
+        logger.error(f"Error getting config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/users")
 async def get_users(ryumem: Ryumem = Depends(get_ryumem)):
     """
@@ -2043,11 +2067,17 @@ async def reset_to_defaults(
 
         service = ConfigService(ryumem.db)
 
-        # Get default configs
-        default_configs = service.get_default_configs()
+        # Get default config model
+        defaults = service.get_default_configs()
 
-        # Update all configs to defaults
-        updates = {cfg["key"]: cfg["value"] for cfg in default_configs}
+        # Extract to dict using model_dump and flatten
+        updates = {}
+        for section_name, section_value in defaults.model_dump().items():
+            if section_name == "database":
+                continue
+            for field_name, value in section_value.items():
+                updates[f"{section_name}.{field_name}"] = value
+
         success_count, failed_keys = service.update_multiple_configs(updates)
 
         # Reload global config

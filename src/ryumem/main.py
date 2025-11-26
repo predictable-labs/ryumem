@@ -125,6 +125,20 @@ class Ryumem:
                 updated_data["metadata"] = {}
         return EpisodeNode(**updated_data)
 
+    def get_config(self) -> RyumemConfig:
+        """
+        Fetch the current configuration from the server.
+        
+        Returns:
+            RyumemConfig object
+        """
+        response = self.client.get(f"{self.base_url}/config", headers=self.headers)
+        if response.status_code != 200:
+            raise Exception(f"Failed to fetch config: {response.text}")
+            
+        config_data = response.json()
+        return RyumemConfig(**config_data)
+
     def add_episode(
         self,
         content: str,

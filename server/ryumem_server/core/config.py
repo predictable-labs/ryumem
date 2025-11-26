@@ -278,6 +278,41 @@ class CommunityConfig(BaseSettings):
     )
 
 
+class AgentConfig(BaseSettings):
+    """Agent configuration"""
+    memory_enabled: bool = Field(
+        default=True,
+        description="Whether memory features are enabled for the agent"
+    )
+    enhance_agent_instruction: bool = Field(
+        default=True,
+        description="Whether to enhance agent instructions with memory guidance"
+    )
+
+    model_config = SettingsConfigDict(
+        env_prefix="RYUMEM_AGENT_",
+        env_nested_delimiter="__"
+    )
+
+
+class SystemConfig(BaseSettings):
+    """System configuration"""
+
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://localhost:3001",
+        description="Comma-separated CORS origins"
+    )
+    log_level: str = Field(
+        default="INFO",
+        description="Logging level: DEBUG, INFO, WARNING, ERROR"
+    )
+
+    model_config = SettingsConfigDict(
+        env_prefix="RYUMEM_SYSTEM_",
+        env_nested_delimiter="__"
+    )
+
+
 class ToolTrackingConfig(BaseSettings):
     """Tool tracking configuration for Google ADK integration"""
 
@@ -303,6 +338,33 @@ class ToolTrackingConfig(BaseSettings):
         default=5,
         description="Number of similar queries to include in augmentation",
         gt=0
+    )
+    sample_rate: float = Field(
+        default=1.0,
+        description="Sample rate for tool tracking (0.0-1.0)",
+        ge=0.0,
+        le=1.0
+    )
+    summarize_outputs: bool = Field(
+        default=False,
+        description="Whether to summarize tool outputs"
+    )
+    max_output_chars: int = Field(
+        default=1000,
+        description="Maximum characters for tool output before truncation/summarization",
+        gt=0
+    )
+    sanitize_pii: bool = Field(
+        default=True,
+        description="Whether to sanitize PII from tool outputs"
+    )
+    enhance_descriptions: bool = Field(
+        default=False,
+        description="Whether to enhance tool descriptions using LLM"
+    )
+    ignore_errors: bool = Field(
+        default=True,
+        description="Whether to ignore errors during tracking"
     )
 
     model_config = SettingsConfigDict(
@@ -337,6 +399,8 @@ class RyumemConfig(BaseSettings):
     search: SearchConfig = Field(default_factory=SearchConfig)
     community: CommunityConfig = Field(default_factory=CommunityConfig)
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
+    system: SystemConfig = Field(default_factory=SystemConfig)
 
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",
