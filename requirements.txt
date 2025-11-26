@@ -7,6 +7,9 @@ ryugraph>=25.9.1
 # OpenAI API client
 openai>=1.0.0
 
+# Unified LLM API for 100+ providers
+litellm>=1.0.0
+
 # Data validation
 pydantic>=2.0.0
 
@@ -31,14 +34,14 @@ tenacity>=8.0.0
 # BM25 keyword search
 rank-bm25>=0.2.2
 
-# HTTP requests (for Ollama client)
+# HTTP requests
 requests>=2.31.0
 
 # Google Generative AI (for Gemini client)
 google-genai>=0.2.0
 
-pandas
+# Data manipulation
+pandas>=2.0.0
 
-litellm
-
-google-adk
+# Google ADK integration
+google-adk>=1.18.0

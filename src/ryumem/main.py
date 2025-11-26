@@ -33,14 +33,45 @@ class Ryumem:
         server_url: Optional[str] = None,
         api_key: Optional[str] = None,
         config_ttl: int = 300,  # 5 minutes default
+        # Agent config overrides
+        memory_enabled: Optional[bool] = None,
+        enhance_agent_instruction: Optional[bool] = None,
+        # Entity extraction overrides
+        extract_entities: Optional[bool] = None,
+        # Tool tracking overrides
+        track_tools: Optional[bool] = None,
+        sample_rate: Optional[float] = None,
+        summarize_outputs: Optional[bool] = None,
+        max_output_chars: Optional[int] = None,
+        sanitize_pii: Optional[bool] = None,
+        enhance_descriptions: Optional[bool] = None,
+        ignore_errors: Optional[bool] = None,
+        track_queries: Optional[bool] = None,
+        augment_queries: Optional[bool] = None,
+        similarity_threshold: Optional[float] = None,
+        top_k_similar: Optional[int] = None,
     ):
         """
         Initialize Ryumem client.
 
         Args:
-            server_url: URL of the Ryumem server. If None, checks RYUMEM_API_URL env var, defaults to http://localhost:8000
+            server_url: URL of the Ryumem server. If None, checks RYUMEM_API_URL env var
             api_key: Optional API key for authentication
             config_ttl: Time-to-live for cached config in seconds (default: 300)
+            memory_enabled: Override for agent.memory_enabled
+            enhance_agent_instruction: Override for agent.enhance_agent_instruction
+            extract_entities: Override for entity_extraction.enabled
+            track_tools: Override for tool_tracking.track_tools
+            sample_rate: Override for tool_tracking.sample_rate
+            summarize_outputs: Override for tool_tracking.summarize_outputs
+            max_output_chars: Override for tool_tracking.max_output_chars
+            sanitize_pii: Override for tool_tracking.sanitize_pii
+            enhance_descriptions: Override for tool_tracking.enhance_descriptions
+            ignore_errors: Override for tool_tracking.ignore_errors
+            track_queries: Override for tool_tracking.track_queries
+            augment_queries: Override for tool_tracking.augment_queries
+            similarity_threshold: Override for tool_tracking.similarity_threshold
+            top_k_similar: Override for tool_tracking.top_k_similar
         """
         import os
         if server_url is None:
@@ -49,7 +80,33 @@ class Ryumem:
         self.base_url = server_url.rstrip('/')
         self.api_key = api_key
         self._config_ttl = config_ttl
-        self._config_cache: Optional[RyumemConfig] = None
+
+        # Store user overrides
+        self._config_overrides = {
+            'agent': {k: v for k, v in {
+                'memory_enabled': memory_enabled,
+                'enhance_agent_instruction': enhance_agent_instruction,
+            }.items() if v is not None},
+            'entity_extraction': {k: v for k, v in {
+                'enabled': extract_entities,
+            }.items() if v is not None},
+            'tool_tracking': {k: v for k, v in {
+                'track_tools': track_tools,
+                'sample_rate': sample_rate,
+                'summarize_outputs': summarize_outputs,
+                'max_output_chars': max_output_chars,
+                'sanitize_pii': sanitize_pii,
+                'enhance_descriptions': enhance_descriptions,
+                'ignore_errors': ignore_errors,
+                'track_queries': track_queries,
+                'augment_queries': augment_queries,
+                'similarity_threshold': similarity_threshold,
+                'top_k_similar': top_k_similar,
+            }.items() if v is not None},
+        }
+
+        # Cache for server config
+        self._config_cache: Optional['RyumemConfig'] = None
         self._config_cache_time: Optional[float] = None
 
         logger.info(f"Ryumem Client initialized (server: {self.base_url})")
@@ -77,6 +134,61 @@ class Ryumem:
         response = requests.patch(url, json=json, headers=self._get_headers())
         response.raise_for_status()
         return response.json()
+
+    # ==================== Configuration ====================
+
+    @property
+    def config(self) -> RyumemConfig:
+        """
+        Get configuration from server, apply overrides, and cache with TTL.
+
+        Priority: User overrides > Server config > Defaults
+
+        Server config is refetched based on TTL. User overrides are always
+        applied on top of the fetched config, so overridden fields never change
+        while non-overridden fields refresh from server.
+
+        Returns:
+            RyumemConfig with merged configuration
+        """
+        import time
+
+        # Check cache validity (always check TTL)
+        if self._config_cache is not None and self._config_cache_time is not None:
+            age = time.time() - self._config_cache_time
+            if age < self._config_ttl:
+                logger.debug(f"Using cached config (age: {age:.1f}s)")
+                return self._config_cache
+
+        # Fetch server config
+        try:
+            logger.debug("Fetching config from server...")
+            config_data = self._get("/config")
+            server_config = RyumemConfig(**config_data)
+            logger.info("Config fetched from server successfully")
+        except Exception as e:
+            logger.warning(f"Failed to fetch config from server: {e}. Using defaults.")
+            server_config = RyumemConfig()
+
+        # Apply user overrides on top (they always win)
+        merged_config = self._merge_config_overrides(server_config)
+
+        # Cache the merged result
+        self._config_cache = merged_config
+        self._config_cache_time = time.time()
+
+        return merged_config
+
+    def _merge_config_overrides(self, base_config: RyumemConfig) -> RyumemConfig:
+        """Merge user overrides on top of base config."""
+        config_dict = base_config.model_dump(exclude_none=True)
+
+        # Deep merge overrides
+        for section, overrides in self._config_overrides.items():
+            if section in config_dict and overrides:
+                config_dict[section].update(overrides)
+
+        return RyumemConfig(**config_dict)
 
     # ==================== Episode Methods ====================
 

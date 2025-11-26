@@ -126,15 +126,16 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
 
     # ⭐ Add memory + tool tracking + query augmentation in ONE line!
     # This automatically wraps ALL tools for tracking - nothing else needed!
-    # print("⭐ Adding memory + automatic tool tracking + query augmentation...")
-    
+
     from ryumem import Ryumem
-    ryumem = Ryumem(api_key=os.getenv("GOOGLE_API_KEY"), ryumem_customer_id="demo_company")
-    
-    memory = add_memory_to_agent(
-        weather_sentiment_agent,
-        ryumem_instance=ryumem,
+    # Auto-loads RYUMEM_API_URL and RYUMEM_API_KEY from environment
+    ryumem = Ryumem(
+        augment_queries=True,      # Enable augmentation
+        similarity_threshold=0.3,  # Match queries with 30%+ similarity
+        top_k_similar=5,           # Use top 5 similar queries
     )
+
+    weather_sentiment_agent = add_memory_to_agent(weather_sentiment_agent, ryumem)
 
     # Session and Runner Setup (standard Google ADK usage)
     session_service = InMemorySessionService()
@@ -151,13 +152,8 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
     )
 
     # ⭐ Wrap runner to automatically track user queries as episodes and augment with history!
-    runner = wrap_runner_with_tracking(
-        runner,
-        memory,
-        augment_queries=True,      # Enable augmentation
-        similarity_threshold=0.3,  # Match queries with 30%+ similarity
-        top_k_similar=5            # Use top 5 similar queries
-    )
+    # Config is read from ryumem.config
+    runner = wrap_runner_with_tracking(runner, weather_sentiment_agent)
 
     queries = [
         # "What's the weather in Paris?",

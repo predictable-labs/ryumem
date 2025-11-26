@@ -92,7 +92,7 @@ if not os.getenv("GOOGLE_API_KEY"):
     vprint("   Get your key at: https://aistudio.google.com/apikey")
     exit(1)
 
-from ryumem.integrations import add_memory_to_agent, RyumemGoogleADK
+from ryumem.integrations import add_memory_to_agent
 
 
 async def chat_with_agent(runner, session_id: str, user_input: str, user_id: str):
@@ -138,17 +138,15 @@ Always personalize responses based on what you remember about the specific user.
     # This is all you need - no custom functions!
     # Using the server's database path so you can view the graph in the dashboard!
     # Enable memory with tool tracking
-    
-    # Initialize Ryumem instance first
+
+    # Initialize Ryumem instance with config (auto-loads RYUMEM_API_URL and RYUMEM_API_KEY from env)
     from ryumem import Ryumem
-    ryumem = Ryumem(api_key=os.getenv("GOOGLE_API_KEY"))
-    
-    memory = add_memory_to_agent(
-        agent,
-        ryumem_instance=ryumem,
-        enable_tool_tracking=True,
-        track_queries=True,
+    ryumem = Ryumem(
+        track_tools=True,  # Enable tool tracking
+        track_queries=True,  # Enable query tracking
     )
+
+    agent = add_memory_to_agent(agent, ryumem)
     vprint("   ✓ Memory enabled! Agent now has 3 auto-generated tools:")
     vprint("     - search_memory(query, user_id, limit)")
     vprint("     - save_memory(content, user_id, source)")
@@ -242,12 +240,8 @@ Use save_memory(content, user_id=<current_user_id>) to remember travel plans.
 Personalize recommendations based on what you know about the user."""
     )
 
-    # Enable memory with SAME user_id - so Alice's memories are shared across agents!
-    # IMPORTANT: Reuse the same Ryumem instance to avoid database connection conflicts
-    travel_memory = RyumemGoogleADK(
-        ryumem=memory.ryumem,  # Reuse existing Ryumem instance
-    )
-    travel_agent.tools.extend(travel_memory.tools)
+    # Enable memory with SAME ryumem instance - so Alice's memories are shared across agents!
+    travel_agent = add_memory_to_agent(travel_agent, ryumem)
     vprint("   ✓ Travel agent created with access to Alice's memory")
 
     travel_runner = Runner(
@@ -272,11 +266,14 @@ Personalize recommendations based on what you know about the user."""
     vprint("   ✓ Travel agent accessed Alice's existing memories from Personal Assistant!")
 
     vprint("\n5. Direct memory access (advanced usage)...")
-    vprint("   You can also use the memory object directly with specific user_ids:")
+    vprint("   You can also use the memory interface directly with specific user_ids:")
+
+    # Access memory interface stored on agent
+    memory = agent._ryumem_memory
 
     # Direct search for Alice
     vprint("\n   Searching Alice's memories for 'Google'...")
-    results = memory.search_memory("Google", user_id="alice", limit=3)
+    results = memory.search_memory("Google", user_id="alice", session_id="session_alice", limit=3)
     vprint(f"   Found {results.get('count', 0)} memories for Alice:")
     if results.get('memories'):
         for mem in results['memories'][:3]:
@@ -284,7 +281,7 @@ Personalize recommendations based on what you know about the user."""
 
     # Direct search for Bob
     vprint("\n   Searching Bob's memories for 'Google'...")
-    results = memory.search_memory("Google", user_id="bob", limit=3)
+    results = memory.search_memory("Google", user_id="bob", session_id="session_bob", limit=3)
     vprint(f"   Found {results.get('count', 0)} memories for Bob:")
     if results.get('memories'):
         for mem in results['memories'][:3]:
@@ -294,12 +291,12 @@ Personalize recommendations based on what you know about the user."""
 
     # Direct save for Alice
     vprint("\n   Saving a memory directly for Alice...")
-    result = memory.save_memory("Alice's birthday is on July 15th", user_id="alice", source="text")
+    result = memory.save_memory("Alice's birthday is on July 15th", user_id="alice", session_id="session_alice", source="text")
     vprint(f"   {result['message']}")
 
     # Get entity context for Alice
     vprint("\n   Getting context for entity 'Alice' in Alice's memory...")
-    context = memory.get_entity_context("alice", user_id="alice")
+    context = memory.get_entity_context("alice", user_id="alice", session_id="session_alice")
     if context.get('status') == 'success':
         vprint(f"   Found context for Alice:")
         vprint(f"   {context['context']}")
