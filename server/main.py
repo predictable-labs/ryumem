@@ -154,8 +154,6 @@ async def get_current_customer(
     """
     Validate API key and return customer_id.
     """
-    logger.info("Validating API key...")
-    logger.info(x_api_key)
     if not _auth_manager:
         raise HTTPException(status_code=503, detail="AuthManager not initialized")
         
@@ -352,21 +350,7 @@ class StatsResponse(BaseModel):
     total_episodes: int = Field(0, description="Total number of episodes")
     total_entities: int = Field(0, description="Total number of entities")
     total_relationships: int = Field(0, description="Total number of relationships")
-    total_communities: int = Field(0, description="Total number of communities")
     db_path: str = Field(..., description="Database path")
-
-
-class UpdateCommunitiesRequest(BaseModel):
-    """Request model for updating communities"""
-    resolution: float = Field(1.0, description="Resolution parameter for Louvain algorithm", ge=0.1, le=5.0)
-    min_community_size: int = Field(2, description="Minimum number of entities per community", ge=1)
-    user_id: str = Field(..., description="User ID to update communities for")
-
-
-class UpdateCommunitiesResponse(BaseModel):
-    """Response model for updating communities"""
-    num_communities: int = Field(..., description="Number of communities created")
-    message: str = Field(..., description="Success message")
 
 
 class PruneMemoriesRequest(BaseModel):
@@ -902,7 +886,6 @@ async def search(
     - traversal: Graph-based navigation
     - hybrid: Combines all strategies (recommended)
     """
-    logger.info("@@@@@@@@@@@@@@@@@@@@")
     try:
         results = ryumem.search(
             query=request.query,
@@ -1082,19 +1065,11 @@ async def get_stats(
         rel_result = ryumem.db.execute(rel_query, {})
         total_relationships = rel_result[0]["count"] if rel_result else 0
 
-        # Count communities
-        comm_query = """
-        MATCH (c:Community)
-        RETURN COUNT(c) AS count
-        """
-        comm_result = ryumem.db.execute(comm_query, {})
-        total_communities = comm_result[0]["count"] if comm_result else 0
 
         return StatsResponse(
             total_episodes=total_episodes,
             total_entities=total_entities,
             total_relationships=total_relationships,
-            total_communities=total_communities,
             db_path=ryumem.config.database.db_path
         )
     except Exception as e:
@@ -1187,33 +1162,6 @@ async def generate_text(
         logger.error(f"Error generating text: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error generating text: {str(e)}")
 
-
-@app.post("/communities/update", response_model=UpdateCommunitiesResponse)
-async def update_communities(
-    request: UpdateCommunitiesRequest,
-    ryumem: Ryumem = Depends(get_write_ryumem)
-):
-    """
-    Detect and update communities using Louvain algorithm.
-
-    Communities cluster related entities together for:
-    - More efficient retrieval
-    - Higher-level reasoning
-    - Better organization
-    """
-    try:
-        num_communities = ryumem.update_communities(
-            resolution=request.resolution,
-            min_community_size=request.min_community_size,
-        )
-        
-        return UpdateCommunitiesResponse(
-            num_communities=num_communities,
-            message=f"Successfully created {num_communities} communities"
-        )
-    except Exception as e:
-        logger.error(f"Error updating communities: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error updating communities: {str(e)}")
 
 
 @app.post("/prune", response_model=PruneMemoriesResponse)

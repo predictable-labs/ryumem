@@ -55,7 +55,6 @@
                 "core-concepts/multi-tenancy",
                 "core-concepts/bi-temporal-graph",
                 "core-concepts/search-strategies",
-                "core-concepts/community-detection",
                 "core-concepts/memory-pruning"
             ]
         },

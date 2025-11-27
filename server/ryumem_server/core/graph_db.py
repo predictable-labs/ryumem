@@ -10,8 +10,6 @@ from typing import Any, Dict, List, Optional
 import ryugraph
 
 from ryumem_server.core.models import (
-    CommunityEdge,
-    CommunityNode,
     EntityEdge,
     EntityNode,
     EpisodeNode,
@@ -51,7 +49,7 @@ class RyugraphDB:
     def create_schema(self) -> None:
         """
         Create the graph schema for Ryumem.
-        Includes Episode, Entity, and Community nodes with their relationships.
+        Includes Episode, Entity nodes with their relationships.
         """
         # Episode nodes
         self.execute(
@@ -137,20 +135,6 @@ class RyugraphDB:
             """
         )
 
-        # Community nodes
-        self.execute(
-            f"""
-            CREATE NODE TABLE IF NOT EXISTS Community(
-                uuid STRING PRIMARY KEY,
-                name STRING,
-                summary STRING,
-                name_embedding FLOAT[{self.embedding_dimensions}],
-                created_at TIMESTAMP,
-                members STRING[],
-                member_count INT64
-            );
-            """
-        )
 
         # RELATES_TO edges (Entity -> Entity)
         self.execute(
@@ -183,16 +167,6 @@ class RyugraphDB:
             """
         )
 
-        # HAS_MEMBER edges (Community -> Entity)
-        self.execute(
-            """
-            CREATE REL TABLE IF NOT EXISTS HAS_MEMBER(
-                FROM Community TO Entity,
-                uuid STRING,
-                created_at TIMESTAMP
-            );
-            """
-        )
 
         # TRIGGERED edges (Episode -> Episode) for query-to-tool-execution linking
         self.execute(
@@ -1099,90 +1073,6 @@ class RyugraphDB:
 
         return self.execute(query, params)
 
-    # ===== Community Methods =====
-
-    def save_community(self, community: "CommunityNode") -> Dict[str, Any]:
-        """
-        Save a community node to the database.
-
-        Args:
-            community: CommunityNode to save
-
-        Returns:
-            Result dictionary
-        """
-        import json
-
-        # Convert members list to JSON string array
-        members_json = json.dumps(community.members)
-
-        query = """
-        MERGE (c:Community {uuid: $uuid})
-        ON CREATE SET
-            c.name = $name,
-            c.summary = $summary,
-            c.created_at = $created_at,
-            c.members = $members,
-            c.member_count = $member_count
-        ON MATCH SET
-            c.summary = $summary,
-            c.members = $members,
-            c.member_count = $member_count
-        RETURN c.uuid AS uuid
-        """
-
-        params = {
-            "uuid": community.uuid,
-            "name": community.name,
-            "summary": community.summary,
-            "created_at": community.created_at,
-            "members": members_json,
-            "member_count": len(community.members),
-        }
-
-        result = self.execute(query, params)
-        logger.debug(f"Saved community: {community.uuid}")
-        return result
-
-    def create_has_member_edge(
-        self,
-        community_uuid: str,
-        entity_uuid: str,
-    ) -> Dict[str, Any]:
-        """
-        Create a HAS_MEMBER edge from Community to Entity.
-
-        Args:
-            community_uuid: UUID of the community
-            entity_uuid: UUID of the entity
-
-        Returns:
-            Result dictionary
-        """
-        from datetime import datetime, timezone
-        from uuid import uuid4
-
-        query = """
-        MATCH (c:Community {uuid: $community_uuid})
-        MATCH (e:Entity {uuid: $entity_uuid})
-        CREATE (c)-[r:HAS_MEMBER {
-            uuid: $uuid,
-            created_at: $created_at
-        }]->(e)
-        RETURN r.uuid AS uuid
-        """
-
-        params = {
-            "community_uuid": community_uuid,
-            "entity_uuid": entity_uuid,
-            "uuid": str(uuid4()),
-            "created_at": datetime.now(timezone.utc),
-        }
-
-        result = self.execute(query, params)
-        logger.debug(f"Created HAS_MEMBER edge: {community_uuid} -> {entity_uuid}")
-        return result
-
     def get_all_entities(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get all entities, optionally filtered by user.
@@ -1290,51 +1180,6 @@ class RyugraphDB:
 
         return sorted(list(user_ids))
 
-    def get_community_by_uuid(self, community_uuid: str) -> Optional[Dict[str, Any]]:
-        """
-        Get a community by UUID.
-
-        Args:
-            community_uuid: UUID of the community
-
-        Returns:
-            Community dictionary or None
-        """
-        import json
-
-        query = """
-        MATCH (c:Community {uuid: $uuid})
-        RETURN
-            c.uuid AS uuid,
-            c.name AS name,
-            c.summary AS summary,
-            c.created_at AS created_at,
-            c.members AS members,
-            c.member_count AS member_count
-        """
-
-        result = self.execute(query, {"uuid": community_uuid})
-
-        if result:
-            community = result[0]
-            # Parse members JSON string back to list
-            if community.get("members"):
-                community["members"] = json.loads(community["members"])
-            return community
-
-        return None
-
-    def delete_communities(self) -> None:
-        """
-        Delete all communities.
-        """
-        query = """
-        MATCH (c:Community)
-        DETACH DELETE c
-        """
-
-        self.execute(query)
-        logger.info("Deleted all communities")
 
     # ===== Tool Methods =====
 

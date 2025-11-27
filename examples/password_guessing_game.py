@@ -296,6 +296,8 @@ If the user wants a hint, use get_hint.""",
     # ⭐ Add memory + tool tracking + query augmentation
     # Auto-loads RYUMEM_API_URL and RYUMEM_API_KEY from environment
     ryumem = Ryumem(
+        api_key="ryu_xVDPGrK2ULrV3gnCljur847-256OK_H7RqDlZOJk2fo",
+        server_url="http://localhost:8000",
         track_tools=True,        # Enable tool tracking
         augment_queries=True,    # ✨ Enable augmentation - this is key!
         similarity_threshold=0.3,  # Match queries with 30%+ similarity

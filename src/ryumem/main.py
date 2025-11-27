@@ -499,23 +499,6 @@ class Ryumem:
                 return {}
             raise
 
-    # ==================== Community Methods ====================
-
-    def update_communities(
-        self,
-        user_id: str,
-        resolution: float = 1.0,
-        min_community_size: int = 2,
-    ) -> int:
-        """Update communities."""
-        payload = {
-            "resolution": resolution,
-            "min_community_size": min_community_size,
-            "user_id": user_id
-        }
-        response = self._post("/communities/update", json=payload)
-        return response["num_communities"]
-
     def prune_memories(
         self,
         user_id: str,

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Check, AlertCircle, Save, RotateCcw } from "lucide-react";
 
-type Category = 'api_keys' | 'llm' | 'embedding' | 'entity_extraction' | 'search' | 'tool_tracking' | 'community';
+type Category = 'api_keys' | 'llm' | 'embedding' | 'entity_extraction' | 'search' | 'tool_tracking';
 
 interface SettingsState {
   [key: string]: any;
@@ -227,7 +227,6 @@ export default function SettingsPage() {
     { id: 'search', label: 'Search' },
     { id: 'entity_extraction', label: 'Entity Extraction' },
     { id: 'tool_tracking', label: 'Tool Tracking' },
-    { id: 'community', label: 'Community' },
   ];
 
   const hasChanges = Object.keys(changedFields).length > 0;

@@ -13,7 +13,6 @@ from dotenv import dotenv_values
 
 from ryumem_server.core.config import (
     AgentConfig,
-    CommunityConfig,
     DatabaseConfig,
     EmbeddingConfig,
     EntityExtractionConfig,
@@ -146,11 +145,9 @@ class ConfigService:
             "RYUMEM_LLM_OLLAMA_BASE_URL": "llm.ollama_base_url",
             "RYUMEM_LLM_ENTITY_EXTRACTION_TEMPERATURE": "llm.entity_extraction_temperature",
             "RYUMEM_LLM_RELATION_EXTRACTION_TEMPERATURE": "llm.relation_extraction_temperature",
-            "RYUMEM_LLM_COMMUNITY_SUMMARY_TEMPERATURE": "llm.community_summary_temperature",
             "RYUMEM_LLM_TOOL_SUMMARIZATION_TEMPERATURE": "llm.tool_summarization_temperature",
             "RYUMEM_LLM_ENTITY_EXTRACTION_MAX_TOKENS": "llm.entity_extraction_max_tokens",
             "RYUMEM_LLM_RELATION_EXTRACTION_MAX_TOKENS": "llm.relation_extraction_max_tokens",
-            "RYUMEM_LLM_COMMUNITY_SUMMARY_MAX_TOKENS": "llm.community_summary_max_tokens",
             "RYUMEM_LLM_TOOL_SUMMARIZATION_MAX_TOKENS": "llm.tool_summarization_max_tokens",
             "RYUMEM_LLM_TIMEOUT_SECONDS": "llm.timeout_seconds",
             "RYUMEM_LLM_MAX_RETRIES": "llm.max_retries",
@@ -175,10 +172,6 @@ class ConfigService:
             "RYUMEM_SEARCH_RRF_K": "search.rrf_k",
             "RYUMEM_SEARCH_MIN_RRF_SCORE": "search.min_rrf_score",
             "RYUMEM_SEARCH_MIN_BM25_SCORE": "search.min_bm25_score",
-
-            # Community
-            "RYUMEM_COMMUNITY_ENABLED": "community.enabled",
-            "RYUMEM_COMMUNITY_DETECTION_THRESHOLD": "community.detection_threshold",
 
             # Tool Tracking
             "RYUMEM_TOOL_TRACKING_TRACK_TOOLS": "tool_tracking.track_tools",
@@ -299,11 +292,9 @@ class ConfigService:
             ollama_base_url=ollama_url,
             entity_extraction_temperature=get_value("llm.entity_extraction_temperature", 0.3),
             relation_extraction_temperature=get_value("llm.relation_extraction_temperature", 0.3),
-            community_summary_temperature=get_value("llm.community_summary_temperature", 0.3),
             tool_summarization_temperature=get_value("llm.tool_summarization_temperature", 0.3),
             entity_extraction_max_tokens=get_value("llm.entity_extraction_max_tokens", 2000),
             relation_extraction_max_tokens=get_value("llm.relation_extraction_max_tokens", 2000),
-            community_summary_max_tokens=get_value("llm.community_summary_max_tokens", 200),
             tool_summarization_max_tokens=get_value("llm.tool_summarization_max_tokens", 100),
             timeout_seconds=get_value("llm.timeout_seconds", 180),
             max_retries=get_value("llm.max_retries", 3),
@@ -349,11 +340,6 @@ class ConfigService:
             min_bm25_score=get_value("search.min_bm25_score", 0.1),
         )
 
-        community_config = CommunityConfig(
-            enabled=get_value("community.enabled", True),
-            detection_threshold=get_value("community.detection_threshold", 10),
-        )
-
         tool_tracking_config = ToolTrackingConfig(
             track_tools=get_value("tool_tracking.track_tools", True),
             track_queries=get_value("tool_tracking.track_queries", True),
@@ -385,7 +371,6 @@ class ConfigService:
             embedding=embedding_config,
             entity_extraction=entity_extraction_config,
             search=search_config,
-            community=community_config,
             tool_tracking=tool_tracking_config,
             agent=agent_config,
             system=system_config,

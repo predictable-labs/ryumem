@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { api, Stats } from "@/lib/api";
-import { Database, Network, Users, Globe, Loader2 } from "lucide-react";
+import { Database, Network, Users, Loader2 } from "lucide-react";
 
 interface StatsPanelProps {
   refreshKey?: number;
@@ -75,18 +75,10 @@ export function StatsPanel({ refreshKey }: StatsPanelProps) {
       color: "text-purple-500",
       bgColor: "bg-purple-500/10",
     },
-    {
-      icon: Globe,
-      label: "Communities",
-      value: stats.total_communities,
-      description: "Detected clusters",
-      color: "text-orange-500",
-      bgColor: "bg-orange-500/10",
-    },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {statItems.map((item) => {
         const Icon = item.icon;
         return (

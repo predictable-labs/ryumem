@@ -65,12 +65,6 @@ class LLMConfig(BaseSettings):
         ge=0.0,
         le=2.0
     )
-    community_summary_temperature: float = Field(
-        default=0.3,
-        description="Temperature for community summary generation",
-        ge=0.0,
-        le=2.0
-    )
     tool_summarization_temperature: float = Field(
         default=0.3,
         description="Temperature for tool output summarization",
@@ -87,11 +81,6 @@ class LLMConfig(BaseSettings):
     relation_extraction_max_tokens: int = Field(
         default=2000,
         description="Maximum tokens for relationship extraction responses",
-        gt=0
-    )
-    community_summary_max_tokens: int = Field(
-        default=200,
-        description="Maximum tokens for community summaries",
         gt=0
     )
     tool_summarization_max_tokens: int = Field(
@@ -259,25 +248,6 @@ class SearchConfig(BaseSettings):
     )
 
 
-class CommunityConfig(BaseSettings):
-    """Community detection configuration"""
-
-    enabled: bool = Field(
-        default=True,
-        description="Whether to enable automatic community detection"
-    )
-    detection_threshold: int = Field(
-        default=10,
-        description="Minimum number of entities before running community detection",
-        ge=0
-    )
-
-    model_config = SettingsConfigDict(
-        env_prefix="RYUMEM_COMMUNITY_",
-        env_nested_delimiter="__"
-    )
-
-
 class AgentConfig(BaseSettings):
     """Agent configuration"""
     memory_enabled: bool = Field(
@@ -407,7 +377,6 @@ class RyumemConfig(BaseSettings):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     entity_extraction: EntityExtractionConfig = Field(default_factory=EntityExtractionConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
-    community: CommunityConfig = Field(default_factory=CommunityConfig)
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     system: SystemConfig = Field(default_factory=SystemConfig)
