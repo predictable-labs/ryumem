@@ -54,9 +54,7 @@ export default function Home() {
         const usersList = await api.getUsers();
 
         setUsers(usersList);
-        if (usersList.length > 0) {
-          setUserId(usersList[0]); // Set first user as default
-        }
+        // Default to "All Users" (empty string)
       } catch (error) {
         console.error("Failed to load initial data:", error);
       } finally {
@@ -175,11 +173,12 @@ export default function Home() {
                   {isLoadingUsers ? (
                     <div className="text-sm text-muted-foreground">Loading users...</div>
                   ) : users.length > 0 ? (
-                    <Select value={userId} onValueChange={setUserId}>
+                    <Select value={userId || "all"} onValueChange={(val) => setUserId(val === "all" ? "" : val)}>
                       <SelectTrigger id="user-select" className="w-full max-w-md">
                         <SelectValue placeholder="Select a user" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="all">All Users</SelectItem>
                         {users.map((user) => (
                           <SelectItem key={user} value={user}>
                             {user}
@@ -369,7 +368,7 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="queries" className="space-y-4">
-            <AugmentedQueriesViewer />
+            <AugmentedQueriesViewer userId={userId} />
           </TabsContent>
 
           <TabsContent value="analytics" className="space-y-4">

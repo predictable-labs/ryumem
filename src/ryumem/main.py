@@ -12,6 +12,7 @@ from ryumem.core.models import (
     EntityNode as Entity,
     EntityEdge as Edge,
     EpisodeNode,
+    EpisodeType,
     ToolNode,
     CypherResult,
     EmbeddingResponse,
@@ -440,11 +441,27 @@ class Ryumem:
         for e in response.get("edges", []):
             scores[e["uuid"]] = e.get("score", 0.0)
 
+        # Parse episodes into EpisodeNode objects
+        episodes = []
+        for ep in response.get("episodes", []):
+            episodes.append(EpisodeNode(
+                uuid=ep["uuid"],
+                name=ep.get("name", ""),
+                content=ep["content"],
+                source=EpisodeType.from_str(ep.get("source", "text")),
+                source_description=ep.get("source_description", ""),
+                user_id=ep.get("user_id"),
+                agent_id=ep.get("agent_id"),
+                metadata=ep.get("metadata") or {}  # Handle None metadata
+            ))
+            if ep.get("uuid"):
+                scores[ep["uuid"]] = ep.get("score", 0.0)
+
         return SearchResult(
             entities=entities,
             edges=edges,
             scores=scores,
-            episodes=response.get("episodes")
+            episodes=episodes
         )
 
     def get_entity_context(

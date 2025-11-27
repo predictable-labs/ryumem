@@ -37,31 +37,24 @@ import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Loader2, Eye, CheckCircle2, XCircle, Clock, Filter } from 'lucide-react'
 
-export default function AugmentedQueriesViewer() {
+interface AugmentedQueriesViewerProps {
+  userId?: string;
+}
+
+export default function AugmentedQueriesViewer({ userId }: AugmentedQueriesViewerProps) {
   const [queries, setQueries] = useState<AugmentedQuery[]>([])
   const [selectedRun, setSelectedRun] = useState<{ query: AugmentedQuery; run: any } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [selectedUser, setSelectedUser] = useState<string>('')
-  const [availableUsers, setAvailableUsers] = useState<string[]>([])
   const [onlyAugmented, setOnlyAugmented] = useState(false)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
-
-  const loadUsers = useCallback(async () => {
-    try {
-      const users = await api.getUsers()
-      setAvailableUsers(users)
-    } catch (err) {
-      console.error('Error loading users:', err)
-    }
-  }, [])
 
   const loadQueries = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
       const data = await api.getAugmentedQueries(
-        selectedUser || undefined,
+        userId || undefined,
         50,
         0,
         onlyAugmented
@@ -72,12 +65,7 @@ export default function AugmentedQueriesViewer() {
     } finally {
       setIsLoading(false)
     }
-  }, [selectedUser, onlyAugmented])
-
-  useEffect(() => {
-    loadUsers()
-    loadQueries()
-  }, [loadUsers, loadQueries])
+  }, [userId, onlyAugmented])
 
   useEffect(() => {
     loadQueries()
@@ -161,21 +149,6 @@ export default function AugmentedQueriesViewer() {
         <CardContent>
           {/* Filters */}
           <div className="flex gap-4 mb-4">
-            <div className="flex-1">
-              <Select value={selectedUser || "all"} onValueChange={(val) => setSelectedUser(val === "all" ? "" : val)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Users" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Users</SelectItem>
-                  {availableUsers.map((user) => (
-                    <SelectItem key={user} value={user}>
-                      {user}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4 text-muted-foreground" />
               <Button

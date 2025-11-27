@@ -716,6 +716,7 @@ async def get_episode_by_session_id(
         # Let's assume it exists as the client code was using it.
         
         episode = ryumem.db.get_episode_by_session_id(session_id)
+        print("Episode:", episode)
         if not episode:
              # Return None (200 OK with null body) or 404?
              # Client expects None if not found usually.
