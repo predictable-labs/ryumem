@@ -154,8 +154,6 @@ async def get_current_customer(
     """
     Validate API key and return customer_id.
     """
-    logger.info("Validating API key...")
-    logger.info(x_api_key)
     if not _auth_manager:
         raise HTTPException(status_code=503, detail="AuthManager not initialized")
         
@@ -888,7 +886,6 @@ async def search(
     - traversal: Graph-based navigation
     - hybrid: Combines all strategies (recommended)
     """
-    logger.info("@@@@@@@@@@@@@@@@@@@@")
     try:
         results = ryumem.search(
             query=request.query,
