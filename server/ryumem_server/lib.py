@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 from ryumem_server.community.detector import CommunityDetector
 from ryumem_server.core.config import RyumemConfig
 from ryumem_server.core.graph_db import RyugraphDB
-from ryumem_server.core.models import EpisodeType, SearchConfig, SearchResult
+from ryumem_server.core.models import EpisodeNode, EpisodeType, SearchConfig, SearchResult
 from ryumem_server.ingestion.episode import EpisodeIngestion
 from ryumem_server.maintenance.pruner import MemoryPruner
 from ryumem_server.retrieval.search import SearchEngine
@@ -359,12 +359,31 @@ class Ryumem:
         """
         return self.db.update_episode_metadata(episode_uuid, metadata)
 
+    def get_triggered_episodes(
+        self,
+        source_uuid: str,
+        source_type: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[EpisodeNode]:
+        """
+        Get episodes linked from a source episode via TRIGGERED relationships.
+
+        Args:
+            source_uuid: UUID of the source episode
+            source_type: Optional filter by episode source type
+            limit: Maximum number of episodes to return
+
+        Returns:
+            List of triggered episode nodes
+        """
+        return self.db.get_triggered_episodes(source_uuid, source_type, limit)
+
     def search(
         self,
         query: str,
         user_id: str,
         limit: int = 10,
-        strategy: str = "semantic",
+        strategy: Optional[str] = None,
         similarity_threshold: Optional[float] = None,
         max_depth: int = 2,
         min_rrf_score: Optional[float] = None,

@@ -247,6 +247,30 @@ class Ryumem:
                 updated_data["metadata"] = {}
         return EpisodeNode(**updated_data)
 
+    def get_triggered_episodes(
+        self,
+        source_uuid: str,
+        source_type: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[EpisodeNode]:
+        """
+        Get episodes linked from a source episode via TRIGGERED relationships.
+
+        Args:
+            source_uuid: UUID of the source episode
+            source_type: Optional filter by episode source type (e.g., 'json')
+            limit: Maximum number of episodes to return
+
+        Returns:
+            List of triggered episode nodes
+        """
+        params = {"limit": limit}
+        if source_type:
+            params["source_type"] = source_type
+
+        data = self._get(f"/episodes/{source_uuid}/triggered", params=params)
+        return [EpisodeNode(**episode_data) for episode_data in data]
+
     def get_config(self) -> RyumemConfig:
         """
         Fetch the current configuration from the server.

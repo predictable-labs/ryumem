@@ -650,6 +650,28 @@ async def get_episode_by_uuid(
         raise HTTPException(status_code=500, detail=f"Error getting episode: {str(e)}")
 
 
+@app.get("/episodes/{source_uuid}/triggered", response_model=List[Dict[str, Any]])
+async def get_triggered_episodes(
+    source_uuid: str,
+    source_type: Optional[str] = None,
+    limit: int = 10,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get episodes triggered by a source episode.
+
+    Query params:
+        source_type: Optional filter by episode source type (e.g., 'json')
+        limit: Maximum number of results (default: 10)
+    """
+    try:
+        episodes = ryumem.get_triggered_episodes(source_uuid, source_type, limit)
+        return [episode.model_dump() for episode in episodes]
+    except Exception as e:
+        logger.error(f"Error getting triggered episodes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting triggered episodes: {str(e)}")
+
+
 @app.get("/episodes/session/{session_id}", response_model=Optional[Dict[str, Any]])
 async def get_episode_by_session_id(
     session_id: str,

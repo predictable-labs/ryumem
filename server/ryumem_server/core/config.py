@@ -334,6 +334,10 @@ class ToolTrackingConfig(BaseSettings):
         ge=0.0,
         le=1.0
     )
+    similarity_strategy: str = Field(
+        default="hybrid",
+        description="Search strategy for finding similar queries (semantic, bm25, hybrid, traversal)"
+    )
     top_k_similar: int = Field(
         default=5,
         description="Number of similar queries to include in augmentation",

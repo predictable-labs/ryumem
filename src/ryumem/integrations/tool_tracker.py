@@ -236,20 +236,15 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             import json
             from ryumem.core.metadata_models import EpisodeMetadata, ToolExecution
 
-            # Fetch current metadata
-            query_fetch = """
-            MATCH (e:Episode {uuid: $episode_id})
-            RETURN e.metadata AS metadata
-            """
-            result = self.ryumem.execute(query_fetch, {"episode_id": episode_id})
+            # Fetch current episode via API
+            episode = self.ryumem.get_episode_by_uuid(episode_id)
 
-            if not result:
+            if not episode:
                 logger.error(f"Episode {episode_id} not found")
                 return
 
-            # Parse existing metadata (result is List[CypherResult])
-            current_metadata_str = result[0].data.get('metadata', '{}')
-            metadata_dict = json.loads(current_metadata_str) if isinstance(current_metadata_str, str) else current_metadata_str
+            # Parse existing metadata
+            metadata_dict = episode.metadata if episode.metadata else {}
 
             # Parse into Pydantic model
             episode_metadata = EpisodeMetadata(**metadata_dict)
@@ -262,17 +257,11 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             if latest_run:
                 latest_run.tools_used.append(tool_exec)
 
-                # Update episode with new metadata
-                query_update = """
-                MATCH (e:Episode {uuid: $episode_id})
-                SET e.metadata = $metadata
-                RETURN e.uuid
-                """
-
-                self.ryumem.execute(query_update, {
-                    "episode_id": episode_id,
-                    "metadata": json.dumps(episode_metadata.model_dump())
-                })
+                # Update episode with new metadata via API
+                self.ryumem.update_episode_metadata(
+                    episode_uuid=episode_id,
+                    metadata=episode_metadata.model_dump()
+                )
 
                 logger.debug(
                     f"Updated episode {episode_id} session {session_id[:8]} with tool: {tool_execution['tool_name']}"

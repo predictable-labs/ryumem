@@ -38,6 +38,7 @@ Example - With Query Tracking:
 from typing import Optional, Dict, Any, List
 import logging
 import json
+from google.adk.tools.tool_context import ToolContext
 
 from ryumem import EpisodeType, Ryumem, RyumemConfig
 from ryumem.core.metadata_models import EpisodeMetadata, QueryRun
@@ -112,21 +113,36 @@ class RyumemGoogleADK:
 
         logger.info(f"Initialized RyumemGoogleADK extract_entities: {ryumem.config.entity_extraction.enabled}")
 
-    def search_memory(self, query: str, session_id: str, user_id: str, limit: int = 5) -> Dict[str, Any]:
+    async def search_memory(self, tool_context: ToolContext, query: str, limit: int = 5) -> Dict[str, Any]:
         """
         Auto-generated search function for retrieving memories.
 
         This function is automatically registered as a tool with the agent.
 
         Args:
+            tool_context: Google ADK tool context containing session info
             query: Natural language query to search memories
-            session_id: Session identifier (required)
-            user_id: User identifier (optional - uses instance default if not provided)
-            limit: Maximum number of memories to return
+            limit: Maximum number of memories to return (default: 5)
 
         Returns:
             Dict with status and memories or no_memories indicator
         """
+        # Extract session info from tool_context
+        if not hasattr(tool_context, 'session') or not tool_context.session:
+            return {
+                "status": "error",
+                "message": "Session context is required but was not provided"
+            }
+
+        session = tool_context.session
+        user_id = getattr(session, 'user_id', None)
+        session_id = getattr(session, 'id', None)
+
+        if not user_id or not session_id:
+            return {
+                "status": "error",
+                "message": "user_id and session_id are required in session context"
+            }
 
         logger.info(f"Searching memory for user '{user_id}' session '{session_id}': {query}")
 
@@ -149,14 +165,14 @@ class RyumemGoogleADK:
                     }
                     for edge in results.edges
                 ]
-                logger.info(f"Found {len(memories)} memories for user '{effective_user_id}'")
+                logger.info(f"Found {len(memories)} memories for user '{user_id}'")
                 return {
                     "status": "success",
                     "count": len(memories),
                     "memories": memories
                 }
             else:
-                logger.info(f"No memories found for user '{effective_user_id}'")
+                logger.info(f"No memories found for user '{user_id}'")
                 return {
                     "status": "no_memories",
                     "message": "No relevant memories found for this query"
@@ -169,36 +185,55 @@ class RyumemGoogleADK:
                 "message": str(e)
             }
 
-    def save_memory(self, content: str, session_id: str, user_id: str, source: str = "text") -> Dict[str, Any]:
+    async def save_memory(self, tool_context: ToolContext, content: str, source: str = "text") -> Dict[str, Any]:
         """
         Auto-generated save function for persisting memories.
 
         This function is automatically registered as a tool with the agent.
 
         Args:
+            tool_context: Google ADK tool context containing session info
             content: Information to save to memory
-            session_id: Session identifier (required)
-            user_id: User identifier (optional - uses instance default if not provided)
-            source: Episode type - must be "text", "message", or "json"
+            source: Episode type - must be "text", "message", or "json" (default: "text")
 
         Returns:
             Dict with status and episode_id
         """
+        # Extract session info from tool_context
+        if not hasattr(tool_context, 'session') or not tool_context.session:
+            return {
+                "status": "error",
+                "message": "Session context is required but was not provided"
+            }
+
+        session = tool_context.session
+        user_id = getattr(session, 'user_id', None)
+        session_id = getattr(session, 'id', None)
+
+        if not user_id or not session_id:
+            return {
+                "status": "error",
+                "message": "user_id and session_id are required in session context"
+            }
+
         logger.info(f"Saving memory for user '{user_id}' session '{session_id}': {content[:50]}...")
 
         try:
-            # Fallback: Create new episode
+            # Validate source
             valid_sources = ["text", "message", "json"]
             if source not in valid_sources:
                 source = "text"
 
-            episode_id = self.ryumem.add_memory(
+            episode = self.ryumem.add_memory(
                 content=content,
                 user_id=user_id,
                 session_id=session_id,
                 source=source,
             )
-            
+
+            # Extract just the UUID string for JSON serialization
+            episode_id = episode.uuid
+
             logger.info(f"Saved memory for user '{user_id}' with episode_id: {episode_id}")
 
             return {
@@ -213,18 +248,33 @@ class RyumemGoogleADK:
                 "message": str(e)
             }
 
-    def get_entity_context(self, entity_name: str, session_id: str, user_id: str) -> Dict[str, Any]:
+    async def get_entity_context(self, tool_context: ToolContext, entity_name: str) -> Dict[str, Any]:
         """
         Auto-generated function to get full context about an entity.
 
         Args:
             entity_name: Name of the entity to look up
-            session_id: Session identifier (required)
-            user_id: User identifier (optional - uses instance default if not provided)
+            tool_context: Google ADK tool context containing session info
 
         Returns:
             Dict with entity information and related facts
         """
+        # Extract session info from tool_context
+        if not hasattr(tool_context, 'session') or not tool_context.session:
+            return {
+                "status": "error",
+                "message": "Session context is required but was not provided"
+            }
+
+        session = tool_context.session
+        user_id = getattr(session, 'user_id', None)
+        session_id = getattr(session, 'id', None)
+
+        if not user_id or not session_id:
+            return {
+                "status": "error",
+                "message": "user_id and session_id are required in session context"
+            }
 
         logger.info(f"Getting context for entity '{entity_name}' for user '{user_id}'")
 
@@ -431,6 +481,9 @@ def _find_similar_query_episodes(
     session_id: str,
 ) -> List[Dict[str, Any]]:
     """Find and filter similar query episodes above threshold."""
+    threshold = memory.ryumem.config.tool_tracking.similarity_threshold
+    logger.info(f"Searching with strategy={memory.ryumem.config.tool_tracking.similarity_strategy}, threshold={threshold}")
+
     search_results = memory.ryumem.search(
         query=query_text,
         user_id=user_id,
@@ -440,7 +493,7 @@ def _find_similar_query_episodes(
     )
 
     if not search_results.episodes:
-        logger.debug("No similar query episodes found")
+        logger.info("Search returned 0 episodes - no past queries exist yet")
         return []
 
     logger.info(f"Search returned {len(search_results.episodes)} episodes for query: '{query_text[:50]}...'")
@@ -467,20 +520,21 @@ def _find_similar_query_episodes(
 
 
 def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> List[Dict[str, Any]]:
-    """Query database for tool executions linked to a query episode."""
-    tool_query = """
-    MATCH (query_ep:Episode {uuid: $query_uuid})-[r:TRIGGERED]->(tool_ep:Episode)
-    WHERE tool_ep.source = 'json'
-      AND tool_ep.metadata IS NOT NULL
-    RETURN tool_ep.content AS content,
-           tool_ep.metadata AS metadata
-    LIMIT 10
-    """
-
+    """Query for tool executions linked to a query episode via API."""
     try:
-        results = memory.ryumem.execute(tool_query, {"query_uuid": query_uuid})
-        # Convert CypherResult objects back to dicts for backward compatibility
-        return [result.data for result in results]
+        episodes = memory.ryumem.get_triggered_episodes(
+            source_uuid=query_uuid,
+            source_type='json',
+            limit=10
+        )
+        # Convert to dict format for backward compatibility
+        return [
+            {
+                "content": episode.content,
+                "metadata": episode.metadata
+            }
+            for episode in episodes
+        ]
     except Exception as e:
         logger.warning(f"Failed to query tool executions: {e}")
         return []
@@ -553,20 +607,28 @@ def _augment_query_with_history(
         Augmented query with historical context appended
     """
     try:
+        logger.info(f"Searching for similar queries to: {query_text[:50]}...")
         similar_queries = _find_similar_query_episodes(
             query_text, memory, user_id, session_id
         )
 
         if not similar_queries:
+            logger.info("No similar queries found for augmentation")
             return query_text
 
-        augmented_query = _build_context_section(query_text, similar_queries, memory)
+        logger.info(f"Found {len(similar_queries)} similar queries")
+        top_k = memory.ryumem.config.tool_tracking.top_k_similar
+        augmented_query = _build_context_section(query_text, similar_queries, memory, top_k)
 
-        logger.info(f"Augmented query with {len(similar_queries)} similar queries")
-        return augmented_query
+        if augmented_query and augmented_query != query_text:
+            logger.info(f"Augmented query with {len(similar_queries)} similar queries")
+            return augmented_query
+        else:
+            logger.info("Context section was empty or unchanged")
+            return query_text
 
     except Exception as e:
-        logger.error(f"Query augmentation failed: {e}")
+        logger.error(f"Query augmentation failed: {e}", exc_info=True)
         return query_text
 
 
@@ -697,7 +759,11 @@ def _prepare_query_and_episode(
     augmented_message = new_message
 
     # Augment query with historical context if enabled
-    if memory.ryumem.config.tool_tracking.augment_queries:
+    augment_enabled = memory.ryumem.config.tool_tracking.augment_queries
+    logger.info(f"Query augmentation enabled: {augment_enabled}")
+
+    if augment_enabled:
+        logger.info(f"Attempting to augment query: {query_text[:50]}...")
         augmented_query_text = _augment_query_with_history(
             query_text, memory, user_id, session_id
         )
@@ -710,9 +776,11 @@ def _prepare_query_and_episode(
                 parts=[types.Part(text=augmented_query_text)]
             )
         else:
+            logger.debug("Query text unchanged after augmentation attempt")
             # Query text unchanged, but make sure to use it in message anyway
             augmented_query_text = original_query_text
     else:
+        logger.debug("Query augmentation is disabled in config")
         augmented_query_text = original_query_text
 
     # Check if session already has an episode
@@ -777,17 +845,11 @@ def _save_agent_response_to_episode(
         agent_response = ' '.join(agent_response_parts)
         logger.debug(f"Captured agent response ({len(agent_response)} chars) for query {query_episode_id}")
 
-        # Get existing episode
-        existing_episode_results = memory.ryumem.execute(
-            "MATCH (e:Episode {uuid: $uuid}) RETURN e.metadata AS metadata",
-            {"uuid": query_episode_id}
-        )
-        # Convert CypherResult objects to dicts
-        existing_episode = [result.data for result in existing_episode_results]
+        # Get existing episode via API
+        episode = memory.ryumem.get_episode_by_uuid(query_episode_id)
 
-        if existing_episode:
-            metadata_str = existing_episode[0].get("metadata", "{}")
-            metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+        if episode:
+            metadata_dict = episode.metadata if episode.metadata else {}
 
             # Parse into Pydantic model
             episode_metadata = EpisodeMetadata(**metadata_dict)
@@ -797,10 +859,10 @@ def _save_agent_response_to_episode(
             if latest_run:
                 latest_run.agent_response = agent_response
 
-                # Save back to database
-                memory.ryumem.execute(
-                    "MATCH (e:Episode {uuid: $uuid}) SET e.metadata = $metadata",
-                    {"uuid": query_episode_id, "metadata": json.dumps(episode_metadata.model_dump())}
+                # Save back to database via API
+                memory.ryumem.update_episode_metadata(
+                    episode_uuid=query_episode_id,
+                    metadata=episode_metadata.model_dump()
                 )
                 logger.info(f"Saved agent response to episode {query_episode_id} session {session_id[:8]}")
     except Exception as e:
