@@ -197,6 +197,27 @@ def get_write_ryumem(customer_id: str = Depends(get_current_customer)):
     return get_ryumem(customer_id)
 
 
+def invalidate_ryumem_cache(customer_id: str) -> None:
+    """
+    Invalidate the cached Ryumem instance for a customer.
+    Next request will create a fresh instance with updated config from database.
+
+    Args:
+        customer_id: Customer ID whose cache entry should be invalidated
+    """
+    if customer_id in _ryumem_cache:
+        try:
+            instance = _ryumem_cache[customer_id]
+            instance.close()  # Close DB connection gracefully
+            logger.info(f"Closed Ryumem instance for customer {customer_id}")
+        except Exception as e:
+            logger.warning(f"Error closing Ryumem instance for {customer_id}: {e}")
+        finally:
+            # Remove from cache regardless of close result
+            del _ryumem_cache[customer_id]
+            logger.info(f"Invalidated Ryumem cache for customer {customer_id}")
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Ryumem API",
@@ -1976,7 +1997,8 @@ async def get_settings_by_category(
 )
 async def update_settings(
     request: UpdateConfigRequest,
-    ryumem: Ryumem = Depends(get_write_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem),
+    customer_id: str = Depends(get_current_customer)
 ):
     """
     Update multiple configuration settings.
@@ -2008,9 +2030,8 @@ async def update_settings(
         # Update configs
         success_count, failed_keys = service.update_multiple_configs(request.updates)
 
-        # Reload global config
-        global _app_config
-        _app_config = RyumemConfig.from_database(ryumem.db)
+        # Invalidate cache so next request gets fresh config from database
+        invalidate_ryumem_cache(customer_id)
 
         return {
             "message": f"Updated {success_count} configuration(s)",
@@ -2075,7 +2096,8 @@ async def validate_settings(
     summary="Reset all settings to default values"
 )
 async def reset_to_defaults(
-    ryumem: Ryumem = Depends(get_write_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem),
+    customer_id: str = Depends(get_current_customer)
 ):
     """
     Reset all configuration settings to their default values.
@@ -2101,9 +2123,8 @@ async def reset_to_defaults(
 
         success_count, failed_keys = service.update_multiple_configs(updates)
 
-        # Reload global config
-        global _app_config
-        _app_config = RyumemConfig.from_database(ryumem.db)
+        # Invalidate cache so next request gets fresh config from database
+        invalidate_ryumem_cache(customer_id)
 
         return {
             "message": f"Reset {success_count} configuration(s) to defaults",
