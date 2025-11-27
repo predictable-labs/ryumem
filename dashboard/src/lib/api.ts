@@ -483,6 +483,16 @@ class RyumemAPI {
       method: 'POST',
     });
   }
+
+  // ============================================================================
+  // Database Management
+  // ============================================================================
+
+  async deleteDatabase(): Promise<DeleteDatabaseResponse> {
+    return this.request('/database/reset', {
+      method: 'DELETE',
+    });
+  }
 }
 
 export interface ConfigValue {
@@ -519,6 +529,12 @@ export interface ResetSettingsResponse {
   message: string;
   success_count: number;
   failed_keys: string[];
+}
+
+export interface DeleteDatabaseResponse {
+  message: string;
+  customer_id: string;
+  timestamp: string;
 }
 
 export const api = new RyumemAPI();

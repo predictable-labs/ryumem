@@ -2112,6 +2112,41 @@ async def get_customer_me(
     return {"customer_id": customer_id}
 
 
+@app.delete("/database/reset")
+async def reset_database(
+    ryumem: Ryumem = Depends(get_write_ryumem),
+    customer_id: str = Depends(get_current_customer)
+):
+    """
+    Reset the entire database - delete all nodes and relationships.
+
+    WARNING: This is irreversible! All data will be permanently deleted.
+    The .db file will remain but will be empty.
+
+    Returns:
+        Success message with timestamp
+    """
+    try:
+        logger.warning(f"Database reset requested by customer: {customer_id}")
+
+        # Reset the database (deletes all nodes and relationships)
+        ryumem.db.reset()
+
+        # Invalidate the cached Ryumem instance so next request gets fresh instance
+        invalidate_ryumem_cache(customer_id)
+
+        logger.info(f"Database reset completed for customer: {customer_id}")
+
+        return {
+            "message": "Database reset successfully. All data has been deleted.",
+            "customer_id": customer_id,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error resetting database: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error resetting database: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
 

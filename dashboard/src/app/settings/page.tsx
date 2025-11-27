@@ -9,7 +9,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Check, AlertCircle, Save, RotateCcw } from "lucide-react";
+import { Check, AlertCircle, Save, RotateCcw, Trash2, AlertTriangle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 type Category = 'api_keys' | 'llm' | 'embedding' | 'entity_extraction' | 'search' | 'tool_tracking';
 
@@ -30,6 +39,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -88,6 +100,37 @@ export default function SettingsPage() {
     }
 
     return String(a) === String(b);
+  };
+
+  const handleDeleteDatabase = async () => {
+    if (confirmText !== 'DELETE') {
+      setMessage({ type: 'error', text: 'Please type DELETE to confirm' });
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      await api.deleteDatabase();
+      setMessage({
+        type: 'success',
+        text: 'Database deleted successfully. All data has been permanently removed.'
+      });
+      setDeleteDialogOpen(false);
+      setConfirmText('');
+
+      // Reload settings after deletion
+      setTimeout(() => {
+        loadSettings();
+      }, 1000);
+    } catch (error: any) {
+      console.error('Delete database error:', error);
+      setMessage({
+        type: 'error',
+        text: error.message || 'Failed to delete database'
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleSave = async () => {
@@ -342,6 +385,107 @@ export default function SettingsPage() {
               </div>
             )}
           </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* Danger Zone */}
+      <Card className="mt-8 border-red-500/50 bg-red-500/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-red-600 dark:text-red-400">
+            <AlertTriangle className="h-5 w-5" />
+            Danger Zone
+          </CardTitle>
+          <CardDescription>
+            Irreversible actions that permanently delete data
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-start justify-between p-4 border border-red-500/30 rounded-lg">
+            <div className="flex-1">
+              <h3 className="font-semibold text-red-600 dark:text-red-400 mb-1">
+                Delete All Database Data
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Permanently delete all episodes, entities, relationships, and memories from the database.
+                This action cannot be undone. The database file will remain but will be empty.
+              </p>
+            </div>
+            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  className="ml-4"
+                  onClick={() => setConfirmText('')}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete Database
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                    <AlertTriangle className="h-5 w-5" />
+                    Confirm Database Deletion
+                  </DialogTitle>
+                  <DialogDescription className="pt-4 space-y-4">
+                    <Alert className="border-red-500/50 bg-red-500/10">
+                      <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      <AlertDescription className="text-red-600 dark:text-red-400">
+                        <strong>Warning:</strong> This action is irreversible!
+                      </AlertDescription>
+                    </Alert>
+                    <div className="space-y-2 text-sm">
+                      <p>This will permanently delete:</p>
+                      <ul className="list-disc list-inside space-y-1 ml-2">
+                        <li>All episodes and memories</li>
+                        <li>All entities and their properties</li>
+                        <li>All relationships between entities</li>
+                        <li>All metadata and configurations</li>
+                      </ul>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="confirm-text">
+                        Type <strong>DELETE</strong> to confirm:
+                      </Label>
+                      <Input
+                        id="confirm-text"
+                        value={confirmText}
+                        onChange={(e) => setConfirmText(e.target.value)}
+                        placeholder="DELETE"
+                        className="font-mono"
+                      />
+                    </div>
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setDeleteDialogOpen(false);
+                      setConfirmText('');
+                    }}
+                    disabled={isDeleting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={handleDeleteDatabase}
+                    disabled={confirmText !== 'DELETE' || isDeleting}
+                  >
+                    {isDeleting ? (
+                      <>Deleting...</>
+                    ) : (
+                      <>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete All Data
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
         </CardContent>
       </Card>
     </div>
