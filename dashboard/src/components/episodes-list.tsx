@@ -66,7 +66,7 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
     } finally {
       setIsLoading(false);
     }
-  }, [userId, search, sortOrder, startDate, endDate, isLoading, hasMore, toast]);
+  }, [userId, search, sortOrder, startDate, endDate, toast]);
 
   // Initial load and filters change
   useEffect(() => {

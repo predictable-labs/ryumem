@@ -370,6 +370,12 @@ class ToolTrackingConfig(BaseSettings):
         default=True,
         description="Whether to ignore errors during tracking"
     )
+    min_rrf_score: float = Field(
+        default=0.0,
+        description="Minimum RRF score threshold for query augmentation (only applies when using hybrid search strategy)",
+        ge=0.0,
+        le=1.0
+    )
 
     model_config = SettingsConfigDict(
         env_prefix="RYUMEM_TOOL_TRACKING_",
