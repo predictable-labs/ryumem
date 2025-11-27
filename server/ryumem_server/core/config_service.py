@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from dotenv import dotenv_values
 
 from ryumem_server.core.config import (
+    AgentConfig,
     CommunityConfig,
     DatabaseConfig,
     EmbeddingConfig,
@@ -19,6 +20,7 @@ from ryumem_server.core.config import (
     LLMConfig,
     RyumemConfig,
     SearchConfig,
+    SystemConfig,
     ToolTrackingConfig,
 )
 from ryumem_server.core.graph_db import RyugraphDB
@@ -87,375 +89,12 @@ class ConfigService:
         else:
             return value_str
 
-    def get_default_configs(self) -> List[Dict[str, Any]]:
+    def get_default_configs(self) -> RyumemConfig:
         """
-        Get all default configuration values from pydantic models.
-
-        Returns:
-            List of config dictionaries with metadata
+        Get default configuration model.
+        Returns a RyumemConfig instance with all default values.
         """
-        configs = []
-
-        # Database configs - EXCLUDED from database storage due to circular dependency
-        # db_path is needed to OPEN the database, so it cannot be stored IN the database
-        # These settings must be configured via environment variables:
-        #   RYUMEM_DB_PATH (default: ./data/ryumem.db)
-
-        # LLM configs
-        llm_config = LLMConfig()
-        configs.extend([
-            {
-                "key": "llm.provider",
-                "value": llm_config.provider,
-                "category": "llm",
-                "data_type": "string",
-                "is_sensitive": False,
-                "description": "LLM provider: openai, ollama, gemini, or litellm"
-            },
-            {
-                "key": "llm.model",
-                "value": llm_config.model,
-                "category": "llm",
-                "data_type": "string",
-                "is_sensitive": False,
-                "description": "LLM model name"
-            },
-            {
-                "key": "llm.openai_api_key",
-                "value": llm_config.openai_api_key or "",
-                "category": "api_keys",
-                "data_type": "string",
-                "is_sensitive": True,
-                "description": "OpenAI API key"
-            },
-            {
-                "key": "llm.gemini_api_key",
-                "value": llm_config.gemini_api_key or "",
-                "category": "api_keys",
-                "data_type": "string",
-                "is_sensitive": True,
-                "description": "Google/Gemini API key"
-            },
-            {
-                "key": "llm.ollama_base_url",
-                "value": llm_config.ollama_base_url,
-                "category": "llm",
-                "data_type": "string",
-                "is_sensitive": False,
-                "description": "Ollama server URL"
-            },
-            {
-                "key": "llm.entity_extraction_temperature",
-                "value": llm_config.entity_extraction_temperature,
-                "category": "llm",
-                "data_type": "float",
-                "is_sensitive": False,
-                "description": "Temperature for entity extraction"
-            },
-            {
-                "key": "llm.relation_extraction_temperature",
-                "value": llm_config.relation_extraction_temperature,
-                "category": "llm",
-                "data_type": "float",
-                "is_sensitive": False,
-                "description": "Temperature for relation extraction"
-            },
-            {
-                "key": "llm.community_summary_temperature",
-                "value": llm_config.community_summary_temperature,
-                "category": "llm",
-                "data_type": "float",
-                "is_sensitive": False,
-                "description": "Temperature for community summaries"
-            },
-            {
-                "key": "llm.tool_summarization_temperature",
-                "value": llm_config.tool_summarization_temperature,
-                "category": "llm",
-                "data_type": "float",
-                "is_sensitive": False,
-                "description": "Temperature for tool summarization"
-            },
-            {
-                "key": "llm.entity_extraction_max_tokens",
-                "value": llm_config.entity_extraction_max_tokens,
-                "category": "llm",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Max tokens for entity extraction"
-            },
-            {
-                "key": "llm.relation_extraction_max_tokens",
-                "value": llm_config.relation_extraction_max_tokens,
-                "category": "llm",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Max tokens for relation extraction"
-            },
-            {
-                "key": "llm.community_summary_max_tokens",
-                "value": llm_config.community_summary_max_tokens,
-                "category": "llm",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Max tokens for community summaries"
-            },
-            {
-                "key": "llm.tool_summarization_max_tokens",
-                "value": llm_config.tool_summarization_max_tokens,
-                "category": "llm",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Max tokens for tool summarization"
-            },
-            {
-                "key": "llm.timeout_seconds",
-                "value": llm_config.timeout_seconds,
-                "category": "llm",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "LLM API timeout in seconds"
-            },
-            {
-                "key": "llm.max_retries",
-                "value": llm_config.max_retries,
-                "category": "llm",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Max retries for LLM API calls"
-            },
-        ])
-
-        # Embedding configs
-        embedding_config = EmbeddingConfig()
-        configs.extend([
-            {
-                "key": "embedding.provider",
-                "value": embedding_config.provider,
-                "category": "embedding",
-                "data_type": "string",
-                "is_sensitive": False,
-                "description": "Embedding provider: openai, gemini, or litellm"
-            },
-            {
-                "key": "embedding.model",
-                "value": embedding_config.model,
-                "category": "embedding",
-                "data_type": "string",
-                "is_sensitive": False,
-                "description": "Embedding model name (e.g., 'nomic-embed-text' for Ollama)"
-            },
-            {
-                "key": "embedding.ollama_base_url",
-                "value": embedding_config.ollama_base_url,
-                "category": "embedding",
-                "data_type": "string",
-                "is_sensitive": False,
-                "description": "Ollama server URL for embeddings"
-            },
-            {
-                "key": "embedding.dimensions",
-                "value": embedding_config.dimensions,
-                "category": "embedding",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Embedding vector dimensions"
-            },
-            {
-                "key": "embedding.batch_size",
-                "value": embedding_config.batch_size,
-                "category": "embedding",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Batch size for embedding operations"
-            },
-            {
-                "key": "embedding.timeout_seconds",
-                "value": embedding_config.timeout_seconds,
-                "category": "embedding",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Embedding API timeout in seconds"
-            },
-        ])
-
-        # Entity extraction configs
-        entity_config = EntityExtractionConfig()
-        configs.extend([
-            {
-                "key": "entity_extraction.enabled",
-                "value": entity_config.enabled,
-                "category": "entity_extraction",
-                "data_type": "bool",
-                "is_sensitive": False,
-                "description": "Enable entity extraction during ingestion"
-            },
-            {
-                "key": "entity_extraction.entity_similarity_threshold",
-                "value": entity_config.entity_similarity_threshold,
-                "category": "entity_extraction",
-                "data_type": "float",
-                "is_sensitive": False,
-                "description": "Similarity threshold for entity deduplication"
-            },
-            {
-                "key": "entity_extraction.relationship_similarity_threshold",
-                "value": entity_config.relationship_similarity_threshold,
-                "category": "entity_extraction",
-                "data_type": "float",
-                "is_sensitive": False,
-                "description": "Similarity threshold for relationship deduplication"
-            },
-            {
-                "key": "entity_extraction.max_context_episodes",
-                "value": entity_config.max_context_episodes,
-                "category": "entity_extraction",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Max previous episodes for extraction context"
-            },
-        ])
-
-        # Search configs
-        search_config = SearchConfig()
-        configs.extend([
-            {
-                "key": "search.default_limit",
-                "value": search_config.default_limit,
-                "category": "search",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Default number of search results"
-            },
-            {
-                "key": "search.default_strategy",
-                "value": search_config.default_strategy,
-                "category": "search",
-                "data_type": "string",
-                "is_sensitive": False,
-                "description": "Default search strategy: semantic, traversal, or hybrid"
-            },
-            {
-                "key": "search.max_traversal_depth",
-                "value": search_config.max_traversal_depth,
-                "category": "search",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Max depth for graph traversal"
-            },
-            {
-                "key": "search.rrf_k",
-                "value": search_config.rrf_k,
-                "category": "search",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "RRF constant for hybrid search"
-            },
-            {
-                "key": "search.min_rrf_score",
-                "value": search_config.min_rrf_score,
-                "category": "search",
-                "data_type": "float",
-                "is_sensitive": False,
-                "description": "Minimum RRF score threshold"
-            },
-            {
-                "key": "search.min_bm25_score",
-                "value": search_config.min_bm25_score,
-                "category": "search",
-                "data_type": "float",
-                "is_sensitive": False,
-                "description": "Minimum BM25 score threshold"
-            },
-        ])
-
-        # Community configs
-        community_config = CommunityConfig()
-        configs.extend([
-            {
-                "key": "community.enabled",
-                "value": community_config.enabled,
-                "category": "community",
-                "data_type": "bool",
-                "is_sensitive": False,
-                "description": "Enable automatic community detection"
-            },
-            {
-                "key": "community.detection_threshold",
-                "value": community_config.detection_threshold,
-                "category": "community",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Min entities before running community detection"
-            },
-        ])
-
-        # Tool tracking configs
-        tool_config = ToolTrackingConfig()
-        configs.extend([
-            {
-                "key": "tool_tracking.track_tools",
-                "value": tool_config.track_tools,
-                "category": "tool_tracking",
-                "data_type": "bool",
-                "is_sensitive": False,
-                "description": "Enable tool call tracking"
-            },
-            {
-                "key": "tool_tracking.track_queries",
-                "value": tool_config.track_queries,
-                "category": "tool_tracking",
-                "data_type": "bool",
-                "is_sensitive": False,
-                "description": "Enable query tracking"
-            },
-            {
-                "key": "tool_tracking.augment_queries",
-                "value": tool_config.augment_queries,
-                "category": "tool_tracking",
-                "data_type": "bool",
-                "is_sensitive": False,
-                "description": "Enable query augmentation with similar past queries"
-            },
-            {
-                "key": "tool_tracking.similarity_threshold",
-                "value": tool_config.similarity_threshold,
-                "category": "tool_tracking",
-                "data_type": "float",
-                "is_sensitive": False,
-                "description": "Similarity threshold for query augmentation"
-            },
-            {
-                "key": "tool_tracking.top_k_similar",
-                "value": tool_config.top_k_similar,
-                "category": "tool_tracking",
-                "data_type": "int",
-                "is_sensitive": False,
-                "description": "Number of similar queries for augmentation"
-            },
-        ])
-
-        # System configs (CORS, logging)
-        configs.extend([
-            {
-                "key": "system.cors_origins",
-                "value": "http://localhost:3000,http://localhost:3001,https://app.ryumem.io,https://44.219.52.27",
-                "category": "system",
-                "data_type": "string",
-                "is_sensitive": False,
-                "description": "Comma-separated CORS origins"
-            },
-            {
-                "key": "system.log_level",
-                "value": "INFO",
-                "category": "system",
-                "data_type": "string",
-                "is_sensitive": False,
-                "description": "Logging level: DEBUG, INFO, WARNING, ERROR"
-            },
-        ])
-
-        return configs
+        return RyumemConfig()
 
     def migrate_from_env(self, env_path: Optional[str] = None) -> Tuple[int, int]:
         """
@@ -489,8 +128,8 @@ class ConfigService:
             logger.warning("To customize: Create a .env file with RYUMEM_* environment variables")
             logger.warning("Key settings: RYUMEM_LLM_PROVIDER, RYUMEM_LLM_MODEL, RYUMEM_EMBEDDING_PROVIDER, RYUMEM_EMBEDDING_MODEL")
 
-        # Get default configs
-        default_configs = self.get_default_configs()
+        # Get default config model
+        defaults = self.get_default_configs()
 
         # ENV variable mapping (from .env names to config keys)
         env_mapping = {
@@ -549,42 +188,63 @@ class ConfigService:
             "RYUMEM_TOOL_TRACKING_TOP_K_SIMILAR": "tool_tracking.top_k_similar",
 
             # System
-            "CORS_ORIGINS": "system.cors_origins",
-            "LOG_LEVEL": "system.log_level",
+            "RYUMEM_SYSTEM_CORS_ORIGINS": "system.cors_origins",
+            "RYUMEM_SYSTEM_LOG_LEVEL": "system.log_level",
         }
 
-        # Migrate configs
+        # Reverse mapping for quick lookup
+        key_to_env = {v: k for k, v in env_mapping.items()}
+
+        # Iterate through config sections and fields
         migrated = 0
         using_defaults = []
-        for config in default_configs:
-            key = config["key"]
 
-            # Check if value exists in .env
-            env_key = None
-            for env_name, config_key in env_mapping.items():
-                if config_key == key:
-                    env_key = env_name
-                    break
+        for section_name in defaults.model_fields:
+            # Skip database config (circular dependency)
+            if section_name == "database":
+                continue
 
-            # Use .env value if present, otherwise use default
-            if env_key and env_key in env_values:
-                value = env_values[env_key]
-            else:
-                value = config["value"]
-                # Track important defaults being used
-                if key in ["llm.provider", "llm.model", "embedding.provider", "embedding.model"]:
-                    using_defaults.append(f"{key}={value}")
+            section_value = getattr(defaults, section_name)
 
-            # Save to database
-            self.db.save_config(
-                key=key,
-                value=self._serialize_value(value, config["data_type"]),
-                category=config["category"],
-                data_type=config["data_type"],
-                is_sensitive=config["is_sensitive"],
-                description=config["description"]
-            )
-            migrated += 1
+            for field_name, field_info in section_value.model_fields.items():
+                key = f"{section_name}.{field_name}"
+                value = getattr(section_value, field_name)
+
+                # Override with env value if present
+                env_key = key_to_env.get(key)
+                if env_key and env_key in env_values:
+                    value = env_values[env_key]
+                else:
+                    # Track important defaults being used
+                    if key in ["llm.provider", "llm.model", "embedding.provider", "embedding.model"]:
+                        using_defaults.append(f"{key}={value}")
+
+                # Infer data type from annotation for serialization
+                ann_str = str(field_info.annotation).lower()
+                if 'bool' in ann_str:
+                    data_type = 'bool'
+                elif 'int' in ann_str and 'float' not in ann_str:
+                    data_type = 'int'
+                elif 'float' in ann_str:
+                    data_type = 'float'
+                elif 'list' in ann_str:
+                    data_type = 'list'
+                else:
+                    data_type = 'string'
+
+                # Detect sensitive fields
+                is_sensitive = any(s in field_name.lower() for s in ['key', 'secret', 'token', 'password'])
+
+                # Save to database
+                self.db.save_config(
+                    key=key,
+                    value=self._serialize_value(value, data_type),
+                    category=section_name,
+                    data_type=data_type,
+                    is_sensitive=is_sensitive,
+                    description=field_info.description or f"{section_name} {field_name}"
+                )
+                migrated += 1
 
         logger.info(f"Migration complete: {migrated} configs saved to database")
 
@@ -700,6 +360,22 @@ class ConfigService:
             augment_queries=get_value("tool_tracking.augment_queries", True),
             similarity_threshold=get_value("tool_tracking.similarity_threshold", 0.3),
             top_k_similar=get_value("tool_tracking.top_k_similar", 5),
+            sample_rate=get_value("tool_tracking.sample_rate", 1.0),
+            summarize_outputs=get_value("tool_tracking.summarize_outputs", True),
+            max_output_chars=get_value("tool_tracking.max_output_chars", 1000),
+            sanitize_pii=get_value("tool_tracking.sanitize_pii", True),
+            enhance_descriptions=get_value("tool_tracking.enhance_descriptions", False),
+            ignore_errors=get_value("tool_tracking.ignore_errors", True),
+        )
+
+        agent_config = AgentConfig(
+            memory_enabled=get_value("agent.memory_enabled", True),
+            enhance_agent_instruction=get_value("agent.enhance_agent_instruction", True),
+        )
+
+        system_config = SystemConfig(
+            cors_origins=get_value("system.cors_origins", "http://localhost:3000,http://localhost:3001"),
+            log_level=get_value("system.log_level", "INFO"),
         )
 
         # Construct main config
@@ -711,6 +387,8 @@ class ConfigService:
             search=search_config,
             community=community_config,
             tool_tracking=tool_tracking_config,
+            agent=agent_config,
+            system=system_config,
         )
 
         logger.info("Loaded configuration from database")

@@ -24,6 +24,7 @@ export default function Home() {
   const [userId, setUserId] = useState<string>("");
   const [isLoadingUsers, setIsLoadingUsers] = useState(true);
   const [refreshStats, setRefreshStats] = useState(0);
+  const [entityExtractionEnabled, setEntityExtractionEnabled] = useState(false);
 
   // Graph visualization state
   const [graphData, setGraphData] = useState<GraphDataResponse | null>(null);
@@ -64,6 +65,25 @@ export default function Home() {
     };
 
     loadData();
+  }, []);
+
+  // Load entity extraction setting
+  useEffect(() => {
+    const loadEntityExtractionSetting = async () => {
+      try {
+        const settings = await api.getSettings(false);
+        const entityConfig = settings.settings.entity_extraction?.find(
+          cfg => cfg.key === 'entity_extraction.enabled'
+        );
+        if (entityConfig) {
+          setEntityExtractionEnabled(entityConfig.value === true || entityConfig.value === 'true');
+        }
+      } catch (error) {
+        console.error("Failed to load entity extraction setting:", error);
+      }
+    };
+
+    loadEntityExtractionSetting();
   }, []);
 
   const handleEpisodeAdded = () => {
@@ -192,27 +212,31 @@ export default function Home() {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 lg:grid-cols-7 lg:w-full">
+          <TabsList className={`grid w-full ${entityExtractionEnabled ? 'grid-cols-3 lg:grid-cols-7' : 'grid-cols-3 lg:grid-cols-5'} lg:w-full`}>
             <TabsTrigger value="chat" className="flex items-center gap-2">
               <BookOpen className="h-4 w-4" />
               Chat & Query
             </TabsTrigger>
-            <TabsTrigger
-              value="graph"
-              className="flex items-center gap-2"
-              onClick={() => !graphData && loadGraphData()}
-            >
-              <GitBranch className="h-4 w-4" />
-              Graph
-            </TabsTrigger>
-            <TabsTrigger
-              value="entities"
-              className="flex items-center gap-2"
-              onClick={() => !entitiesData && loadEntities()}
-            >
-              <List className="h-4 w-4" />
-              Entities
-            </TabsTrigger>
+            {entityExtractionEnabled && (
+              <TabsTrigger
+                value="graph"
+                className="flex items-center gap-2"
+                onClick={() => !graphData && loadGraphData()}
+              >
+                <GitBranch className="h-4 w-4" />
+                Graph
+              </TabsTrigger>
+            )}
+            {entityExtractionEnabled && (
+              <TabsTrigger
+                value="entities"
+                className="flex items-center gap-2"
+                onClick={() => !entitiesData && loadEntities()}
+              >
+                <List className="h-4 w-4" />
+                Entities
+              </TabsTrigger>
+            )}
             <TabsTrigger value="episodes" className="flex items-center gap-2">
               <Database className="h-4 w-4" />
               Episodes
@@ -249,37 +273,40 @@ export default function Home() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="graph" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <GitBranch className="h-5 w-5" />
-                  Knowledge Graph Visualization
-                </CardTitle>
-                <CardDescription>
-                  Interactive visualization of entities and relationships in your knowledge graph
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {isLoadingGraph ? (
-                  <div className="flex items-center justify-center h-[700px]">
-                    <div className="text-center">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-                      <p className="text-muted-foreground">Loading graph...</p>
+          {entityExtractionEnabled && (
+            <TabsContent value="graph" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <GitBranch className="h-5 w-5" />
+                    Knowledge Graph Visualization
+                  </CardTitle>
+                  <CardDescription>
+                    Interactive visualization of entities and relationships in your knowledge graph
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {isLoadingGraph ? (
+                    <div className="flex items-center justify-center h-[700px]">
+                      <div className="text-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                        <p className="text-muted-foreground">Loading graph...</p>
+                      </div>
                     </div>
-                  </div>
-                ) : graphData ? (
-                  <GraphVisualization data={graphData} />
-                ) : (
-                  <div className="flex items-center justify-center h-[700px]">
-                    <p className="text-muted-foreground">No graph data available</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
+                  ) : graphData ? (
+                    <GraphVisualization data={graphData} />
+                  ) : (
+                    <div className="flex items-center justify-center h-[700px]">
+                      <p className="text-muted-foreground">No graph data available</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
 
-          <TabsContent value="entities" className="space-y-4">
+          {entityExtractionEnabled && (
+            <TabsContent value="entities" className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2">
                 {isLoadingEntities ? (
@@ -324,7 +351,8 @@ export default function Home() {
                 />
               </div>
             </div>
-          </TabsContent>
+            </TabsContent>
+          )}
 
           <TabsContent value="episodes" className="space-y-4">
             <EpisodesList

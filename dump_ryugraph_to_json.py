@@ -68,6 +68,7 @@ def dump_database(db_path: str, output_file: str) -> None:
         e.uuid AS uuid,
         e.name AS name,
         e.content AS content,
+        e.content_embedding AS content_embedding,
         e.source AS source,
         e.source_description AS source_description,
         e.created_at AS created_at,
@@ -138,8 +139,6 @@ def dump_database(db_path: str, output_file: str) -> None:
     RETURN
         a.uuid AS uuid,
         a.agent_type AS agent_type,
-        a.instruction_type AS instruction_type,
-        a.instruction_text AS instruction_text,
         a.original_user_request AS original_user_request,
         a.description AS description,
         a.version AS version,

@@ -520,7 +520,18 @@ Ryumem provides **one-line memory integration** for Google's Agent Developer Kit
 
 ```python
 from google import genai
+from ryumem import Ryumem
 from ryumem.integrations import add_memory_to_agent
+
+# Create Ryumem instance (configure once)
+ryumem = Ryumem(
+    server_url="https://api.ryumem.io",
+    api_key="ryu_...",
+    # Optional: Override config per-instance
+    extract_entities=False,  # Disable entity extraction (saves 30-50% tokens)
+    memory_enabled=True,
+    sample_rate=1.0,  # Track all tool calls
+)
 
 # Create your agent
 agent = genai.Agent(
@@ -530,32 +541,64 @@ agent = genai.Agent(
 )
 
 # Enable memory - that's it! 🎉
-add_memory_to_agent(
-    agent,
-    ryumem_customer_id="my_company",
-    user_id="user_123",
-    extract_entities=False  # Disable entity extraction to reduce token usage (default: False)
-)
+agent = add_memory_to_agent(agent, ryumem)
 
-# Agent now has 3 auto-generated memory tools:
+# Agent now has 2 auto-generated memory tools:
 # - search_memory() - Find relevant information
 # - save_memory() - Store new information
-# - get_entity_context() - Get full context about entities
 ```
 
-**Entity Extraction Control:**
-- `extract_entities=False` (default): Episodes are stored but entities/relationships are NOT extracted (saves 30-50% tokens)
-- `extract_entities=True`: Full knowledge graph extraction (entities, relationships, contradictions)
-- `extract_entities=None`: Uses config setting from `enable_entity_extraction` in RyumemConfig
-
-You can also control entity extraction per memory save:
+**With Query Tracking (Advanced):**
 ```python
-# Override at tool call level
-memory.save_memory(
-    content="Important fact to extract entities from",
-    extract_entities=True  # Enable for this specific save
+from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+
+# Configure Ryumem with tracking enabled
+ryumem = Ryumem(
+    track_queries=True,
+    augment_queries=True,  # Augment with historical context
+    similarity_threshold=0.3,
+    top_k_similar=5,
+)
+
+# Add memory to agent
+agent = add_memory_to_agent(agent, ryumem)
+
+# Wrap runner for query tracking
+runner = genai.Runner(agent=agent)
+runner = wrap_runner_with_tracking(runner, agent)
+
+# Runner now tracks queries and augments them with history!
+```
+
+**Config Overrides:**
+
+All configuration can be overridden per Ryumem instance:
+
+```python
+ryumem = Ryumem(
+    # Entity extraction
+    extract_entities=False,  # Default: fetched from server
+
+    # Agent settings
+    memory_enabled=True,
+    enhance_agent_instruction=True,
+
+    # Tool tracking
+    track_tools=True,
+    sample_rate=0.5,  # Track 50% of tool calls
+    summarize_outputs=True,
+    max_output_chars=1000,
+    sanitize_pii=True,
+
+    # Query tracking
+    track_queries=True,
+    augment_queries=True,
+    similarity_threshold=0.3,
+    top_k_similar=5,
 )
 ```
+
+Overridden settings are static per instance, while non-overridden settings refresh from server based on TTL (default: 5 minutes).
 
 **Why Ryumem > mem0?**
 
