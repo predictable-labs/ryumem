@@ -403,8 +403,11 @@ class Ryumem:
             "user_id": user_id,
             "limit": limit,
             "strategy": strategy,
+            "similarity_threshold": similarity_threshold,
+            "max_depth": max_depth,
             "min_rrf_score": min_rrf_score,
             "min_bm25_score": min_bm25_score,
+            "rrf_k": rrf_k,
         }
 
         response = self._post("/search", json=payload)

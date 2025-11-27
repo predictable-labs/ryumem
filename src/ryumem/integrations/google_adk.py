@@ -484,12 +484,16 @@ def _find_similar_query_episodes(
     threshold = memory.ryumem.config.tool_tracking.similarity_threshold
     logger.info(f"Searching with strategy={memory.ryumem.config.tool_tracking.similarity_strategy}, threshold={threshold}")
 
+    # Search across ALL sessions for this user (not just current session)
+    # This allows learning from past game sessions
     search_results = memory.ryumem.search(
         query=query_text,
         user_id=user_id,
-        session_id=session_id,
+        session_id=None,  # Don't filter by session - search across all user's past queries
         strategy=memory.ryumem.config.tool_tracking.similarity_strategy,
-        limit=memory.ryumem.config.tool_tracking.top_k_similar
+        similarity_threshold=memory.ryumem.config.tool_tracking.similarity_threshold,
+        limit=memory.ryumem.config.tool_tracking.top_k_similar,
+        min_rrf_score=0.0  # Disable RRF filtering - rely on similarity_threshold instead
     )
 
     if not search_results.episodes:
