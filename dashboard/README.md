@@ -2,48 +2,54 @@
 
 Modern web dashboard for Ryumem - Bi-temporal Knowledge Graph Memory System.
 
-Built with **Next.js 14**, **TypeScript**, and **shadcn/ui**.
+Built with **Next.js 15**, **TypeScript**, **shadcn/ui**, and **Tailwind CSS**.
 
 ## Features
 
-✨ **Dashboard Features**:
-- 🔐 **Secure Login** - API Key authentication with secure session management
-- 📝 **Add Episodes** - Store new memories with automatic entity & relationship extraction
-- 🔍 **Query Interface** - Search the knowledge graph with multiple strategies
-- ⚙️ **System Settings** - Configure LLM providers, search strategies, and more
-- 📊 **Real-time Stats** - View counts of episodes, entities, relationships, and communities
-- 🎨 **Cook Design System** - Beautiful, modern UI with "Meteors" and glassmorphism effects
-- ⚡ **Fast & Responsive** - Optimized Next.js performance
-- 🌓 **Dark Mode Ready** - Built-in light/dark mode support
+✨ **Dashboard Capabilities**:
+- 🔐 **Secure Authentication** - API key login with session management
+- 💬 **Chat Interface** - Natural language queries with hybrid search
+- 📊 **Graph Visualization** - Interactive knowledge graph explorer
+- 🗂️ **Entity Browser** - Browse, filter, and explore entities
+- 📝 **Episode Management** - Add and view memories with metadata
+- 🔍 **Query History** - View augmented query history
+- 🛠️ **Tool Analytics** - Track tool usage and performance metrics
+- ⚙️ **System Settings** - Configure LLM providers, API keys, and search parameters
+- 👤 **Agent Configuration** - Customize agent instructions and behavior
+- 📈 **Real-time Stats** - Monitor system health and growth
+- 🌓 **Dark/Light Mode** - Beautiful theme support
+- 🎨 **Modern UI** - Responsive design with animations
 
-## Screenshots
+## Dashboard Overview
 
-### Chat & Query Interface
-Search your knowledge graph using hybrid search (semantic + BM25 + graph traversal):
-- View entities with type badges and relevance scores
-- Explore facts and relationships
-- Multiple search strategies (hybrid, semantic, BM25, graph)
+### Main Tabs
 
-### Add Episodes
-Add new memories to the knowledge graph:
-- Simple text input
-- Source type selection (text, message, JSON)
-- Example episodes for quick testing
-- Real-time feedback
+The dashboard provides 7 main tabs (5 when entity extraction is disabled):
+1. **Chat & Query** - Natural language search with hybrid retrieval strategies
+2. **Graph** - Interactive knowledge graph visualization (requires entity extraction)
+3. **Entities** - Browse and explore entities with filtering (requires entity extraction)
+4. **Episodes** - View and manage memories with metadata
+5. **Queries** - View augmented query history and patterns
+6. **Tool Analytics** - Track tool execution and performance
+7. **Agent Settings** - Configure agent instructions and behavior
 
-### Stats Dashboard
-Monitor your knowledge graph growth:
-- Total episodes stored
-- Number of entities extracted
-- Relationship count
-- Community clusters detected
+### Settings Page
+
+Configure system settings with hot-reload across 7 categories:
+- **API Keys** - OpenAI and Gemini keys
+- **LLM** - Provider, model, temperatures, tokens
+- **Embedding** - Provider, model, dimensions
+- **Search** - Strategy, RRF parameters, thresholds
+- **Entity Extraction** - Enable/disable, similarity thresholds
+- **Tool Tracking** - Query augmentation configuration
+- **Community** - Detection settings
 
 ## Installation
 
 ### Prerequisites
 
-1. **Node.js 18+** installed
-2. **Ryumem API server** running (see `../server/README.md`)
+- **Node.js 18+** installed
+- **Ryumem API server** running (see `../server/README.md`)
 
 ### Setup
 
@@ -54,10 +60,10 @@ cd dashboard
 npm install
 ```
 
-2. **Configure environment variables:**
+2. **Configure environment:**
 
 ```bash
-# Copy the template
+# Copy template
 cp env.template .env.local
 
 # Edit .env.local
@@ -69,224 +75,279 @@ Set the API URL:
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-3. **Start the development server:**
+3. **Start development server:**
 
 ```bash
 npm run dev
 ```
 
-The dashboard will be available at **http://localhost:3000**
+Dashboard will be available at **http://localhost:3000**
 
 ## Usage
 
-### Starting the Dashboard
+### Development Mode
 
 ```bash
-# Development mode with hot reload
+# Start with hot-reload
 npm run dev
 
-# Production build
+# Start on different port
+PORT=3001 npm run dev
+
+# Build for production
 npm run build
+
+# Start production server
 npm start
 
-# Linting
+# Lint code
 npm run lint
+
+# Format code
+npm run format
 ```
+
+### First Time Setup
+
+1. **Start the API Server** (in another terminal):
+   ```bash
+   cd ../server
+   uvicorn main:app --reload
+   ```
+
+2. **Register a Customer** (get API key):
+   ```bash
+   curl -X POST http://localhost:8000/register \
+     -H "Content-Type: application/json" \
+     -d '{"customer_id": "my_company"}'
+   ```
+
+3. **Login to Dashboard**:
+   - Open http://localhost:3000
+   - Enter your API key (starts with `ryu_`)
+   - Click "Sign in"
 
 ### Using the Dashboard
 
-#### 1. Login
+Once logged in, explore the dashboard tabs:
 
-1. Open the dashboard at http://localhost:3000
-2. Enter your Ryumem API Key (starts with `ryu_`)
-   - If you don't have one, ask your administrator to register your customer ID via the API.
-3. Click "Sign in" to access the dashboard.
-
-#### 2. Add Episodes
-
-Navigate to the "Add Episodes" tab:
-
-1. Enter text content (e.g., "Alice works at Google as a Software Engineer")
-2. Select source type (text, message, or JSON)
-3. Click "Add Episode"
-4. Entities and relationships are automatically extracted
-
-**Example episodes provided:**
-- Click on example buttons to quickly populate the form
-- Try different types of information (people, places, organizations, relationships)
-
-#### 3. Query Knowledge Graph
-
-Navigate to the "Chat & Query" tab:
-
-1. Enter a question (e.g., "Where does Alice work?")
-2. Select search strategy:
-   - **Hybrid** (recommended): Combines all search methods
-   - **Semantic**: Embedding-based similarity
-   - **BM25**: Keyword matching
-   - **Graph**: Relationship navigation
-3. Click search or press Enter
-4. View results organized by entities and facts
-
-**Example queries provided:**
-- Click on examples to quickly test search
-- Try natural language questions
-- Experiment with different search strategies
-
-#### 4. Monitor Statistics
-
-The stats panel shows real-time metrics:
-- **Episodes**: Total memories stored
-- **Entities**: People, places, things extracted
-- **Relationships**: Facts and connections
-- **Communities**: Detected clusters
-
-Stats automatically refresh when you add new episodes.
+- **Chat & Query**: Enter natural language queries and select search strategy (Hybrid recommended)
+- **Graph**: Visualize entities and relationships with interactive force-directed layout
+- **Entities**: Browse, filter, and explore entities with detailed relationship views
+- **Episodes**: Add new memories or view existing ones with filtering
+- **Queries**: View augmented query history and pattern analysis
+- **Tool Analytics**: Track tool execution statistics and performance
+- **Agent Settings**: Configure agent instructions and behavior
+- **Settings Page**: Configure LLM providers, API keys, search parameters, and more with hot-reload
 
 ## Architecture
 
 ```
 dashboard/
 ├── src/
-│   ├── app/                    # Next.js app directory
-│   │   ├── page.tsx           # Main dashboard page
-│   │   ├── layout.tsx         # Root layout with Toaster
-│   │   └── globals.css        # Global styles (Tailwind + shadcn)
+│   ├── app/                        # Next.js App Router
+│   │   ├── page.tsx               # Main dashboard (7 tabs)
+│   │   ├── settings/
+│   │   │   └── page.tsx           # Settings page
+│   │   ├── login/
+│   │   │   └── page.tsx           # Login page
+│   │   ├── layout.tsx             # Root layout
+│   │   └── globals.css            # Global styles
 │   ├── components/
-│   │   ├── episode-form.tsx   # Episode submission form
-│   │   ├── chat-interface.tsx # Search/query interface
-│   │   ├── stats-panel.tsx    # Statistics display
-│   │   └── ui/                # shadcn/ui components
+│   │   ├── header.tsx             # Navigation header
+│   │   ├── footer.tsx             # Footer
+│   │   ├── chat-interface.tsx    # Search/query UI
+│   │   ├── graph-visualization.tsx # Graph viewer
+│   │   ├── entity-browser.tsx     # Entity list
+│   │   ├── entity-detail-panel.tsx # Entity details
+│   │   ├── episodes-list.tsx      # Episode management
+│   │   ├── episode-form-modal.tsx # Add episode modal
+│   │   ├── augmented-queries-viewer.tsx # Query history
+│   │   ├── tool-analytics-panel.tsx # Tool analytics
+│   │   ├── agent-instruction-editor.tsx # Agent config
+│   │   ├── stats-panel.tsx        # Real-time stats
+│   │   ├── theme-provider.tsx     # Dark/light mode
+│   │   ├── theme-toggle.tsx       # Theme switcher
+│   │   ├── AuthProvider.tsx       # Auth context
+│   │   └── ui/                    # shadcn/ui components
 │   │       ├── button.tsx
 │   │       ├── card.tsx
 │   │       ├── input.tsx
-│   │       ├── textarea.tsx
+│   │       ├── tabs.tsx
 │   │       ├── select.tsx
 │   │       ├── badge.tsx
-│   │       ├── tabs.tsx
-│   │       ├── label.tsx
-│   │       ├── toast.tsx
-│   │       ├── toaster.tsx
-│   │       └── use-toast.ts
+│   │       ├── alert.tsx
+│   │       └── ... (20+ components)
 │   └── lib/
-│       ├── api.ts             # API client for Ryumem backend
-│       └── utils.ts           # Utility functions
-├── public/                    # Static assets
+│       ├── api.ts                 # API client with types
+│       └── utils.ts               # Utility functions
+├── public/                        # Static assets
 ├── package.json
 ├── tsconfig.json
 ├── tailwind.config.ts
 ├── next.config.js
-├── components.json            # shadcn/ui config
-└── README.md                  # This file
+├── components.json                # shadcn/ui config
+└── README.md                      # This file
 ```
 
 ## API Integration
 
-The dashboard communicates with the Ryumem FastAPI backend:
+The dashboard communicates with the Ryumem FastAPI backend via a typed API client:
 
 ```typescript
 // lib/api.ts
 import { api } from "@/lib/api";
 
-// Add episode
+// All methods are fully typed with TypeScript
+
+// Authentication
+await api.login("ryu_abc123...");
+const customer = await api.getCustomerMe();
+
+// Episodes
 await api.addEpisode({
   content: "Alice works at Google",
-  group_id: "user_123",
+  user_id: "user_123",
   source: "text"
 });
+const episodes = await api.getEpisodes({ user_id: "user_123", limit: 50 });
 
 // Search
 const results = await api.search({
   query: "Where does Alice work?",
-  group_id: "user_123",
+  user_id: "user_123",
   strategy: "hybrid",
   limit: 10
 });
 
-// Get stats
+// Settings (Hot-reload)
+const settings = await api.getSettings(false);
+await api.updateSettings({
+  "llm.provider": "gemini",
+  "entity_extraction.enabled": false
+});
+
+// Stats
 const stats = await api.getStats("user_123");
+const users = await api.getUsers();
+
+// Entities & Graph
+const entities = await api.getEntitiesList("user_123");
+const graphData = await api.getGraphData("user_123");
+const entityContext = await api.getEntityContext("Alice", "user_123");
 ```
 
-All API calls are typed with TypeScript for safety and autocomplete.
+All API calls include:
+- TypeScript type safety
+- Automatic error handling
+- API key authentication
+- Response type validation
+
+## Conditional Features
+
+### Entity Extraction Toggle
+
+When `entity_extraction.enabled` is set to `false`:
+- **Graph tab** - Hidden
+- **Entities tab** - Hidden
+- **Tab layout** - Adjusts from 7 to 5 columns
+- **Settings** - Still accessible to re-enable
+
+This saves ~30-50% on LLM tokens when entity extraction isn't needed.
 
 ## Customization
 
 ### Styling
 
-The dashboard uses **Tailwind CSS** and **shadcn/ui** components:
-
+**Tailwind CSS** configuration:
 - Edit `tailwind.config.ts` for theme customization
-- Modify `src/app/globals.css` for global styles
-- Change color schemes in CSS variables (`:root` and `.dark`)
+- Modify CSS variables in `globals.css`
+- Change color schemes (`:root` and `.dark`)
 
-### Components
+**Theme Colors:**
+```css
+/* Light mode */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --primary: 222.2 47.4% 11.2%;
+  /* ... */
+}
 
-All components are customizable:
-
-```typescript
-// src/components/episode-form.tsx
-// Modify form fields, validation, examples
-
-// src/components/chat-interface.tsx
-// Customize search UI, result display
-
-// src/components/stats-panel.tsx
-// Add new statistics, change layout
+/* Dark mode */
+.dark {
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  --primary: 210 40% 98%;
+  /* ... */
+}
 ```
 
-### API Client
+### Adding Components
 
-Extend the API client in `src/lib/api.ts`:
+```bash
+# Add new shadcn/ui component
+npx shadcn-ui@latest add [component-name]
+
+# Examples
+npx shadcn-ui@latest add dialog
+npx shadcn-ui@latest add dropdown-menu
+npx shadcn-ui@latest add tooltip
+```
+
+### Custom API Methods
+
+Extend the API client:
 
 ```typescript
+// src/lib/api.ts
 class RyumemAPI {
-  // Add new methods
-  async customEndpoint() {
-    return this.request('/custom-endpoint');
+  // Add new endpoint
+  async customMethod(params: any) {
+    return this.request('/custom-endpoint', {
+      method: 'POST',
+      body: JSON.stringify(params)
+    });
   }
 }
 ```
 
 ## Environment Variables
 
-| Variable              | Description           | Default               |
-| --------------------- | --------------------- | --------------------- |
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `NEXT_PUBLIC_API_URL` | Ryumem API server URL | http://localhost:8000 |
 
-**Note:** All variables prefixed with `NEXT_PUBLIC_` are exposed to the browser.
+**Note:** All `NEXT_PUBLIC_*` variables are exposed to the browser.
 
 ## Development
 
-### Adding New shadcn/ui Components
+### Tech Stack
 
-```bash
-# Install new shadcn/ui component
-npx shadcn-ui@latest add [component-name]
-
-# Example: add dialog
-npx shadcn-ui@latest add dialog
-```
+- **Next.js 15** - React framework with App Router
+- **TypeScript** - Type safety
+- **Tailwind CSS** - Utility-first CSS
+- **shadcn/ui** - Accessible component library
+- **Radix UI** - Headless UI primitives
+- **Lucide Icons** - Icon library
+- **React Flow** - Graph visualization
+- **Next Themes** - Dark mode support
 
 ### Project Structure
 
-- **App Router**: Uses Next.js 14 App Router
-- **Server Components**: Page-level components are Server Components by default
-- **Client Components**: Interactive components use `"use client"` directive
-- **API Routes**: Not used (external FastAPI backend)
+- **App Router**: Server Components by default
+- **Client Components**: Use `"use client"` directive
+- **API Routes**: External FastAPI backend (no Next.js API routes)
+- **Strict TypeScript**: Full type safety
 
-### TypeScript
+### Adding New Features
 
-The project uses strict TypeScript:
-
-```json
-{
-  "compilerOptions": {
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true
-  }
-}
-```
+1. Create component in `src/components/`
+2. Add types to `src/lib/api.ts` if needed
+3. Use component in pages
+4. Add to navigation if needed
+5. Test responsive layout
+6. Ensure accessibility (ARIA labels, keyboard nav)
 
 ## Deployment
 
@@ -300,8 +361,8 @@ npm i -g vercel
 vercel
 ```
 
-Set environment variable in Vercel dashboard:
-- `NEXT_PUBLIC_API_URL` → Your production API URL
+**Environment variables in Vercel:**
+- `NEXT_PUBLIC_API_URL` → Your production API URL (e.g., https://api.ryumem.io)
 
 ### Docker
 
@@ -310,10 +371,14 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Install dependencies
 COPY package*.json ./
 RUN npm ci
 
+# Copy app
 COPY . .
+
+# Build
 RUN npm run build
 
 EXPOSE 3000
@@ -324,49 +389,56 @@ CMD ["npm", "start"]
 Build and run:
 ```bash
 docker build -t ryumem-dashboard .
-docker run -p 3000:3000 -e NEXT_PUBLIC_API_URL=http://api:8000 ryumem-dashboard
+docker run -p 3000:3000 \
+  -e NEXT_PUBLIC_API_URL=http://api:8000 \
+  ryumem-dashboard
 ```
 
 ### Other Platforms
 
-The dashboard can be deployed to:
-- **Netlify**: Use Next.js plugin
-- **Railway**: Auto-deploys from git
-- **Cloudflare Pages**: Requires @cloudflare/next-on-pages
-- **AWS Amplify**: Full Next.js support
-- **Self-hosted**: Use `npm run build && npm start`
+- **Netlify** - Use Next.js plugin
+- **Railway** - Auto-deploy from Git
+- **Cloudflare Pages** - Requires `@cloudflare/next-on-pages`
+- **AWS Amplify** - Full Next.js support
+- **Self-hosted** - `npm run build && npm start`
 
 ## Troubleshooting
 
-### "API connection failed"
+### Common Issues
 
-1. Ensure the Ryumem API server is running:
+**"API connection failed"**
+1. Ensure API server is running:
    ```bash
-   cd ../server
-   uvicorn main:app --reload
+   cd ../server && uvicorn main:app --reload
    ```
-
 2. Check `NEXT_PUBLIC_API_URL` in `.env.local`
+3. Verify CORS configured in `server/main.py`
 
-3. Verify CORS is configured in server (see `server/main.py`)
+**"Invalid API key" / "Unauthorized"**
+1. Register customer via `/register` endpoint
+2. Use correct API key (starts with `ryu_`)
+3. Check API key in browser localStorage
 
-### "No results found" when searching
-
-1. Add some episodes first using the "Add Episodes" tab
+**No results when searching**
+1. Add episodes first via "Episodes" tab
 2. Wait a few seconds for processing
 3. Try different search strategies
-4. Check API server logs for errors
+4. Check API server logs
 
-### Styling issues
+**Graph/Entity tabs not showing**
+1. Check `entity_extraction.enabled` in Settings
+2. Enable entity extraction
+3. Refresh page after enabling
 
-1. Ensure Tailwind CSS is properly configured
-2. Check `tailwind.config.ts` includes all content paths
-3. Verify `globals.css` is imported in `layout.tsx`
+**Settings changes not applying**
+1. Hot-reload happens automatically
+2. Check validation errors in UI
+3. Verify API keys when switching providers
+4. Check server logs for errors
 
-### Build errors
-
+**Build errors**
 ```bash
-# Clear Next.js cache
+# Clear cache
 rm -rf .next
 
 # Reinstall dependencies
@@ -377,44 +449,64 @@ npm install
 npm run build
 ```
 
+**Styling issues**
+1. Check Tailwind config includes content paths
+2. Verify `globals.css` imported in `layout.tsx`
+3. Clear browser cache
+4. Check for CSS conflicts
+
 ## Browser Support
 
 - Chrome/Edge (latest)
 - Firefox (latest)
-- Safari (latest)
+- Safari 14+
 - Mobile browsers (iOS Safari, Chrome Mobile)
 
 Requires JavaScript enabled.
 
 ## Performance
 
-- **First Load**: ~200-300ms
+- **First Load**: ~200-300ms (optimized bundle)
 - **Page Transitions**: Instant (client-side routing)
 - **API Calls**: Depends on backend latency
-- **Bundle Size**: ~150KB gzipped
+- **Bundle Size**: ~180KB gzipped
 
-Optimizations:
+**Optimizations:**
 - Static generation where possible
 - Image optimization via Next.js
 - Lazy loading of components
 - Code splitting by route
+- Tailwind CSS purging
+- React Server Components
+
+## Accessibility
+
+- Keyboard navigation support
+- ARIA labels and roles
+- Screen reader compatible
+- Focus management
+- High contrast mode support
+- Responsive touch targets
 
 ## Contributing
 
 To contribute to the dashboard:
 
-1. Follow the code style (use Prettier)
+1. Follow code style (use Prettier)
 2. Write TypeScript with strict types
 3. Test responsive layouts (mobile, tablet, desktop)
 4. Ensure accessibility (ARIA labels, keyboard navigation)
+5. Add JSDoc comments for complex functions
+6. Test dark mode compatibility
 
 ## Support
 
 For issues or questions:
-- Check the main [Ryumem README](../README.md)
+- Check [main README](../README.md)
 - Review [Server documentation](../server/README.md)
 - Check browser console for errors
-- Verify API server is running and accessible
+- Verify API server is running at configured URL
+- Check network tab for API call failures
 
 ## License
 
@@ -423,9 +515,9 @@ MIT License - Same as Ryumem parent project
 ---
 
 **Built with ❤️ using:**
-- [Next.js](https://nextjs.org/)
-- [shadcn/ui](https://ui.shadcn.com/)
-- [Tailwind CSS](https://tailwindcss.com/)
-- [Radix UI](https://www.radix-ui.com/)
-- [Lucide Icons](https://lucide.dev/)
-
+- [Next.js](https://nextjs.org/) - React framework
+- [shadcn/ui](https://ui.shadcn.com/) - Component library
+- [Tailwind CSS](https://tailwindcss.com/) - Styling
+- [Radix UI](https://www.radix-ui.com/) - Primitives
+- [Lucide Icons](https://lucide.dev/) - Icons
+- [React Flow](https://reactflow.dev/) - Graph visualization

@@ -2,13 +2,13 @@
 
 **Bi-temporal Knowledge Graph Memory System**
 
-Ryumem is a memory system inspired by the Zep paper, combining the best of mem0 and graphiti, using ryugraph as the graph database layer.
+Ryumem is a production-ready memory system for building intelligent agents with persistent, queryable memory using a bi-temporal knowledge graph architecture.
 
 ## Features
 
 ✨ **Key Capabilities**:
 - 📝 **Episode-first ingestion** - Every piece of information starts as an episode
-- 🧠 **Automatic entity & relationship extraction** - Powered by GPT-4
+- 🧠 **Automatic entity & relationship extraction** - Powered by LLM (OpenAI, Gemini, Ollama, or LiteLLM)
 - ⏰ **Bi-temporal data model** - Track when facts were valid and when they were recorded
 - 🔍 **Advanced hybrid retrieval** - Combines semantic search, BM25 keyword search, and graph traversal
 - ⏱️ **Temporal decay scoring** - Recent facts automatically score higher with configurable decay
@@ -17,10 +17,72 @@ Ryumem is a memory system inspired by the Zep paper, combining the best of mem0 
 - 👥 **Full multi-tenancy** - Support for user_id, agent_id, session_id, group_id
 - ♻️ **Automatic contradiction handling** - Detects and invalidates outdated facts
 - 📊 **Incremental updates** - No batch reprocessing required
+- 🔧 **Automatic tool tracking** - Track all tool executions and query patterns
+- 🔄 **Query augmentation** - Enrich queries with historical context from similar past queries
+- ⚙️ **Dynamic configuration** - Hot-reload settings without server restart
+- 🎨 **Beautiful web dashboard** - Modern Next.js UI with graph visualization
+
+## Quick Start
+
+### Getting Access
+
+To use Ryumem, request API access from **contact@predictable.sh**. You'll receive:
+- API endpoint URL
+- API key (starts with `ryu_`)
+
+### Installation
+
+```bash
+pip install ryumem
+```
+
+### Basic Usage with Google ADK
+
+```python
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+from ryumem import Ryumem
+from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+
+# Initialize Ryumem - auto-loads from environment variables
+# RYUMEM_API_URL and RYUMEM_API_KEY
+ryumem = Ryumem(
+    augment_queries=True,      # Enable query augmentation
+    similarity_threshold=0.3,  # Match queries with 30%+ similarity
+    top_k_similar=5,           # Use top 5 similar queries for context
+)
+
+# Create your agent with tools
+agent = Agent(
+    model="gemini-2.0-flash-exp",
+    name="my_agent",
+    instruction="You are a helpful assistant with memory.",
+    tools=[...]  # Your tools here
+)
+
+# Add memory to agent - automatically creates search_memory() and save_memory() tools
+agent = add_memory_to_agent(agent, ryumem)
+
+# Wrap runner for automatic tool tracking and query augmentation
+runner = wrap_runner_with_tracking(runner, agent)
+```
+
+### Environment Setup
+
+```bash
+# Required - Get from contact@predictable.sh
+export RYUMEM_API_URL="https://api.ryumem.io"  # Your endpoint
+export RYUMEM_API_KEY="ryu_..."                # Your API key
+
+# Required - LLM API key for your provider
+export GOOGLE_API_KEY="your_google_key"        # For Gemini
+# or
+export OPENAI_API_KEY="your_openai_key"        # For OpenAI (better embeddings)
+```
 
 ## Architecture
 
-Ryumem implements the Combined Conceptual Architecture from the Zep paper:
+Ryumem implements a comprehensive bi-temporal knowledge graph architecture:
 
 ```
 ┌─────────────┐
@@ -41,7 +103,7 @@ Ryumem implements the Combined Conceptual Architecture from the Zep paper:
        │
        ▼
 ┌─────────────────────────┐
-│  Bi-Temporal Graph      │  - Ryugraph database
+│  Bi-Temporal Graph      │  - Graph database
 │  (valid_at/invalid_at)  │  - Temporal queries
 │                         │  - Community clustering
 └──────┬──────────────────┘
@@ -60,613 +122,387 @@ Ryumem implements the Combined Conceptual Architecture from the Zep paper:
 └─────────────────────────┘
 ```
 
-## Authentication & Multi-tenancy
+## Python SDK Usage
 
-Ryumem is designed as a multi-tenant system from the ground up, supporting secure isolation between customers and users.
+### Initialization
 
-### API Keys & Customers
-- **Customers**: Top-level tenants (e.g., companies, organizations). Each customer has their own isolated data.
-- **API Keys**: Access is controlled via API keys that start with `ryu_`.
-- **Registration**: New customers can register via the `/register` endpoint to receive an API key.
-
-### Isolation Levels
-1. **Customer Level**: Strict isolation. Data from one customer is never accessible to another. Enforced via API keys.
-2. **User Level**: Logical separation within a customer. Use `user_id` to scope memories to specific end-users.
-3. **Session/Agent Level**: Further scoping via `session_id` or `agent_id` for specific interaction contexts.
-
-## Full Stack Setup
-
-Ryumem consists of two main components:
-1. **API Server**: FastAPI backend that manages the knowledge graph.
-2. **Dashboard**: Next.js frontend for visualization and management.
-
-### Quick Start (Local Development)
-
-1. **Start the Server**:
-   ```bash
-   cd server
-   pip install -r requirements.txt
-   cp .env.example .env  # Configure your DB path
-   uvicorn main:app --reload
-   ```
-
-2. **Start the Dashboard**:
-   ```bash
-   cd dashboard
-   npm install
-   cp env.template .env.local
-   npm run dev
-   ```
-
-3. **Access**:
-   - Dashboard: http://localhost:3000
-   - API Docs: http://localhost:8000/docs
-
-## Installation
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd ryumem
-
-# Install dependencies
-pip install -e .
-
-# Or install in development mode
-pip install -e ".[dev]"
-```
-
-## Quick Start
-
-### Using OpenAI (Default)
+The Ryumem client automatically loads configuration from environment variables:
 
 ```python
 from ryumem import Ryumem
 
-# Initialize with your OpenAI API key
+# Basic initialization - loads RYUMEM_API_URL and RYUMEM_API_KEY from env
+ryumem = Ryumem()
+
+# With query augmentation enabled
 ryumem = Ryumem(
-    db_path="./data/memory.db",
-    openai_api_key="sk-...",
+    augment_queries=True,      # Enable augmentation with historical context
+    similarity_threshold=0.3,  # Match queries with 30%+ similarity
+    top_k_similar=5,           # Use top 5 similar queries
 )
 
-# Add episodes
-ryumem.add_episode(
-    content="Alice works at Google in Mountain View as a Software Engineer.",
-    group_id="user_123",
-)
-
-ryumem.add_episode(
-    content="Bob is Alice's colleague and recently moved to Meta.",
-    group_id="user_123",
-)
-```
-
-### Using Ollama (Local LLMs)
-
-For cost savings, privacy, and offline usage, you can use local models via Ollama:
-
-```python
-from ryumem import Ryumem
-
-# Prerequisites:
-# 1. Install Ollama: https://ollama.ai
-# 2. Start Ollama: ollama serve
-# 3. Pull a model: ollama pull qwen2.5:7b
-
-# Initialize with Ollama for local LLM inference
+# With tool tracking enabled
 ryumem = Ryumem(
-    db_path="./data/memory.db",
-    llm_provider="ollama",  # Use local Ollama instead of OpenAI
-    llm_model="qwen2.5:7b",  # Local model (fast, good quality)
-    ollama_base_url="http://100.108.18.43:11434",  # Default Ollama URL
-    openai_api_key="sk-...",  # Still required for embeddings
-)
-
-# Use exactly the same API - Ollama is a drop-in replacement!
-ryumem.add_episode(
-    content="Alice works at Google in Mountain View.",
-    group_id="user_123",
+    track_tools=True,          # Automatically track all tool executions
+    augment_queries=True,      # Augment with historical tool usage
 )
 ```
 
-**Recommended Ollama models:**
-- `qwen2.5:7b` - Fast inference, good quality (recommended for development)
-- `mistral:7b` - Excellent reasoning capabilities
-- `qwen2.5:7b` - Great for structured output and JSON
-- `llama3.1:8b` - Balanced performance and quality
-
-**Note:** Embeddings still require OpenAI API key. Local embedding support coming soon!
-
-See [examples/ollama_usage.py](examples/ollama_usage.py) for a complete example.
-
-### Using LiteLLM (100+ LLM Providers)
-
-For maximum flexibility, use LiteLLM to access 100+ LLM providers through a unified interface. LiteLLM automatically detects the provider from the model name and uses the appropriate API key.
+### Configuration Options
 
 ```python
+ryumem = Ryumem(
+    # Query Augmentation
+    augment_queries=True,            # Enable query augmentation (default: False)
+    similarity_threshold=0.3,        # Similarity threshold for augmentation (default: 0.5)
+    top_k_similar=5,                 # Number of similar queries to use (default: 3)
+
+    # Tool Tracking
+    track_tools=True,                # Enable automatic tool tracking (default: False)
+
+    # Entity Extraction
+    extract_entities=True,           # Enable entity extraction (default: True)
+
+    # Search Settings
+    default_strategy="hybrid",       # Default search strategy
+)
+```
+
+### Core Operations
+
+```python
+# The SDK provides auto-generated tools when integrated with agents:
+# - search_memory(query: str) -> results
+# - save_memory(content: str) -> confirmation
+
+# These tools are automatically available to your agent after:
+agent = add_memory_to_agent(agent, ryumem)
+```
+
+## Google ADK Integration
+
+### Complete Example
+
+```python
+import asyncio
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.genai import types
 from ryumem import Ryumem
-from ryumem.core.config import RyumemConfig
+from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
 
-# Example 1: Anthropic Claude
-# LiteLLM auto-detects Anthropic from model name
-# Uses ANTHROPIC_API_KEY from environment
-config = RyumemConfig()
-config.llm.provider = "litellm"
-config.llm.model = "claude-3-5-sonnet-20241022"
-# Embeddings auto-fallback to OpenAI or Gemini (if API keys available)
+# App configuration
+APP_NAME = "my_app"
+USER_ID = "user_123"
+SESSION_ID = "session_456"
 
-ryumem = Ryumem(config=config)
+# Define your tools
+def get_weather(city: str) -> dict:
+    """Get weather for a city."""
+    return {"status": "success", "report": f"Weather in {city} is sunny"}
 
-# Example 2: OpenAI via LiteLLM
-config.llm.model = "gpt-4o-mini"
-# Embeddings auto-select to "text-embedding-3-large"
+weather_tool = FunctionTool(func=get_weather)
 
-# Example 3: Google Gemini via LiteLLM
-config.llm.model = "gemini/gemini-2.0-flash-exp"
-# Embeddings auto-select to "text-embedding-004"
-
-# Example 4: AWS Bedrock
-config.llm.model = "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
-# Requires AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION_NAME
-
-# Example 5: Mixed providers (manual override)
-config.llm.provider = "litellm"
-config.llm.model = "claude-3-5-sonnet-20241022"
-config.embedding.provider = "openai"  # Explicit override
-config.embedding.model = "text-embedding-3-large"
-config.embedding.dimensions = 3072
-```
-
-**Supported LiteLLM Providers:**
-- **OpenAI** - `gpt-4o`, `gpt-4o-mini`, etc. (requires `OPENAI_API_KEY`)
-- **Anthropic** - `claude-3-5-sonnet-20241022`, etc. (requires `ANTHROPIC_API_KEY`)
-- **Google Gemini** - `gemini/gemini-2.0-flash-exp`, etc. (requires `GOOGLE_API_KEY`)
-- **AWS Bedrock** - `bedrock/anthropic.claude-*`, etc. (requires AWS credentials)
-- **Cohere** - `command-r-plus`, etc. (requires `COHERE_API_KEY`)
-- **Azure OpenAI** - Requires `AZURE_API_KEY`, `AZURE_API_BASE`, `AZURE_API_VERSION`
-- **100+ more** - See [LiteLLM docs](https://docs.litellm.ai/docs/providers)
-
-**Automatic Embedding Selection:**
-
-Ryumem automatically selects the appropriate embedding model based on your LLM choice:
-- OpenAI models → `text-embedding-3-large`
-- Gemini models → `text-embedding-004`
-- Anthropic/Claude → Falls back to OpenAI or Gemini embeddings (whichever API key is available)
-- Cohere models → `embed-english-v3.0`
-
-You can always override the automatic selection by explicitly setting the embedding provider and model in the config.
-
-**Environment Variables:**
-
-```bash
-# Set the LLM provider
-export RYUMEM_LLM_PROVIDER=litellm
-export RYUMEM_LLM_MODEL=claude-3-5-sonnet-20241022
-
-# API keys (LiteLLM auto-detects based on model name)
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...          # For embeddings fallback
-export GOOGLE_API_KEY=...             # Or use Gemini for embeddings
-
-# Optional: Explicit embedding configuration
-export RYUMEM_EMBEDDING_PROVIDER=openai
-export RYUMEM_EMBEDDING_MODEL=text-embedding-3-large
-```
-
-See [examples/litellm_usage.py](examples/litellm_usage.py) for complete examples with multiple providers.
-
-### Continuing with the API
-
-```python
-# Search using hybrid strategy (semantic + BM25 + graph traversal)
-results = ryumem.search(
-    query="Where does Alice work?",
-    group_id="user_123",
-    strategy="hybrid",  # Combines all search methods
-    limit=10,
+# Create agent
+agent = Agent(
+    model="gemini-2.0-flash-exp",
+    name="weather_agent",
+    instruction="You are a helpful weather assistant with memory.",
+    tools=[weather_tool]
 )
 
-# Display results
-for entity in results.entities:
-    score = results.scores.get(entity.uuid, 0.0)
-    print(f"{entity.name} ({entity.entity_type}) - {score:.3f}")
-
-for edge in results.edges:
-    print(f"{edge.fact}")
-
-# Get comprehensive context for an entity
-context = ryumem.get_entity_context(
-    entity_name="Alice",
-    group_id="user_123",
+# Add memory + tool tracking + query augmentation in ONE line!
+ryumem = Ryumem(
+    augment_queries=True,
+    similarity_threshold=0.3,
+    top_k_similar=5,
 )
 
-print(f"Entity: {context['entity']['name']}")
-print(f"Relationships: {context['relationship_count']}")
+agent = add_memory_to_agent(agent, ryumem)
 
-# Advanced features
-# Detect communities for better organization
-num_communities = ryumem.update_communities("user_123")
+# Setup session and runner
+async def main():
+    session_service = InMemorySessionService()
+    await session_service.create_session(
+        app_name=APP_NAME,
+        user_id=USER_ID,
+        session_id=SESSION_ID
+    )
 
-# Prune old/redundant data
-stats = ryumem.prune_memories("user_123")
+    runner = Runner(
+        agent=agent,
+        app_name=APP_NAME,
+        session_service=session_service
+    )
+
+    # Wrap runner to automatically track queries and augment with history
+    runner = wrap_runner_with_tracking(runner, agent)
+
+    # Use the runner
+    content = types.Content(
+        role='user',
+        parts=[types.Part(text="What's the weather in London?")]
+    )
+
+    events = runner.run(
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+        new_message=content
+    )
+
+    # Process response
+    for event in events:
+        if event.is_final_response():
+            print(event.content.parts[0].text)
+
+asyncio.run(main())
 ```
 
-## What's New
+### Features Demonstrated
 
-Ryumem now implements the **complete** Combined Conceptual Architecture from the Zep paper!
+- **Automatic Tool Tracking**: All tool executions are logged with:
+  - Tool name and parameters
+  - Execution results
+  - Timestamp and user context
+  - Hierarchical episode tracking (queries link to tool executions)
 
-### 🆕 Latest Features
+- **Query Augmentation**: Similar past queries enrich new queries with:
+  - Historical tool usage patterns
+  - Previous results and context
+  - Learned patterns and relationships
 
-**BM25 Keyword Search**
-- Traditional lexical matching complements vector search
-- Better for exact keyword queries
-- Integrated into hybrid search via RRF fusion
+- **Memory Integration**: Agent automatically gets two new tools:
+  - `search_memory(query)` - Search the knowledge graph
+  - `save_memory(content)` - Store new information
 
-**Temporal Decay Scoring**
-- Recent facts automatically score higher
-- Exponential decay: `score × 0.95^days_old`
-- 20% boost for facts modified in last 7 days
-- Fully configurable decay rates and thresholds
+## Examples
 
-**Community Detection**
-- Louvain algorithm clusters related entities
-- LLM-generated summaries for each community
-- Configurable resolution and minimum size
-- Enables higher-level reasoning and retrieval
+See the [examples/](examples/) directory for complete working examples:
 
-**Memory Pruning & Compaction**
-- Remove facts expired > N days ago
-- Delete low-value entities (< 2 mentions, > 30 days old)
-- Merge near-duplicate facts (95%+ similarity)
-- Keep graphs efficient and token-optimized
+### Key Examples
+
+1. **[simple_tool_tracking_demo.py](examples/simple_tool_tracking_demo.py)**
+   - Demonstrates automatic tool tracking and query augmentation
+   - Weather + sentiment analysis agent
+   - Shows how similar queries share context
+
+2. **[password_guessing_game.py](examples/password_guessing_game.py)**
+   - Tests query augmentation with a password guessing game
+   - Agent learns from previous attempts
+   - Demonstrates pattern recognition across similar queries
+
+### Other Examples
+
+- [basic_usage.py](examples/basic_usage.py) - Core features walkthrough
+- [ollama_usage.py](examples/ollama_usage.py) - Local Ollama models
+- [litellm_usage.py](examples/litellm_usage.py) - Multiple LLM providers
+
+## Web Dashboard
+
+Access the web dashboard to visualize and manage your knowledge graph:
+
+### Features
+- 🔐 **Secure Login** - API key authentication
+- 💬 **Chat Interface** - Query your knowledge graph
+- 📊 **Graph Visualization** - Interactive entity/relationship visualization (when entity extraction enabled)
+- 🗂️ **Entity Browser** - Browse and explore entities with filtering (when entity extraction enabled)
+- 📝 **Episode Management** - Add and view episodes
+- 🔍 **Query History** - View augmented queries with historical context
+- 🛠️ **Tool Analytics** - Track tool usage and performance
+- ⚙️ **System Settings** - Configure LLM providers, API keys, search settings
+- 👤 **Agent Settings** - Configure agent instructions and behavior
+- 📈 **Real-time Stats** - Monitor system health
+
+### Conditional Features
+- **Graph** and **Entity** tabs only appear when entity extraction is enabled
+- Disabling entity extraction saves 30-50% on LLM tokens
+
+See [dashboard/README.md](dashboard/README.md) for setup and usage details.
+
+## Multi-Tenancy & Authentication
+
+Ryumem is designed as a multi-tenant system from the ground up.
+
+### Getting Access
+
+Contact **contact@predictable.sh** to:
+- Register your organization
+- Receive your API key (starts with `ryu_`)
+- Get your API endpoint URL
+
+### Customer Isolation
+
+- **Customers**: Top-level tenants (companies/organizations) with complete data isolation
+- **API Keys**: Access controlled via API keys
+- **Separate Databases**: Each customer gets their own isolated database file
+- **Secure**: API key required for all requests
+
+### User-Level Scoping
+
+Within a customer, further isolation via:
+- `user_id`: Scope memories to specific end-users
+- `session_id`: Track specific interaction sessions
+- `agent_id`: Separate different agent contexts
 
 ## Configuration
 
-### Environment Variables
-
-Ryumem uses environment variables for configuration. You can set these in your shell or use a `.env` file in your working directory.
-
-**For Examples:**
-Check `examples/.env.example` for a template when running scripts in the `examples/` directory.
-
-**For Server:**
-Check `server/.env.example` for a template when running the API server.
-
-**Common Variables:**
+### Required Environment Variables
 
 ```bash
-# OpenAI API Key (required for embeddings, and for LLM if using OpenAI)
-OPENAI_API_KEY=sk-...
+# Ryumem Server Access (get from contact@predictable.sh)
+RYUMEM_API_URL=https://api.ryumem.io
+RYUMEM_API_KEY=ryu_...
 
-# LLM Provider (optional, default: openai)
-RYUMEM_LLM_PROVIDER=openai  # or "ollama", "gemini", "litellm"
+# LLM API Key (for your chosen provider)
+GOOGLE_API_KEY=...           # For Gemini models
+# or
+OPENAI_API_KEY=sk-...        # For OpenAI models (better embeddings)
+```
 
-# Ollama settings (when using llm_provider="ollama")
-RYUMEM_LLM_OLLAMA_BASE_URL=http://100.108.18.43:11434
-RYUMEM_LLM_MODEL=qwen2.5:7b
+### Optional Configuration
 
-# OpenAI settings (when using llm_provider="openai")
-RYUMEM_LLM_MODEL=gpt-4o
+```bash
+# Query Augmentation
+RYUMEM_AUGMENT_QUERIES=true
+RYUMEM_SIMILARITY_THRESHOLD=0.3
+RYUMEM_TOP_K_SIMILAR=5
 
-# Database Path
-RYUMEM_DB_PATH=./data/memory.db
+# Tool Tracking
+RYUMEM_TRACK_TOOLS=true
+
+# Entity Extraction
+RYUMEM_EXTRACT_ENTITIES=true  # Set to false to save 30-50% tokens
+
+# Search Strategy
+RYUMEM_DEFAULT_STRATEGY=hybrid  # hybrid, semantic, bm25, or traversal
 ```
 
 ### Programmatic Configuration
 
 ```python
-from ryumem import Ryumem, RyumemConfig
-
-# Option 1: Direct parameters (OpenAI)
-ryumem = Ryumem(
-    db_path="./data/memory.db",
-    openai_api_key="sk-...",
-    llm_model="gpt-4",
-    embedding_model="text-embedding-3-large",
-    entity_similarity_threshold=0.7,
-)
-
-# Option 2: Direct parameters (Ollama)
-ryumem = Ryumem(
-    db_path="./data/memory.db",
-    llm_provider="ollama",
-    llm_model="qwen2.5:7b",
-    ollama_base_url="http://100.108.18.43:11434",
-    openai_api_key="sk-...",  # Still needed for embeddings
-)
-
-# Option 3: Config object
-config = RyumemConfig(
-    db_path="./data/memory.db",
-    llm_provider="ollama",
-    llm_model="qwen2.5:7b",
-    openai_api_key="sk-...",
-)
-ryumem = Ryumem(config=config)
-
-# Option 4: From environment
-ryumem = Ryumem()  # Automatically loads from .env
-```
-
-## Core Concepts
-
-### Episodes
-
-Episodes are the fundamental unit of ingestion. Every piece of information starts as an episode.
-
-```python
-# Text episode
-ryumem.add_episode(
-    content="Alice graduated from Stanford in 2018.",
-    group_id="user_123",
-    source="text",
-)
-
-# Message episode (conversational)
-ryumem.add_episode(
-    content="user: Where did you go to school?\nassistant: I went to MIT.",
-    group_id="user_123",
-    source="message",
-)
-
-# JSON episode (structured data)
-ryumem.add_episode(
-    content='{"person": "Bob", "company": "Meta", "role": "Engineer"}',
-    group_id="user_123",
-    source="json",
-)
-```
-
-### Multi-Tenancy
-
-Ryumem supports multiple levels of isolation:
-
-```python
-ryumem.add_episode(
-    content="...",
-    group_id="organization_1",      # Organization level
-    user_id="user_123",             # User level
-    agent_id="agent_assistant",     # Agent level
-    session_id="session_xyz",       # Session level
-)
-
-# Search within specific scope
-results = ryumem.search(
-    query="...",
-    group_id="organization_1",
-    user_id="user_123",             # Optional: filter by user
-)
-```
-
-### Bi-Temporal Data Model
-
-Ryumem tracks two timelines for each fact:
-
-1. **valid_at**: When the fact was true in the real world
-2. **invalid_at**: When the fact stopped being true
-3. **expired_at**: When the fact was superseded/invalidated in the system
-
-### Search Strategies
-
-Ryumem supports four search strategies:
-
-1. **Semantic Search**: Embedding similarity using text-embedding-3-large
-2. **BM25 Keyword Search**: Traditional keyword/lexical matching
-3. **Graph Traversal**: Navigate relationships with BFS
-4. **Hybrid**: Combines all three using RRF fusion (recommended)
-
-All strategies benefit from:
-- **Temporal Decay**: Recent facts score higher (configurable)
-- **Update-Awareness Boost**: 20% boost for facts modified in last 7 days
-
-```python
-# Try different strategies
-results = ryumem.search("AI researchers", group_id="user_123", strategy="semantic")
-results = ryumem.search("machine learning", group_id="user_123", strategy="bm25")
-results = ryumem.search("tech companies", group_id="user_123", strategy="hybrid")
-
-# Customize temporal decay
-results = ryumem.search(
-    query="recent news",
-    group_id="user_123",
-    strategy="hybrid",
-    # Override temporal decay settings
-)
-```
-
-### Community Detection
-
-Automatically cluster related entities into communities using the Louvain algorithm:
-
-```python
-# Detect communities periodically
-num_communities = ryumem.update_communities("user_123")
-print(f"Created {num_communities} communities")
-
-# Fine-tune clustering
-num_communities = ryumem.update_communities(
-    "user_123",
-    resolution=1.5,  # Higher = more fine-grained communities
-    min_community_size=3,  # Minimum entities per community
-)
-```
-
-Each community gets an LLM-generated summary describing the common theme and relationships.
-
-### Memory Pruning
-
-Keep your knowledge graph efficient and compact:
-
-```python
-# Prune old/redundant data periodically
-stats = ryumem.prune_memories("user_123")
-print(f"Pruning results: {stats}")
-# Output: {'expired_edges_deleted': 15, 'entities_deleted': 3, 'edges_merged': 8}
-
-# Customize pruning aggressiveness
-stats = ryumem.prune_memories(
-    "user_123",
-    expired_cutoff_days=60,  # Delete facts expired > 60 days ago
-    min_mentions=3,  # Keep only entities with 3+ mentions
-    compact_redundant=True,  # Merge near-duplicate facts
-)
-```
-
-## Integrations
-
-### 🚀 Google ADK Integration (Zero Boilerplate!)
-
-Ryumem provides **one-line memory integration** for Google's Agent Developer Kit:
-
-```python
-from google import genai
 from ryumem import Ryumem
-from ryumem.integrations import add_memory_to_agent
 
-# Create Ryumem instance (configure once)
+# All configuration through initialization
 ryumem = Ryumem(
-    server_url="https://api.ryumem.io",
-    api_key="ryu_...",
-    # Optional: Override config per-instance
-    extract_entities=False,  # Disable entity extraction (saves 30-50% tokens)
-    memory_enabled=True,
-    sample_rate=1.0,  # Track all tool calls
-)
-
-# Create your agent
-agent = genai.Agent(
-    name="assistant",
-    model="gemini-2.0-flash-exp",
-    instruction="You are a helpful assistant with memory."
-)
-
-# Enable memory - that's it! 🎉
-agent = add_memory_to_agent(agent, ryumem)
-
-# Agent now has 2 auto-generated memory tools:
-# - search_memory() - Find relevant information
-# - save_memory() - Store new information
-```
-
-**With Query Tracking (Advanced):**
-```python
-from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
-
-# Configure Ryumem with tracking enabled
-ryumem = Ryumem(
-    track_queries=True,
-    augment_queries=True,  # Augment with historical context
-    similarity_threshold=0.3,
-    top_k_similar=5,
-)
-
-# Add memory to agent
-agent = add_memory_to_agent(agent, ryumem)
-
-# Wrap runner for query tracking
-runner = genai.Runner(agent=agent)
-runner = wrap_runner_with_tracking(runner, agent)
-
-# Runner now tracks queries and augments them with history!
-```
-
-**Config Overrides:**
-
-All configuration can be overridden per Ryumem instance:
-
-```python
-ryumem = Ryumem(
-    # Entity extraction
-    extract_entities=False,  # Default: fetched from server
-
-    # Agent settings
-    memory_enabled=True,
-    enhance_agent_instruction=True,
-
-    # Tool tracking
-    track_tools=True,
-    sample_rate=0.5,  # Track 50% of tool calls
-    summarize_outputs=True,
-    max_output_chars=1000,
-    sanitize_pii=True,
-
-    # Query tracking
-    track_queries=True,
     augment_queries=True,
     similarity_threshold=0.3,
     top_k_similar=5,
+    track_tools=True,
+    extract_entities=True,
+    default_strategy="hybrid"
 )
 ```
 
-Overridden settings are static per instance, while non-overridden settings refresh from server based on TTL (default: 5 minutes).
+## Key Features
 
-**Why Ryumem > mem0?**
+### Query Augmentation
 
-| Feature          | mem0       | Ryumem                  |
-| ---------------- | ---------- | ----------------------- |
-| Setup Code       | ~20 lines  | **1 line**              |
-| Custom Functions | Must write | **Auto-generated**      |
-| Memory Type      | Flat       | **Knowledge Graph**     |
-| Local LLMs       | Limited    | **Full Ollama Support** |
+Automatically enriches queries with historical context:
 
-See [docs/GOOGLE_ADK_INTEGRATION.md](docs/GOOGLE_ADK_INTEGRATION.md) for the complete guide.
+```python
+# Enable augmentation
+ryumem = Ryumem(
+    augment_queries=True,
+    similarity_threshold=0.3,  # Match queries with 30%+ similarity
+    top_k_similar=5,           # Use top 5 similar past queries
+)
 
-### Coming Soon
+# Similar queries like "What's the weather in London?" and
+# "How's the weather in London today?" will share context
+```
 
-- 🔜 **LangChain** integration
-- 🔜 **LlamaIndex** integration
-- 🔜 **Vercel AI SDK** integration (TypeScript)
+**Benefits:**
+- Agent learns from past interactions
+- Similar queries get historical tool usage context
+- Improved response quality over time
+- Pattern recognition across conversations
 
-## Examples
+### Tool Tracking
 
-See the [examples/](examples/) directory for more examples:
-- [basic_usage.py](examples/basic_usage.py) - Complete walkthrough of core features
-- [ollama_usage.py](examples/ollama_usage.py) - Using local Ollama models instead of OpenAI
-- [google_adk_usage.py](examples/google_adk_usage.py) - Zero-boilerplate Google ADK integration
+Automatically track all tool executions:
 
-## Documentation
+```python
+# Enable tool tracking
+ryumem = Ryumem(track_tools=True)
 
-For full documentation, see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+# Then wrap your runner
+runner = wrap_runner_with_tracking(runner, agent)
 
-## License
+# All tool executions are now automatically logged with:
+# - Tool name and parameters
+# - Execution results
+# - User and session context
+# - Hierarchical tracking (queries → tool executions)
+```
 
-MIT License
+**Tracked Information:**
+- Tool invocations with parameters
+- Execution results and errors
+- Timing and performance metrics
+- User/session/agent context
+- Query → Tool execution hierarchy
 
-## Performance & Maintenance
+### Search Strategies
 
-### Best Practices
+Four powerful search strategies:
 
-1. **Periodic Community Detection**: Run after adding significant data
+1. **Hybrid** (Recommended) - RRF fusion of all methods
+2. **Semantic** - Embedding-based similarity
+3. **BM25** - Keyword/lexical matching
+4. **Traversal** - Graph relationship navigation
+
+All strategies include temporal decay scoring (recent facts score higher).
+
+### Entity Extraction Control
+
+Toggle entity extraction to optimize costs:
+
+```python
+# Disable entity extraction to save 30-50% on LLM tokens
+ryumem = Ryumem(extract_entities=False)
+
+# Enable for rich knowledge graph features
+ryumem = Ryumem(extract_entities=True)
+```
+
+**When Disabled:**
+- Saves 30-50% on LLM API costs
+- Still supports episode storage and search
+- Graph and Entity UI tabs hidden in dashboard
+
+**When Enabled:**
+- Full knowledge graph with entities and relationships
+- Graph visualization in dashboard
+- Entity browser and filtering
+- Community detection
+- Relationship traversal search
+
+## Performance Best Practices
+
+1. **Use Query Augmentation**
    ```python
-   ryumem.update_communities("user_123")
+   ryumem = Ryumem(augment_queries=True, similarity_threshold=0.3)
    ```
+   - Improves response quality over time
+   - Helps agent learn from past interactions
 
-2. **Regular Pruning**: Keep graphs efficient
+2. **Enable Tool Tracking**
    ```python
-   # Weekly maintenance
-   ryumem.prune_memories("user_123", expired_cutoff_days=90)
+   ryumem = Ryumem(track_tools=True)
+   runner = wrap_runner_with_tracking(runner, agent)
    ```
+   - Provides visibility into agent behavior
+   - Enables debugging and optimization
 
-3. **Search Strategy Selection**:
-   - Use `"hybrid"` for best overall results (default)
-   - Use `"bm25"` for exact keyword matching
-   - Use `"semantic"` for conceptual similarity
-   - Use `"traversal"` for relationship-focused queries
+3. **Choose Search Strategy Wisely**
+   - `hybrid` - Best overall results (default)
+   - `semantic` - Conceptual understanding
+   - `bm25` - Exact keyword matching
+   - `traversal` - Relationship-focused
 
-### Architecture Status
+4. **Toggle Entity Extraction**
+   - Disable when not needed: saves 30-50% tokens
+   - Enable for rich graph features
 
-✅ **100% Complete Implementation** of the Combined Conceptual Architecture from the Zep paper:
-
-1. ✅ Ingestion & Extraction (Episodes, Entities, Relationships)
-2. ✅ Entity & Fact Resolution (Deduplication, Contradiction Detection)
-3. ✅ Memory Storage Layer (Bi-temporal Graph with Ryugraph)
-4. ✅ Summarization & Compaction (Communities, Pruning)
-5. ✅ Retrieval & Query (Semantic + BM25 + Traversal + Temporal Decay)
-6. ✅ Agent Integration (Clean Python API)
-
-## Acknowledgments
-
-- **Zep Paper**: For the Combined Conceptual Architecture design
-- **mem0**: For kuzu integration patterns and database operations
-- **graphiti**: For bi-temporal model and LLM extraction prompts
-- **ryugraph/kuzu**: For the high-performance graph database backend

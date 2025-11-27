@@ -5,17 +5,26 @@ FastAPI server providing RESTful API endpoints for Ryumem - Bi-temporal Knowledg
 ## Features
 
 ✨ **API Endpoints**:
-- 🔐 **Authentication** - Secure API key access (Bearer Token)
-- 🆕 **POST /register** - Register new customers and get API keys
-- 📝 **POST /episodes** - Add new episodes (memories)
-- 🔍 **POST /search** - Search and query the knowledge graph
-- 👤 **GET /entity/{name}** - Get comprehensive entity context
-- 📊 **GET /stats** - Get system statistics
-- 🌐 **POST /communities/update** - Detect and update communities
-- 🧹 **POST /prune** - Prune and compact memories
-- ❤️ **GET /health** - Health check endpoint
+- 🔐 **Authentication** - Secure multi-tenant API key access
+- 🆕 **Customer Registration** - Self-service API key generation
+- 📝 **Episode Management** - Add, retrieve, and manage memories
+- 🔍 **Advanced Search** - Hybrid search with multiple strategies
+- 👤 **Entity & Relationship Queries** - Rich knowledge graph exploration
+- ⚙️ **Dynamic Configuration** - Hot-reload settings without restart
+- 📊 **Statistics & Analytics** - Real-time system metrics
+- 🌐 **Community Detection** - Automatic entity clustering
+- 🧹 **Memory Maintenance** - Pruning and compaction
+- 🔧 **Custom Cypher Queries** - Direct database access
+- ❤️ **Health Monitoring** - Service health checks
 
 ## Installation
+
+### Prerequisites
+
+- Python 3.10+
+- pip or conda
+
+### Setup
 
 1. **Install dependencies:**
 
@@ -23,23 +32,37 @@ FastAPI server providing RESTful API endpoints for Ryumem - Bi-temporal Knowledg
 cd server
 pip install -r requirements.txt
 
-# Install ryumem from parent directory
+# Install ryumem SDK from parent directory
 cd ..
 pip install -e .
 ```
 
-2. **Set up environment variables:**
+2. **Configure environment:**
 
 ```bash
-# Copy the template environment file
+# Copy template
 cp .env.example .env
 
-# Edit .env and set your database path
+# Edit .env and set your configuration
 nano .env
 ```
 
-Required environment variables:
-- `RYUMEM_DB_PATH` - Path to your Ryumem database (e.g., "./data/ryumem.db")
+**Required environment variables:**
+```bash
+# API Keys (at least one required for entity extraction)
+OPENAI_API_KEY=sk-...      # For OpenAI
+GOOGLE_API_KEY=...         # For Gemini
+
+# LLM Configuration
+RYUMEM_LLM_PROVIDER=openai  # or ollama, gemini, litellm
+RYUMEM_LLM_MODEL=gpt-4o-mini
+
+# Database
+RYUMEM_DB_FOLDER=./data    # Where customer databases are stored
+
+# Server
+RYUMEM_SYSTEM_CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+```
 
 ## Usage
 
@@ -49,236 +72,78 @@ Required environment variables:
 # Development mode with auto-reload
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-# Production mode
+# Production mode with multiple workers
 uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+
+# Using PM2 for production
+pm2 start ecosystem.config.js
 ```
 
-The server will be available at:
-- API: http://localhost:8000
-- Interactive API docs: http://localhost:8000/docs
-- Alternative docs: http://localhost:8000/redoc
+Server will be available at:
+- **API**: http://localhost:8000
+- **Interactive Docs**: http://localhost:8000/docs
+- **Alternative Docs**: http://localhost:8000/redoc
 
-### API Examples
+## API Reference
 
-#### 1. Register a Customer (Get API Key)
+### Quick Reference
 
-```bash
-curl -X POST "http://localhost:8000/register" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "customer_id": "my_company"
-  }'
-```
+The server provides RESTful endpoints organized into categories:
 
-Response:
-```json
-{
-  "customer_id": "my_company",
-  "api_key": "ryu_abc123...",
-  "message": "Customer registered successfully"
-}
-```
+**Authentication & Registration:**
+- `POST /register` - Register new customer and receive API key
+- All other endpoints require `X-API-Key` header
 
-#### 2. Add an Episode
+**Core Endpoints:**
+- `POST /episodes` - Add episodes with entity extraction
+- `GET /episodes` - List episodes with filtering
+- `POST /search` - Search using hybrid retrieval (semantic + BM25 + traversal)
+- `GET /entity/{name}` - Get entity context and relationships
 
-```bash
-curl -X POST "http://localhost:8000/episodes" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ryu_abc123..." \
-  -d '{
-    "content": "Alice works at Google as a Software Engineer in Mountain View.",
-    "user_id": "user_123",
-    "source": "text"
-  }'
-```
+**Configuration:**
+- `GET /api/settings` - Get all settings grouped by category
+- `GET /api/settings/{category}` - Get category-specific settings
+- `PUT /api/settings` - Update settings with hot-reload
+- `POST /api/settings/validate` - Validate before saving
+- `POST /api/settings/reset-defaults` - Reset to defaults
 
-Response:
-```json
-{
-  "episode_id": "abc123...",
-  "message": "Episode added successfully",
-  "timestamp": "2025-11-07T10:30:00"
-}
-```
+**System & Analytics:**
+- `GET /stats` - System statistics and metrics
+- `GET /users` - List all users
+- `GET /health` - Health check
 
-#### 3. Search the Knowledge Graph
+**Advanced Operations:**
+- `POST /communities/update` - Run community detection (Louvain algorithm)
+- `POST /prune` - Prune expired memories and compact
+- `POST /cypher/execute` - Execute custom Cypher queries
 
-```bash
-curl -X POST "http://localhost:8000/search" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: ryu_abc123..." \
-  -d '{
-    "query": "Where does Alice work?",
-    "user_id": "user_123",
-    "limit": 10,
-    "strategy": "hybrid"
-  }'
-```
+### Interactive API Documentation
 
-Response:
-```json
-{
-  "entities": [
-    {
-      "uuid": "entity123",
-      "name": "Alice",
-      "entity_type": "PERSON",
-      "summary": "Software engineer at Google",
-      "mentions": 5,
-      "score": 0.95
-    }
-  ],
-  "edges": [
-    {
-      "uuid": "edge456",
-      "source_name": "Alice",
-      "target_name": "Google",
-      "relation_type": "WORKS_AT",
-      "fact": "Alice works at Google",
-      "mentions": 3,
-      "score": 0.92
-    }
-  ],
-  "query": "Where does Alice work?",
-  "strategy": "hybrid",
-  "count": 2
-}
-```
+For complete endpoint documentation with request/response schemas, examples, and testing:
 
-#### 3. Get Entity Context
-
-```bash
-curl "http://localhost:8000/entity/Alice?user_id=user_123"
-```
-
-#### 4. Get System Statistics
-
-```bash
-curl "http://localhost:8000/stats"
-```
-
-Response:
-```json
-{
-  "total_episodes": 150,
-  "total_entities": 45,
-  "total_relationships": 120,
-  "total_communities": 8,
-  "db_path": "./data/ryumem_server.db"
-}
-```
-
-#### 5. Update Communities
-
-```bash
-curl -X POST "http://localhost:8000/communities/update" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "resolution": 1.0,
-    "min_community_size": 2
-  }'
-```
-
-#### 6. Prune Memories
-
-```bash
-curl -X POST "http://localhost:8000/prune" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "user_123",
-    "expired_cutoff_days": 90,
-    "min_mentions": 2,
-    "compact_redundant": true
-  }'
-```
-
-### Python Client Example
-
-```python
-import requests
-
-BASE_URL = "http://localhost:8000"
-
-# Add an episode
-response = requests.post(f"{BASE_URL}/episodes", json={
-    "content": "Bob graduated from Stanford University in 2020.",
-    "user_id": "user_123",
-    "source": "text"
-})
-print(response.json())
-
-# Search
-response = requests.post(f"{BASE_URL}/search", json={
-    "query": "Tell me about Bob's education",
-    "user_id": "user_123",
-    "strategy": "hybrid",
-    "limit": 5
-})
-results = response.json()
-
-# Display results
-for entity in results["entities"]:
-    print(f"Entity: {entity['name']} - Score: {entity['score']:.3f}")
-
-for edge in results["edges"]:
-    print(f"Fact: {edge['fact']} - Score: {edge['score']:.3f}")
-```
-
-## API Documentation
-
-### Interactive Documentation
-
-Once the server is running, visit:
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 
-These provide:
-- Complete API reference
-- Interactive testing
-- Request/response schemas
-- Example payloads
+### Quick Start Example
 
-## Configuration
+```bash
+# 1. Register customer
+curl -X POST "http://localhost:8000/register" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id": "my_company"}'
 
-### Environment Variables
+# 2. Add episode
+curl -X POST "http://localhost:8000/episodes" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ryu_abc123..." \
+  -d '{"content": "Alice works at Google", "user_id": "user_123"}'
 
-| Variable         | Description                            | Default               | Required |
-| ---------------- | -------------------------------------- | --------------------- | -------- |
-| `RYUMEM_DB_PATH` | Database file path                     | ./data/ryumem.db      | ✅ Yes    |
-| `CORS_ORIGINS`   | Allowed CORS origins (comma-separated) | http://localhost:3000 | No       |
-| `HOST`           | Server host                            | 0.0.0.0               | No       |
-| `PORT`           | Server port                            | 8000                  | No       |
-
-
-### Creating a Ryumem Database
-
-The server reads from an existing Ryumem database. To create a database with episodes and entities, you need to use a separate write instance (e.g., via Python script or CLI).
-
-Example script to populate a database:
-
-```python
-from ryumem import Ryumem
-from ryumem.core.config import RyumemConfig
-
-# Create config with LLM provider (required for write operations)
-config = RyumemConfig()
-# API key must be set in environment: OPENAI_API_KEY or GOOGLE_API_KEY
-
-# Create Ryumem instance (not in read-only mode)
-with Ryumem(config=config) as ryumem:
-    # Add episodes
-    ryumem.add_episode(
-        content="Alice works at Google as a Software Engineer.",
-        user_id="user_123",
-        source="text"
-    )
-
-    # Search and explore
-    results = ryumem.search("Where does Alice work?", user_id="user_123")
-    print(results)
+# 3. Search
+curl -X POST "http://localhost:8000/search" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ryu_abc123..." \
+  -d '{"query": "Where does Alice work?", "strategy": "hybrid"}'
 ```
-
-Once you have a populated database, you can start the server to query it via REST API without needing API keys.
 
 ## Architecture
 
@@ -291,24 +156,82 @@ Once you have a populated database, you can start the server to query it via RES
          ▼
 ┌──────────────────┐
 │  FastAPI Server  │
-│  (This Server)   │
+│  - Auth          │
+│  - Endpoints     │
+│  - Config Mgmt   │
 └────────┬─────────┘
          │
          ▼
 ┌──────────────────┐
 │  Ryumem Core     │
-│  (Knowledge      │
-│   Graph Engine)  │
+│  - Per-customer  │
+│  - Cached        │
+│  - Hot-reload    │
 └────────┬─────────┘
          │
          ▼
 ┌──────────────────┐
-│  Ryugraph DB     │
-│  (SQLite)        │
+│  Customer DBs    │
+│  {id}.db files   │
+│  (Graph DB)      │
 └──────────────────┘
 ```
 
+### Multi-Tenancy Model
+
+- **Customer Level**: Complete isolation via separate databases
+- **User Level**: Logical scoping within customer database
+- **Cache Management**: Per-customer Ryumem instance caching
+- **Config Isolation**: Each customer has independent configuration
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `OPENAI_API_KEY` | OpenAI API key | - | If using OpenAI |
+| `GOOGLE_API_KEY` | Google Gemini API key | - | If using Gemini |
+| `RYUMEM_DB_FOLDER` | Database folder path | ./data | Yes |
+| `RYUMEM_LLM_PROVIDER` | LLM provider | openai | No |
+| `RYUMEM_LLM_MODEL` | LLM model name | gpt-4o-mini | No |
+| `RYUMEM_ENTITY_ENABLED` | Enable entity extraction | false | No |
+| `RYUMEM_SYSTEM_CORS_ORIGINS` | CORS origins | localhost:3000 | No |
+
+All configuration can be updated at runtime via `/api/settings` endpoints.
+
+### Database-Backed Configuration
+
+All settings are persisted to the database:
+- **Hot-reload**: Changes apply without restart
+- **Per-customer**: Each customer has independent config
+- **Validation**: Settings validated before saving
+- **Defaults**: Configurable default values
+- **Categories**: Organized by category for easy management
+
 ## Development
+
+### Project Structure
+
+```
+server/
+├── main.py                      # FastAPI application
+├── requirements.txt             # Dependencies
+├── .env.example                # Environment template
+├── ecosystem.config.js         # PM2 configuration
+├── ryumem_server/
+│   ├── __init__.py
+│   ├── lib.py                  # Ryumem wrapper
+│   └── core/
+│       ├── config.py           # Config models
+│       ├── config_service.py   # Config management
+│       ├── graph_db.py         # Database operations
+│       └── models.py           # API models
+└── data/                       # Customer databases
+    ├── customer1.db
+    ├── customer2.db
+    └── master_auth.db          # Authentication
+```
 
 ### Running Tests
 
@@ -318,21 +241,41 @@ pip install pytest pytest-asyncio httpx
 
 # Run tests
 pytest
+
+# Run with coverage
+pytest --cov=ryumem_server
 ```
 
-### Code Structure
+### Development Server
 
-```
-server/
-├── main.py              # FastAPI application
-├── requirements.txt     # Python dependencies
-├── .env.example        # Environment variables template
-├── README.md           # This file
-└── data/               # Database files (created automatically)
-    └── ryumem_server.db
+```bash
+# With auto-reload
+uvicorn main:app --reload
+
+# With specific port
+uvicorn main:app --reload --port 8080
+
+# With debugging
+uvicorn main:app --reload --log-level debug
 ```
 
 ## Deployment
+
+### Production with PM2
+
+```bash
+# Start server
+pm2 start ecosystem.config.js
+
+# Monitor
+pm2 monit
+
+# Logs
+pm2 logs
+
+# Restart
+pm2 restart ryumem-server
+```
 
 ### Docker Deployment
 
@@ -348,52 +291,122 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY . .
 
-# Install ryumem
-RUN pip install -e /app/..
+# Install ryumem SDK
+WORKDIR /app/..
+RUN pip install -e .
+
+WORKDIR /app
 
 # Run server
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
+Build and run:
+```bash
+docker build -t ryumem-server .
+docker run -p 8000:8000 \
+  -e OPENAI_API_KEY=sk-... \
+  -e RYUMEM_DB_FOLDER=/data \
+  -v ./data:/data \
+  ryumem-server
+```
+
 ### Production Considerations
 
-1. **Use a proper ASGI server**: Use gunicorn with uvicorn workers
-2. **Set up HTTPS**: Use nginx or similar as reverse proxy
-3. **Configure CORS**: Set appropriate CORS origins in production
-4. **Database backups**: Regular backups of the SQLite database
-5. **Monitoring**: Set up logging and monitoring (e.g., Sentry)
-6. **Rate limiting**: Add rate limiting for public APIs
+1. **ASGI Server**: Use gunicorn with uvicorn workers
+   ```bash
+   gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker
+   ```
+
+2. **Reverse Proxy**: Use nginx for HTTPS and load balancing
+
+3. **CORS**: Configure appropriate origins in production
+
+4. **Database Backups**: Regular backups of `./data` folder
+
+5. **Monitoring**: Set up logging, metrics, and health checks
+
+6. **Rate Limiting**: Add rate limiting for public APIs
+
+7. **API Key Rotation**: Implement key rotation policy
 
 ## Troubleshooting
 
 ### Common Issues
 
-**1. "Ryumem not initialized" error**
-- Check that your `.env` file has `RYUMEM_DB_PATH` set correctly
-- Ensure the database file exists and is accessible
-- Check server logs for initialization errors
+**"Customer not found" error**
+- Register customer first via `/register` endpoint
+- Check API key is correct and starts with `ryu_`
 
-**2. CORS errors in browser**
-- Add your frontend URL to `CORS_ORIGINS` in `.env`
-- Restart the server after changing environment variables
+**"Config validation failed"**
+- Check API keys are set when switching providers
+- Validate settings before saving using `/api/settings/validate`
 
-**3. Slow search performance**
-- Periodically run `/prune` endpoint to keep graph efficient
-- Use appropriate search strategy (semantic, bm25, or hybrid)
-- Consider filtering by user_id for multi-tenant scenarios
+**Settings changes not taking effect**
+- Cache invalidation happens automatically
+- Try `/api/settings/reset-defaults` to reset
 
-**4. Database locked errors**
-- SQLite has limited concurrent write support
-- Consider using a different database backend for high-traffic scenarios
+**Slow search performance**
+- Run `/prune` endpoint periodically
+- Use appropriate search strategy
+- Filter by `user_id` for multi-tenant
+
+**Database locked errors**
+- Multiple write operations competing
+- Consider using connection pooling
+- Reduce concurrent requests
+
+**CORS errors**
+- Add frontend URL to `RYUMEM_SYSTEM_CORS_ORIGINS`
+- Restart server after changing CORS settings
+
+## Client Integration
+
+### Python SDK
+
+Use the official Ryumem Python SDK for easier integration:
+
+```python
+from ryumem import Ryumem
+
+# Initialize client
+ryumem = Ryumem()  # Loads from RYUMEM_API_URL and RYUMEM_API_KEY
+
+# Use with Google ADK
+from ryumem.integrations import add_memory_to_agent
+agent = add_memory_to_agent(agent, ryumem)
+```
+
+See [main README](../README.md) for complete SDK documentation.
+
+### Direct HTTP API
+
+For other languages, use standard HTTP requests:
+
+```python
+import requests
+
+headers = {"X-API-Key": "ryu_abc123..."}
+
+# Add episode
+requests.post("http://localhost:8000/episodes",
+    json={"content": "Alice works at Google", "user_id": "user_123"},
+    headers=headers)
+
+# Search
+response = requests.post("http://localhost:8000/search",
+    json={"query": "Where does Alice work?", "strategy": "hybrid"},
+    headers=headers)
+```
 
 ## Support
 
 For issues or questions:
-- Check the main [Ryumem README](../README.md)
-- Review API docs at http://localhost:8000/docs
-- Check server logs for detailed error messages
+- Check [main README](../README.md)
+- Review [Dashboard docs](../dashboard/README.md)
+- Visit interactive docs at http://localhost:8000/docs
+- Check server logs for detailed errors
 
 ## License
 
 MIT License - Same as Ryumem parent project
-
