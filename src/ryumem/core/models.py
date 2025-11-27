@@ -124,24 +124,6 @@ class EntityNode(BaseModel):
         }
 
 
-class CommunityNode(BaseModel):
-    """
-    Represents a community (cluster) of related entities.
-    Used for higher-level graph structure and organization.
-    """
-    uuid: str = Field(default_factory=lambda: str(uuid4()))
-    name: str = Field(description='Name of the community')
-    summary: str = Field(default='', description='Summary of the community and its members')
-    name_embedding: list[float] | None = Field(
-        default=None,
-        description='Embedding of the community name (3072 dimensions)'
-    )
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-    # Additional attributes
-    member_count: int = Field(default=0, description='Number of entities in this community')
-
-
 class EntityEdge(BaseModel):
     """
     Represents a relationship between two entities.
@@ -194,17 +176,6 @@ class EpisodicEdge(BaseModel):
     """
     uuid: str = Field(default_factory=lambda: str(uuid4()))
     source_node_uuid: str = Field(description='UUID of episode (source)')
-    target_node_uuid: str = Field(description='UUID of entity (target)')
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-class CommunityEdge(BaseModel):
-    """
-    Represents a HAS_MEMBER relationship between a community and an entity.
-    Links communities to their member entities.
-    """
-    uuid: str = Field(default_factory=lambda: str(uuid4()))
-    source_node_uuid: str = Field(description='UUID of community (source)')
     target_node_uuid: str = Field(description='UUID of entity (target)')
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -336,10 +307,6 @@ class RyumemConfig(BaseModel):
     max_context_episodes: int = Field(
         default=5,
         description='Maximum number of previous episodes to use as context'
-    )
-    enable_community_detection: bool = Field(
-        default=True,
-        description='Whether to enable community detection'
     )
 
     class Config:

@@ -34,8 +34,6 @@ Example:
 
 from ryumem.core.config import RyumemConfig
 from ryumem.core.models import (
-    CommunityEdge,
-    CommunityNode,
     EntityEdge,
     EntityNode,
     EpisodeNode,
@@ -53,10 +51,8 @@ __all__ = [
     "RyumemConfig",
     "EpisodeNode",
     "EntityNode",
-    "CommunityNode",
     "EntityEdge",
     "EpisodicEdge",
-    "CommunityEdge",
     "EpisodeType",
     "SearchConfig",
     "SearchResult",

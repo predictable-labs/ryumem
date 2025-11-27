@@ -74,7 +74,6 @@ export interface Stats {
   total_episodes: number;
   total_entities: number;
   total_relationships: number;
-  total_communities: number;
   db_path: string;
 }
 
@@ -291,19 +290,6 @@ class RyumemAPI {
 
   async getStats(): Promise<Stats> {
     return this.request('/stats');
-  }
-
-  async updateCommunities(
-    resolution: number = 1.0,
-    minCommunitySize: number = 2
-  ) {
-    return this.request('/communities/update', {
-      method: 'POST',
-      body: JSON.stringify({
-        resolution,
-        min_community_size: minCommunitySize,
-      }),
-    });
   }
 
   async pruneMemories(

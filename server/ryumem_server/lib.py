@@ -7,7 +7,6 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ryumem_server.community.detector import CommunityDetector
 from ryumem_server.core.config import RyumemConfig
 from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.core.models import EpisodeNode, EpisodeType, SearchConfig, SearchResult
@@ -215,12 +214,6 @@ class Ryumem:
             max_context_episodes=config.entity_extraction.max_context_episodes,
             bm25_index=self.search_engine.bm25_index,
             enable_entity_extraction=config.entity_extraction.enabled,
-        )
-
-        # Initialize community detector
-        self.community_detector = CommunityDetector(
-            db=self.db,
-            llm_client=self.llm_client,
         )
 
         # Initialize memory pruner
@@ -481,48 +474,6 @@ class Ryumem:
             max_depth=max_depth,
         )
 
-    def update_communities(
-        self,
-        user_id: str,
-        resolution: float = 1.0,
-        min_community_size: int = 2,
-    ) -> int:
-        """
-        Detect/update communities for a user using Louvain algorithm.
-
-        Communities cluster related entities together, enabling:
-        - More efficient retrieval (search within relevant clusters)
-        - Higher-level summaries and reasoning
-        - Token optimization (compress subgraphs)
-
-        This should be called periodically as the knowledge graph grows.
-
-        Args:
-            user_id: User ID to detect communities for (required)
-            resolution: Resolution parameter for Louvain (higher = more, smaller communities)
-            min_community_size: Minimum number of entities per community
-
-        Returns:
-            Number of communities created
-
-        Example:
-            # Detect communities after adding many episodes
-            num_communities = ryumem.update_communities("user_123")
-            print(f"Created {num_communities} communities")
-
-            # Fine-tune community granularity
-            num_communities = ryumem.update_communities(
-                "user_123",
-                resolution=1.5,  # More fine-grained communities
-                min_community_size=3,  # Larger minimum size
-            )
-        """
-        return self.community_detector.update_communities(
-            user_id=user_id,
-            resolution=resolution,
-            min_community_size=min_community_size,
-        )
-
     # Tool Analytics Methods
 
     def get_all_tools(self) -> List[Dict]:
@@ -763,7 +714,7 @@ class Ryumem:
         agent_type: str = "google_adk",
         enhanced_instruction: Optional[str] = None,
         query_augmentation_template: Optional[str] = None,
-        memory_enabled: bool = False,
+        memory_enabled: bool = True,
         tool_tracking_enabled: bool = False,
     ) -> str:
         """
