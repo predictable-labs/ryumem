@@ -1,0 +1,299 @@
+---
+title: Dashboard Guide
+description: "Navigate and use the Ryumem web dashboard to visualize and manage your knowledge graph."
+---
+
+The Ryumem dashboard provides a modern web interface for visualizing and managing your knowledge graph memory system.
+
+<Note>
+**Access Required**: You need a Ryumem API key to access the dashboard. Contact **contact@predictable.sh** to get access.
+</Note>
+
+## Accessing the Dashboard
+
+The dashboard is available as a hosted service. Once you have your API key:
+
+1. Navigate to the dashboard URL (provided with your API key)
+2. Enter your API key (starts with `ryu_`)
+3. Click "Sign in"
+
+Your API key is stored securely in your browser and used for all API requests.
+
+## Dashboard Overview
+
+The dashboard provides **7 main tabs** for different operations (5 tabs when entity extraction is disabled):
+
+<CardGroup cols={2}>
+  <Card title="Chat & Query" icon="comments">
+    Natural language search interface
+  </Card>
+  <Card title="Graph" icon="diagram-project">
+    Visual knowledge graph explorer
+  </Card>
+  <Card title="Entities" icon="shapes">
+    Browse and filter entities
+  </Card>
+  <Card title="Episodes" icon="book">
+    Manage memories and episodes
+  </Card>
+  <Card title="Queries" icon="magnifying-glass">
+    View query history and patterns
+  </Card>
+  <Card title="Tool Analytics" icon="chart-line">
+    Track tool execution metrics
+  </Card>
+  <Card title="Agent Settings" icon="robot">
+    Configure agent behavior
+  </Card>
+</CardGroup>
+
+<Warning>
+**Conditional Features**: The **Graph** and **Entities** tabs only appear when entity extraction is enabled. This can be toggled in Settings to save 30-50% on LLM token costs.
+</Warning>
+
+## Tab Reference
+
+### Chat & Query
+
+**What it does:** Natural language interface for searching your knowledge graph.
+
+**Key Features:**
+- Enter queries in natural language (e.g., "Where does Alice work?")
+- Select search strategy: Hybrid (recommended), Semantic, BM25, or Traversal
+- View results as entity cards with scores
+- See relationships and facts with metadata
+- Example queries for quick testing
+
+**Common Workflows:**
+- Search for specific information: Use natural language queries
+- Find related entities: Use Hybrid strategy for best results
+- Exact keyword matching: Use BM25 strategy
+- Explore relationships: Use Traversal strategy
+
+### Graph Visualization
+
+<Note>
+Requires entity extraction to be enabled
+</Note>
+
+**What it shows:** Interactive force-directed visualization of your knowledge graph.
+
+**Key Features:**
+- Entity nodes colored by type (Person, Organization, Place, etc.)
+- Relationship edges with labeled connections
+- Zoom and pan controls
+- Filter by entity type
+- Click entities for detailed information
+
+**When to use:**
+- Understand entity relationships visually
+- Explore community clusters
+- Identify connection patterns
+- Present knowledge graph structure
+
+### Entities
+
+<Note>
+Requires entity extraction to be enabled
+</Note>
+
+**What it displays:** Searchable list of all entities in your knowledge graph.
+
+**Key Features:**
+- Paginated entity list (50 items per page)
+- Filter by entity type
+- Sort by mentions or creation date
+- Entity detail panel with relationships
+- Connected entities navigation
+- Source episodes tracking
+
+**Exploration Workflows:**
+- Browse all entities: Use pagination
+- Find specific entity types: Apply filters
+- Explore relationships: Click entity for details
+- Trace information sources: View source episodes
+
+### Episodes
+
+**What you can do:** View and add memories to your knowledge graph.
+
+**Key Features:**
+- View all episodes with pagination
+- Filter by user_id, agent_id, or session_id
+- Add new episodes via form
+- See episode metadata (source, timestamps)
+- Link to tool analytics
+
+**Adding Episodes:**
+1. Click "Add Episode" button
+2. Enter content (text, message, or JSON format)
+3. Select source type
+4. Add optional metadata (user_id, agent_id, session_id)
+5. Submit - entities are extracted automatically
+
+**Filtering Options:**
+- By user: View memories for specific users
+- By agent: See what specific agents learned
+- By session: Track conversation threads
+
+### Query History
+
+**What it tracks:** Historical queries made to the system with augmentation details.
+
+**Key Features:**
+- View all queries with timestamps
+- See query augmentation with historical context
+- Track similar query patterns
+- Analyze search effectiveness
+
+**Use Cases:**
+- Understand query patterns
+- See how augmentation improves responses
+- Debug search behavior
+- Identify common information needs
+
+### Tool Analytics
+
+**What metrics are shown:** Execution statistics and performance for tracked tools.
+
+**Key Features:**
+- Tool execution counts
+- Performance metrics (timing, success rates)
+- Parameter and result tracking
+- Filter by tool name
+- Link from episodes
+
+**How to Analyze:**
+- Identify frequently used tools
+- Track tool performance over time
+- Debug tool execution issues
+- Optimize tool usage patterns
+
+### Agent Settings
+
+**What you can configure:** Agent instructions and behavioral parameters.
+
+**Key Features:**
+- Edit agent instructions
+- Customize agent personality
+- Set behavioral parameters
+- Save and apply changes instantly
+
+**Configuration Options:**
+- System instructions
+- Response style and tone
+- Tool usage preferences
+- Memory search behavior
+
+## Settings Page
+
+Access system settings via the header navigation or System Settings button.
+
+**7 Configuration Categories:**
+
+<AccordionGroup>
+  <Accordion title="API Keys">
+    Configure OpenAI and Google Gemini API keys. Keys are masked for security.
+  </Accordion>
+
+  <Accordion title="LLM">
+    Provider (OpenAI, Gemini, Ollama, LiteLLM), model name, temperatures, max tokens, timeouts.
+  </Accordion>
+
+  <Accordion title="Embedding">
+    Provider selection, model configuration, dimensions, batch size.
+  </Accordion>
+
+  <Accordion title="Search">
+    Default strategy, RRF fusion parameter, minimum scores, max traversal depth.
+  </Accordion>
+
+  <Accordion title="Entity Extraction">
+    Enable/disable toggle (affects Graph/Entities tabs), similarity thresholds, max context episodes.
+  </Accordion>
+
+  <Accordion title="Tool Tracking">
+    Track tools, track queries, augment queries, similarity thresholds.
+  </Accordion>
+
+  <Accordion title="Community">
+    Enable/disable community detection, detection threshold.
+  </Accordion>
+</AccordionGroup>
+
+**Settings Features:**
+- ✅ Real-time validation before saving
+- ✅ Visual change indicators
+- ✅ Unsaved changes warning
+- ✅ Hot-reload without server restart
+- ✅ Reset to defaults option
+
+## Common Workflows
+
+### Quick Search Workflow
+1. Go to Chat & Query tab
+2. Enter your question
+3. Select Hybrid strategy (recommended)
+4. Review entity and relationship results
+
+### Adding Memories
+1. Go to Episodes tab
+2. Click "Add Episode"
+3. Enter content and metadata
+4. Submit and wait for processing
+5. View in Graph/Entities tabs
+
+### Exploring Entity Relationships
+1. Go to Entities tab (or Graph tab)
+2. Search or filter for entity
+3. Click entity to view details
+4. Explore connected entities
+5. View source episodes
+
+### Analyzing Tool Usage
+1. Go to Tool Analytics tab
+2. View tool execution statistics
+3. Filter by specific tools
+4. Analyze patterns and performance
+
+### Configuring the System
+1. Click Settings in header
+2. Select configuration category
+3. Update values
+4. Save changes
+5. Changes apply immediately (hot-reload)
+
+## Tips & Best Practices
+
+<Tip>
+**Search Strategy Selection**: Use Hybrid for most queries. Switch to BM25 for exact keyword matching or Traversal for relationship-focused searches.
+</Tip>
+
+<Tip>
+**Entity Extraction Cost Optimization**: Disable entity extraction in Settings to save 30-50% on LLM token costs if you don't need graph visualization.
+</Tip>
+
+<Tip>
+**Multi-Tenancy**: Always filter by user_id, agent_id, or session_id in production to isolate data properly.
+</Tip>
+
+<Tip>
+**Query Augmentation**: Enable in Settings to let agents learn from past similar queries and improve over time.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Python SDK" icon="code" href="/quickstart">
+    Integrate memory into your agents
+  </Card>
+  <Card title="Core Concepts" icon="brain" href="/core-concepts/episodes">
+    Understand how Ryumem works
+  </Card>
+  <Card title="Google ADK Integration" icon="plug" href="/integrations/google-adk">
+    One-line memory integration
+  </Card>
+  <Card title="Search Strategies" icon="magnifying-glass" href="/core-concepts/search-strategies">
+    Deep dive into search methods
+  </Card>
+</CardGroup>

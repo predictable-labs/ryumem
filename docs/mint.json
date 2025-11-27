@@ -66,6 +66,12 @@
             ]
         },
         {
+            "group": "Dashboard",
+            "pages": [
+                "dashboard/overview"
+            ]
+        },
+        {
             "group": "Examples & Guides",
             "pages": [
                 "examples/basic-usage"
@@ -73,8 +79,7 @@
         }
     ],
     "footerSocials": {
-        "github": "https://github.com/predictable/ryumem",
-        "email": "mailto:contact@predictable.sh"
+        "github": "https://github.com/predictable/ryumem"
     },
     "feedback": {
         "thumbsRating": true,
