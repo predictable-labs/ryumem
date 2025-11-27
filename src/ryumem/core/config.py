@@ -114,20 +114,26 @@ class LLMConfig(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="RYUMEM_LLM_",
-        env_nested_delimiter="__"
+        env_nested_delimiter="__",
+        populate_by_name=True,
+        extra="ignore"
     )
 
 
 class EmbeddingConfig(BaseSettings):
     """Embedding configuration"""
 
-    provider: Literal["openai", "gemini", "litellm"] = Field(
+    provider: Literal["openai", "gemini", "litellm", "ollama"] = Field(
         default="gemini",
-        description="Embedding provider: 'openai', 'gemini', or 'litellm'"
+        description="Embedding provider: 'openai', 'gemini', 'litellm', or 'ollama'"
     )
     model: str = Field(
         default="text-embedding-004",
         description="Embedding model to use"
+    )
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama server URL for embeddings"
     )
     dimensions: int = Field(
         default=768,
@@ -271,6 +277,23 @@ class CommunityConfig(BaseSettings):
     )
 
 
+class AgentConfig(BaseSettings):
+    """Agent configuration"""
+    memory_enabled: bool = Field(
+        default=True,
+        description="Whether memory features are enabled for the agent"
+    )
+    enhance_agent_instruction: bool = Field(
+        default=True,
+        description="Whether to enhance agent instructions with memory guidance"
+    )
+
+    model_config = SettingsConfigDict(
+        env_prefix="RYUMEM_AGENT_",
+        env_nested_delimiter="__"
+    )
+
+
 class ToolTrackingConfig(BaseSettings):
     """Tool tracking configuration for Google ADK integration"""
 
@@ -292,10 +315,41 @@ class ToolTrackingConfig(BaseSettings):
         ge=0.0,
         le=1.0
     )
+    similarity_strategy: str = Field(
+        default="hybrid",
+        description="Search strategy for finding similar queries (semantic, bm25, hybrid, traversal)"
+    )
     top_k_similar: int = Field(
         default=5,
         description="Number of similar queries to include in augmentation",
         gt=0
+    )
+    sample_rate: float = Field(
+        default=1.0,
+        description="Sample rate for tool tracking (0.0-1.0)",
+        ge=0.0,
+        le=1.0
+    )
+    summarize_outputs: bool = Field(
+        default=True,
+        description="Whether to summarize tool outputs"
+    )
+    max_output_chars: int = Field(
+        default=1000,
+        description="Maximum characters for tool output before truncation/summarization",
+        gt=0
+    )
+    sanitize_pii: bool = Field(
+        default=True,
+        description="Whether to sanitize PII from tool outputs"
+    )
+    enhance_descriptions: bool = Field(
+        default=False,
+        description="Whether to enhance tool descriptions using LLM"
+    )
+    ignore_errors: bool = Field(
+        default=True,
+        description="Whether to ignore errors during tracking"
     )
 
     model_config = SettingsConfigDict(
@@ -330,6 +384,7 @@ class RyumemConfig(BaseSettings):
     search: SearchConfig = Field(default_factory=SearchConfig)
     community: CommunityConfig = Field(default_factory=CommunityConfig)
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
 
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",

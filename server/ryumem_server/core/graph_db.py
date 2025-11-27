@@ -550,6 +550,81 @@ class RyugraphDB:
 
         return None
 
+    def get_triggered_episodes(
+        self,
+        source_uuid: str,
+        source_type: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[EpisodeNode]:
+        """
+        Get episodes linked from a source episode via TRIGGERED relationships.
+
+        Args:
+            source_uuid: UUID of the source episode
+            source_type: Optional filter by episode source type (e.g., 'json', 'message')
+            limit: Maximum number of episodes to return
+
+        Returns:
+            List of triggered episode nodes
+        """
+        query = """
+        MATCH (source:Episode {uuid: $source_uuid})-[r:TRIGGERED]->(target:Episode)
+        WHERE target.metadata IS NOT NULL
+        """
+
+        if source_type:
+            query += " AND target.source = $source_type"
+
+        query += """
+        RETURN target.uuid AS uuid,
+               target.content AS content,
+               target.embedding AS embedding,
+               target.source AS source,
+               target.source_description AS source_description,
+               target.created_at AS created_at,
+               target.valid_at AS valid_at,
+               target.user_id AS user_id,
+               target.agent_id AS agent_id,
+               target.metadata AS metadata,
+               target.entity_edges AS entity_edges
+        ORDER BY target.created_at DESC
+        LIMIT $limit
+        """
+
+        params = {"source_uuid": source_uuid, "limit": limit}
+        if source_type:
+            params["source_type"] = source_type
+
+        results = self.execute(query, params)
+        episodes = []
+
+        for row in results:
+            try:
+                metadata = None
+                if row.get('metadata'):
+                    metadata_str = row['metadata']
+                    metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+
+                episode = EpisodeNode(
+                    uuid=row['uuid'],
+                    content=row['content'],
+                    embedding=row.get('embedding'),
+                    source=row['source'],
+                    source_description=row.get('source_description'),
+                    created_at=row['created_at'],
+                    valid_at=row.get('valid_at'),
+                    user_id=row.get('user_id'),
+                    agent_id=row.get('agent_id'),
+                    metadata=metadata,
+                    entity_edges=row.get('entity_edges', []),
+                )
+                episodes.append(episode)
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Failed to parse episode: {e}")
+                continue
+
+        return episodes
+
     def search_similar_entities(
         self,
         embedding: List[float],

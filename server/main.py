@@ -197,6 +197,27 @@ def get_write_ryumem(customer_id: str = Depends(get_current_customer)):
     return get_ryumem(customer_id)
 
 
+def invalidate_ryumem_cache(customer_id: str) -> None:
+    """
+    Invalidate the cached Ryumem instance for a customer.
+    Next request will create a fresh instance with updated config from database.
+
+    Args:
+        customer_id: Customer ID whose cache entry should be invalidated
+    """
+    if customer_id in _ryumem_cache:
+        try:
+            instance = _ryumem_cache[customer_id]
+            instance.close()  # Close DB connection gracefully
+            logger.info(f"Closed Ryumem instance for customer {customer_id}")
+        except Exception as e:
+            logger.warning(f"Error closing Ryumem instance for {customer_id}: {e}")
+        finally:
+            # Remove from cache regardless of close result
+            del _ryumem_cache[customer_id]
+            logger.info(f"Invalidated Ryumem cache for customer {customer_id}")
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Ryumem API",
@@ -553,6 +574,29 @@ async def health():
     )
 
 
+@app.get("/config")
+async def get_config(ryumem: Ryumem = Depends(get_ryumem)):
+    """
+    Get the full configuration for the current Ryumem instance.
+    """
+    try:
+        # Get config from the instance
+        config = ryumem.config
+
+        # Convert to dict
+        config_dict = config.model_dump()
+
+        # Manually remove sensitive keys to ensure they don't leak to client
+        if 'llm' in config_dict:
+            config_dict['llm'].pop('openai_api_key', None)
+            config_dict['llm'].pop('gemini_api_key', None)
+
+        return config_dict
+    except Exception as e:
+        logger.error(f"Error getting config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/users")
 async def get_users(ryumem: Ryumem = Depends(get_ryumem)):
     """
@@ -625,6 +669,28 @@ async def get_episode_by_uuid(
     except Exception as e:
         logger.error(f"Error getting episode: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error getting episode: {str(e)}")
+
+
+@app.get("/episodes/{source_uuid}/triggered", response_model=List[Dict[str, Any]])
+async def get_triggered_episodes(
+    source_uuid: str,
+    source_type: Optional[str] = None,
+    limit: int = 10,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """
+    Get episodes triggered by a source episode.
+
+    Query params:
+        source_type: Optional filter by episode source type (e.g., 'json')
+        limit: Maximum number of results (default: 10)
+    """
+    try:
+        episodes = ryumem.get_triggered_episodes(source_uuid, source_type, limit)
+        return [episode.model_dump() for episode in episodes]
+    except Exception as e:
+        logger.error(f"Error getting triggered episodes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting triggered episodes: {str(e)}")
 
 
 @app.get("/episodes/session/{session_id}", response_model=Optional[Dict[str, Any]])
@@ -1839,6 +1905,15 @@ async def get_all_settings(
         service = ConfigService(ryumem.db)
         grouped_configs = service.get_all_configs_grouped(mask_sensitive=mask_sensitive)
 
+        # Create virtual "api_keys" category from llm API keys
+        if "llm" in grouped_configs:
+            api_key_configs = [cfg for cfg in grouped_configs["llm"] if "api_key" in cfg["key"]]
+            non_api_key_configs = [cfg for cfg in grouped_configs["llm"] if "api_key" not in cfg["key"]]
+
+            if api_key_configs:
+                grouped_configs["api_keys"] = api_key_configs
+                grouped_configs["llm"] = non_api_key_configs
+
         # Convert to response model
         settings_dict = {}
         total = 0
@@ -1889,7 +1964,14 @@ async def get_settings_by_category(
         from ryumem_server.core.config_service import ConfigService
 
         service = ConfigService(ryumem.db)
-        configs = service.db.get_configs_by_category(category)
+
+        # Handle virtual "api_keys" category
+        if category == "api_keys":
+            # Get all llm configs and filter to just API keys
+            all_configs = service.db.get_configs_by_category("llm")
+            configs = [cfg for cfg in all_configs if "api_key" in cfg["key"]]
+        else:
+            configs = service.db.get_configs_by_category(category)
 
         if not configs:
             raise HTTPException(status_code=404, detail=f"Category not found: {category}")
@@ -1931,7 +2013,8 @@ async def get_settings_by_category(
 )
 async def update_settings(
     request: UpdateConfigRequest,
-    ryumem: Ryumem = Depends(get_write_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem),
+    customer_id: str = Depends(get_current_customer)
 ):
     """
     Update multiple configuration settings.
@@ -1963,9 +2046,8 @@ async def update_settings(
         # Update configs
         success_count, failed_keys = service.update_multiple_configs(request.updates)
 
-        # Reload global config
-        global _app_config
-        _app_config = RyumemConfig.from_database(ryumem.db)
+        # Invalidate cache so next request gets fresh config from database
+        invalidate_ryumem_cache(customer_id)
 
         return {
             "message": f"Updated {success_count} configuration(s)",
@@ -2030,7 +2112,8 @@ async def validate_settings(
     summary="Reset all settings to default values"
 )
 async def reset_to_defaults(
-    ryumem: Ryumem = Depends(get_write_ryumem)
+    ryumem: Ryumem = Depends(get_write_ryumem),
+    customer_id: str = Depends(get_current_customer)
 ):
     """
     Reset all configuration settings to their default values.
@@ -2043,16 +2126,21 @@ async def reset_to_defaults(
 
         service = ConfigService(ryumem.db)
 
-        # Get default configs
-        default_configs = service.get_default_configs()
+        # Get default config model
+        defaults = service.get_default_configs()
 
-        # Update all configs to defaults
-        updates = {cfg["key"]: cfg["value"] for cfg in default_configs}
+        # Extract to dict using model_dump and flatten
+        updates = {}
+        for section_name, section_value in defaults.model_dump().items():
+            if section_name == "database":
+                continue
+            for field_name, value in section_value.items():
+                updates[f"{section_name}.{field_name}"] = value
+
         success_count, failed_keys = service.update_multiple_configs(updates)
 
-        # Reload global config
-        global _app_config
-        _app_config = RyumemConfig.from_database(ryumem.db)
+        # Invalidate cache so next request gets fresh config from database
+        invalidate_ryumem_cache(customer_id)
 
         return {
             "message": f"Reset {success_count} configuration(s) to defaults",

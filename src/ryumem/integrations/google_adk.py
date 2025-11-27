@@ -2,27 +2,43 @@
 Google ADK Integration for Ryumem.
 
 This module provides zero-boilerplate memory integration with Google's Agent Developer Kit.
-Automatically adds memory tools (search_memory, save_memory) to your agent.
 
-Example:
+Example - Basic Memory:
     ```python
     from google import genai
+    from ryumem import Ryumem
     from ryumem.integrations import add_memory_to_agent
 
-    agent = genai.Agent(
-        name="assistant",
-        model="gemini-2.0-flash",
-        instruction="You are a helpful assistant with memory."
-    )
+    ryumem = Ryumem()
+    agent = genai.Agent(model="gemini-2.0-flash")
 
-    # One line to enable memory
-    add_memory_to_agent(agent)
+    # Add memory capabilities (modifies agent in-place)
+    agent = add_memory_to_agent(agent, ryumem)
+
+    # Agent now has search_memory and save_memory tools
+    ```
+
+Example - With Query Tracking:
+    ```python
+    from google import genai
+    from ryumem import Ryumem
+    from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+
+    ryumem = Ryumem()
+    agent = genai.Agent(model="gemini-2.0-flash")
+    agent = add_memory_to_agent(agent, ryumem)
+
+    runner = genai.Runner(agent=agent)
+    runner = wrap_runner_with_tracking(runner, agent)
+
+    # Runner now tracks queries and augments them with history
     ```
 """
 
 from typing import Optional, Dict, Any, List
 import logging
 import json
+from google.adk.tools.tool_context import ToolContext
 
 from ryumem import EpisodeType, Ryumem, RyumemConfig
 from ryumem.core.metadata_models import EpisodeMetadata, QueryRun
@@ -77,39 +93,56 @@ class RyumemGoogleADK:
     This class creates search and save functions that are automatically
     registered as tools with Google ADK agents, eliminating boilerplate code.
 
+    All configuration is read from the ryumem instance's config.
+
     Args:
-        ryumem: Initialized Ryumem instance
-        extract_entities: Enable entity/relationship extraction (default: False)
-        memory_enabled: Enable memory tools (default: True)
+        agent: Google ADK Agent instance
+        ryumem: Initialized Ryumem instance (contains config)
+        tool_tracker: Optional ToolTracker for monitoring tool usage
     """
 
     def __init__(
         self,
+        agent: Any,
         ryumem: Ryumem,
-        extract_entities: bool = False,
-        memory_enabled: bool = True
+        tool_tracker: Optional['ToolTracker'] = None
     ):
+        self.agent = agent
         self.ryumem = ryumem
-        self.extract_entities = extract_entities
-        self.memory_enabled = memory_enabled
+        self.tool_tracker = tool_tracker
 
-        logger.info(f"Initialized RyumemGoogleADK extract_entities: {extract_entities if extract_entities is not None else 'config default'}")
+        logger.info(f"Initialized RyumemGoogleADK extract_entities: {ryumem.config.entity_extraction.enabled}")
 
-    def search_memory(self, query: str, session_id: str, user_id: str, limit: int = 5) -> Dict[str, Any]:
+    async def search_memory(self, tool_context: ToolContext, query: str, limit: int = 5) -> Dict[str, Any]:
         """
         Auto-generated search function for retrieving memories.
 
         This function is automatically registered as a tool with the agent.
 
         Args:
+            tool_context: Google ADK tool context containing session info
             query: Natural language query to search memories
-            session_id: Session identifier (required)
-            user_id: User identifier (optional - uses instance default if not provided)
-            limit: Maximum number of memories to return
+            limit: Maximum number of memories to return (default: 5)
 
         Returns:
             Dict with status and memories or no_memories indicator
         """
+        # Extract session info from tool_context
+        if not hasattr(tool_context, 'session') or not tool_context.session:
+            return {
+                "status": "error",
+                "message": "Session context is required but was not provided"
+            }
+
+        session = tool_context.session
+        user_id = getattr(session, 'user_id', None)
+        session_id = getattr(session, 'id', None)
+
+        if not user_id or not session_id:
+            return {
+                "status": "error",
+                "message": "user_id and session_id are required in session context"
+            }
 
         logger.info(f"Searching memory for user '{user_id}' session '{session_id}': {query}")
 
@@ -132,14 +165,14 @@ class RyumemGoogleADK:
                     }
                     for edge in results.edges
                 ]
-                logger.info(f"Found {len(memories)} memories for user '{effective_user_id}'")
+                logger.info(f"Found {len(memories)} memories for user '{user_id}'")
                 return {
                     "status": "success",
                     "count": len(memories),
                     "memories": memories
                 }
             else:
-                logger.info(f"No memories found for user '{effective_user_id}'")
+                logger.info(f"No memories found for user '{user_id}'")
                 return {
                     "status": "no_memories",
                     "message": "No relevant memories found for this query"
@@ -152,36 +185,55 @@ class RyumemGoogleADK:
                 "message": str(e)
             }
 
-    def save_memory(self, content: str, session_id: str, user_id: str, source: str = "text") -> Dict[str, Any]:
+    async def save_memory(self, tool_context: ToolContext, content: str, source: str = "text") -> Dict[str, Any]:
         """
         Auto-generated save function for persisting memories.
 
         This function is automatically registered as a tool with the agent.
 
         Args:
+            tool_context: Google ADK tool context containing session info
             content: Information to save to memory
-            session_id: Session identifier (required)
-            user_id: User identifier (optional - uses instance default if not provided)
-            source: Episode type - must be "text", "message", or "json"
+            source: Episode type - must be "text", "message", or "json" (default: "text")
 
         Returns:
             Dict with status and episode_id
         """
+        # Extract session info from tool_context
+        if not hasattr(tool_context, 'session') or not tool_context.session:
+            return {
+                "status": "error",
+                "message": "Session context is required but was not provided"
+            }
+
+        session = tool_context.session
+        user_id = getattr(session, 'user_id', None)
+        session_id = getattr(session, 'id', None)
+
+        if not user_id or not session_id:
+            return {
+                "status": "error",
+                "message": "user_id and session_id are required in session context"
+            }
+
         logger.info(f"Saving memory for user '{user_id}' session '{session_id}': {content[:50]}...")
 
         try:
-            # Fallback: Create new episode
+            # Validate source
             valid_sources = ["text", "message", "json"]
             if source not in valid_sources:
                 source = "text"
 
-            episode_id = self.ryumem.add_memory(
+            episode = self.ryumem.add_memory(
                 content=content,
                 user_id=user_id,
                 session_id=session_id,
                 source=source,
             )
-            
+
+            # Extract just the UUID string for JSON serialization
+            episode_id = episode.uuid
+
             logger.info(f"Saved memory for user '{user_id}' with episode_id: {episode_id}")
 
             return {
@@ -196,18 +248,33 @@ class RyumemGoogleADK:
                 "message": str(e)
             }
 
-    def get_entity_context(self, entity_name: str, session_id: str, user_id: str) -> Dict[str, Any]:
+    async def get_entity_context(self, tool_context: ToolContext, entity_name: str) -> Dict[str, Any]:
         """
         Auto-generated function to get full context about an entity.
 
         Args:
             entity_name: Name of the entity to look up
-            session_id: Session identifier (required)
-            user_id: User identifier (optional - uses instance default if not provided)
+            tool_context: Google ADK tool context containing session info
 
         Returns:
             Dict with entity information and related facts
         """
+        # Extract session info from tool_context
+        if not hasattr(tool_context, 'session') or not tool_context.session:
+            return {
+                "status": "error",
+                "message": "Session context is required but was not provided"
+            }
+
+        session = tool_context.session
+        user_id = getattr(session, 'user_id', None)
+        session_id = getattr(session, 'id', None)
+
+        if not user_id or not session_id:
+            return {
+                "status": "error",
+                "message": "user_id and session_id are required in session context"
+            }
 
         logger.info(f"Getting context for entity '{entity_name}' for user '{user_id}'")
 
@@ -245,11 +312,11 @@ class RyumemGoogleADK:
         """
 
         tools = []
-        if self.memory_enabled:
+        if self.ryumem.config.agent.memory_enabled:
             tools.append(self.search_memory)
             tools.append(self.save_memory)
 
-        if self.extract_entities:
+        if self.ryumem.config.entity_extraction.enabled:
             tools.append(self.get_entity_context)
 
         return tools
@@ -286,163 +353,104 @@ def _register_and_track_tools(
     memory.tracker = tracker
 
 
+from typing import Optional
+
 def add_memory_to_agent(
     agent,
     ryumem_instance: Ryumem,
-
-    # Memory configuration
-    extract_entities: bool = False,
-    memory_enabled: bool = True,
-    enhance_agent_instruction: bool = True,
-
-    # Tool tracking configuration
-    enable_tool_tracking: bool = False,
-    tool_tracking_sample_rate: float = 1.0,
-    tool_tracking_summarize_outputs: bool = True,
-    tool_tracking_max_output_chars: int = 1000,
-    tool_tracking_sanitize_pii: bool = True,
-    tool_tracking_enhance_descriptions: bool = False,
-    ignore_tracking_errors: bool = True,
-
-    # Query Tracking Configuration
-    track_queries: bool = True,
-    augment_queries: bool = True,
-    similarity_threshold: float = 0.3,
-    top_k_similar: int = 5,
-) -> RyumemGoogleADK:
+):
     """
-    Enable memory for a Google ADK agent with a single function call.
+    Add Ryumem memory capabilities to a Google ADK agent.
 
-    Automatically creates and registers memory tools (search_memory, save_memory) with your agent.
+    Modifies the agent in-place by:
+    - Adding search_memory and save_memory tools
+    - Enhancing instructions with memory usage guidance
+    - Storing RyumemGoogleADK interface as agent._ryumem_memory
+
+    All configuration comes from the Ryumem instance's config.
 
     Args:
-        agent: Google ADK Agent instance to add memory to
-        ryumem_instance: Pre-configured Ryumem instance.
-
-        # Memory Configuration
-        extract_entities: Enable entity/relationship extraction from memories (default: False)
-                         Reduces token usage when disabled but loses structured knowledge graph features.
-        memory_enabled: Enable memory tools (search_memory, save_memory) (default: True)
-        enhance_agent_instruction: Add memory usage guidance to agent instructions (default: True)
-
-        # Tool Tracking Configuration
-        enable_tool_tracking: Track all tool usage for analytics and optimization (default: False)
-        tool_tracking_sample_rate: Fraction of tool calls to track, 0.0-1.0 (default: 1.0)
-        tool_tracking_summarize_outputs: Auto-summarize large outputs (default: True)
-        tool_tracking_max_output_chars: Maximum characters to store for outputs (default: 1000)
-        tool_tracking_sanitize_pii: Remove PII (emails, phones) from stored data (default: True)
-        tool_tracking_enhance_descriptions: Use LLM to enhance tool descriptions (default: False)
-        ignore_tracking_errors: Continue execution if tracking fails (default: True)
-
-        # Query Tracking Configuration
-        track_queries: Store user queries as episodes (default: True)
-                      Requires calling wrap_runner_with_tracking() on your Runner
-        augment_queries: Augment queries with historical context (default: True)
-                        Only applies when track_queries=True
-        similarity_threshold: Minimum similarity for query matching, 0.0-1.0 (default: 0.3)
-                            Lower = more matches, higher = stricter
-        top_k_similar: Number of similar queries for augmentation (default: 5)
+        agent: Google ADK Agent to enhance
+        ryumem_instance: Ryumem instance (contains all config)
 
     Returns:
-        RyumemGoogleADK instance with configured memory tools
+        The same agent object (for chaining)
 
-    Example - Minimal Setup:
-        ```python
-        from google import genai
-        from ryumem import Ryumem
-        from ryumem.integrations import add_memory_to_agent
-
-        ryumem = Ryumem(api_key="...")
-        agent = genai.Agent(
-            name="assistant",
-            model="gemini-2.0-flash-exp",
-            instruction="You are a helpful assistant with memory."
-        )
-
-        add_memory_to_agent(agent, ryumem_instance=ryumem)
-        ```
-
-    Example - With Tool Tracking:
-        ```python
-        from ryumem import Ryumem
-        from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
-
-        ryumem = Ryumem(api_key="...")
-        agent = genai.Agent(name="assistant", model="gemini-2.0-flash")
-
-        memory = add_memory_to_agent(
-            agent,
-            ryumem_instance=ryumem,
-            enable_tool_tracking=True,
-            extract_entities=True
-        )
-
-        runner = Runner(agent=agent, app_name="app", session_service=session_service)
-        runner = wrap_runner_with_tracking(runner, memory)
-        ```
+    Example:
+        ryumem = Ryumem()  # Config from env/database
+        agent = genai.Agent(model="gemini-2.0-flash")
+        agent = add_memory_to_agent(agent, ryumem)
     """
     import os
+    from .tool_tracker import ToolTracker
 
-    # Build tool tracking configuration from explicit parameters
-    tool_tracking_kwargs = {
-        'sampling_rate': tool_tracking_sample_rate,
-        'summarize_large_outputs': tool_tracking_summarize_outputs,
-        'max_output_length': tool_tracking_max_output_chars,
-        'sanitize_pii': tool_tracking_sanitize_pii,
-        'llm_tool_description': tool_tracking_enhance_descriptions,
-        'fail_open': ignore_tracking_errors,
-    }
+    # Initialize Tool Tracker if enabled
+    tool_tracker = None
+    if ryumem_instance.config.tool_tracking.track_tools:
+        try:
+            tool_tracker = ToolTracker(ryumem=ryumem_instance)
+
+            # Wrap agent tools
+            tool_tracker.wrap_agent_tools(agent)
+            logger.info(f"Tool tracking enabled for agent: {agent.name if hasattr(agent, 'name') else 'unnamed'}")
+
+            # Register tools
+            if hasattr(agent, 'tools'):
+                tools_to_register = [
+                    {
+                        'name': getattr(tool, 'name', getattr(tool, '__name__', 'unknown')),
+                        'description': getattr(tool, 'description', getattr(tool, '__doc__', '')) or f"Tool: {getattr(tool, 'name', 'unknown')}"
+                    }
+                    for tool in agent.tools
+                ]
+                if tools_to_register:
+                    tool_tracker.register_tools(tools_to_register)
+                    logger.info(f"Registered {len(tools_to_register)} tools in database")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize tool tracking: {e}")
+            if not ryumem_instance.config.tool_tracking.ignore_errors:
+                raise
 
     # Create memory integration
     memory = RyumemGoogleADK(
+        agent=agent,
         ryumem=ryumem_instance,
-        extract_entities=extract_entities,
-        memory_enabled=memory_enabled
+        tool_tracker=tool_tracker
     )
 
-    # Store query tracking configuration for use with wrap_runner_with_tracking
-    memory._query_tracking_config = {
-        'track_queries': track_queries,
-        'augment_queries': augment_queries,
-        'similarity_threshold': similarity_threshold,
-        'top_k_similar': top_k_similar,
-    }
-
-    # Auto-inject tools into agent
+    # 5. Auto-inject tools into agent
     if not hasattr(agent, 'tools'):
         agent.tools = []
         logger.warning("Agent doesn't have 'tools' attribute, creating new list")
 
     # Add memory tools
     agent.tools.extend(memory.tools)
-    logger.info(f"Added {len(memory.tools)} memory tools to agent: {agent.name if hasattr(agent, 'name') else 'unnamed'}")
+    logger.info(f"Added {len(memory.tools)} memory tools to agent")
 
-    # Enable tool tracking if requested
-    if enable_tool_tracking:
-        _register_and_track_tools(agent, ryumem_instance, memory, tool_tracking_kwargs)
-
-    # Build enhanced instruction with memory/tool guidance
+    # Build enhanced instruction
     base_instruction = agent.instruction or ""
     enhanced_instruction = base_instruction
 
-    if enhance_agent_instruction:
+    if ryumem_instance.config.agent.enhance_agent_instruction:
         instruction_parts = []
         if base_instruction:
             instruction_parts.append(base_instruction)
 
-        # Add memory guidance
-        if memory_enabled:
+        if ryumem_instance.config.agent.memory_enabled:
             instruction_parts.append(DEFAULT_MEMORY_BLOCK)
 
-        # Add tool tracking guidance
-        if enable_tool_tracking:
+        if ryumem_instance.config.tool_tracking.track_tools:
             instruction_parts.append(DEFAULT_TOOL_BLOCK)
 
         enhanced_instruction = "\n\n".join(instruction_parts)
         agent.instruction = enhanced_instruction
 
-    # Register agent with all configurations in one call
-    query_augmentation_template = DEFAULT_AUGMENTATION_TEMPLATE if (track_queries and augment_queries) else ""
+    # Register agent configuration
+    query_augmentation_template = DEFAULT_AUGMENTATION_TEMPLATE if (
+        ryumem_instance.config.tool_tracking.track_queries and
+        ryumem_instance.config.tool_tracking.augment_queries
+    ) else ""
 
     try:
         ryumem_instance.save_agent_instruction(
@@ -450,17 +458,20 @@ def add_memory_to_agent(
             agent_type="google_adk",
             enhanced_instruction=enhanced_instruction,
             query_augmentation_template=query_augmentation_template,
-            memory_enabled=memory_enabled,
-            tool_tracking_enabled=enable_tool_tracking
+            memory_enabled=ryumem_instance.config.agent.memory_enabled,
+            tool_tracking_enabled=ryumem_instance.config.tool_tracking.track_tools
         )
         logger.info("Registered agent configuration in database")
     except Exception as e:
         logger.warning(f"Failed to register agent configuration: {e}")
 
-    # Store augmentation prompt locally for runtime use
+    # Store augmentation prompt locally
     memory._augmentation_prompt = query_augmentation_template or DEFAULT_AUGMENTATION_TEMPLATE
 
-    return memory
+    # Store memory interface on agent and return agent (builder pattern)
+    agent._ryumem_memory = memory
+
+    return agent
 
 
 def _find_similar_query_episodes(
@@ -468,20 +479,25 @@ def _find_similar_query_episodes(
     memory: RyumemGoogleADK,
     user_id: str,
     session_id: str,
-    similarity_threshold: float,
-    top_k: int
 ) -> List[Dict[str, Any]]:
     """Find and filter similar query episodes above threshold."""
+    threshold = memory.ryumem.config.tool_tracking.similarity_threshold
+    logger.info(f"Searching with strategy={memory.ryumem.config.tool_tracking.similarity_strategy}, threshold={threshold}")
+
+    # Search across ALL sessions for this user (not just current session)
+    # This allows learning from past game sessions
     search_results = memory.ryumem.search(
         query=query_text,
         user_id=user_id,
-        session_id=session_id,
-        strategy="semantic",
-        limit=top_k if top_k > 0 else 100
+        session_id=None,  # Don't filter by session - search across all user's past queries
+        strategy=memory.ryumem.config.tool_tracking.similarity_strategy,
+        similarity_threshold=memory.ryumem.config.tool_tracking.similarity_threshold,
+        limit=memory.ryumem.config.tool_tracking.top_k_similar,
+        min_rrf_score=0.0  # Disable RRF filtering - rely on similarity_threshold instead
     )
 
     if not search_results.episodes:
-        logger.debug("No similar query episodes found")
+        logger.info("Search returned 0 episodes - no past queries exist yet")
         return []
 
     logger.info(f"Search returned {len(search_results.episodes)} episodes for query: '{query_text[:50]}...'")
@@ -495,7 +511,7 @@ def _find_similar_query_episodes(
             score = 1.0
 
         # Filter by threshold and source type
-        if score >= similarity_threshold and episode.source == EpisodeType.message:
+        if score >= memory.ryumem.config.tool_tracking.similarity_threshold and episode.source == EpisodeType.message:
             similar_queries.append({
                 "content": episode.content,
                 "score": score,
@@ -503,25 +519,26 @@ def _find_similar_query_episodes(
                 "metadata": episode.metadata,
             })
 
-    logger.info(f"Found {len(similar_queries)} similar queries above threshold {similarity_threshold}")
+    logger.info(f"Found {len(similar_queries)} similar queries above threshold {memory.ryumem.config.tool_tracking.similarity_threshold}")
     return similar_queries
 
 
 def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> List[Dict[str, Any]]:
-    """Query database for tool executions linked to a query episode."""
-    tool_query = """
-    MATCH (query_ep:Episode {uuid: $query_uuid})-[r:TRIGGERED]->(tool_ep:Episode)
-    WHERE tool_ep.source = 'json'
-      AND tool_ep.metadata IS NOT NULL
-    RETURN tool_ep.content AS content,
-           tool_ep.metadata AS metadata
-    LIMIT 10
-    """
-
+    """Query for tool executions linked to a query episode via API."""
     try:
-        results = memory.ryumem.execute(tool_query, {"query_uuid": query_uuid})
-        # Convert CypherResult objects back to dicts for backward compatibility
-        return [result.data for result in results]
+        episodes = memory.ryumem.get_triggered_episodes(
+            source_uuid=query_uuid,
+            source_type='json',
+            limit=10
+        )
+        # Convert to dict format for backward compatibility
+        return [
+            {
+                "content": episode.content,
+                "metadata": episode.metadata
+            }
+            for episode in episodes
+        ]
     except Exception as e:
         logger.warning(f"Failed to query tool executions: {e}")
         return []
@@ -575,8 +592,6 @@ def _augment_query_with_history(
     memory: RyumemGoogleADK,
     user_id: str,
     session_id: str,
-    similarity_threshold: float = 0.1,
-    top_k: int = 5,
 ) -> str:
     """
     Augment an incoming query with historical context from similar past queries.
@@ -596,20 +611,28 @@ def _augment_query_with_history(
         Augmented query with historical context appended
     """
     try:
+        logger.info(f"Searching for similar queries to: {query_text[:50]}...")
         similar_queries = _find_similar_query_episodes(
-            query_text, memory, user_id, session_id, similarity_threshold, top_k
+            query_text, memory, user_id, session_id
         )
 
         if not similar_queries:
+            logger.info("No similar queries found for augmentation")
             return query_text
 
+        logger.info(f"Found {len(similar_queries)} similar queries")
+        top_k = memory.ryumem.config.tool_tracking.top_k_similar
         augmented_query = _build_context_section(query_text, similar_queries, memory, top_k)
 
-        logger.info(f"Augmented query with {len(similar_queries)} similar queries")
-        return augmented_query
+        if augmented_query and augmented_query != query_text:
+            logger.info(f"Augmented query with {len(similar_queries)} similar queries")
+            return augmented_query
+        else:
+            logger.info("Context section was empty or unchanged")
+            return query_text
 
     except Exception as e:
-        logger.error(f"Query augmentation failed: {e}")
+        logger.error(f"Query augmentation failed: {e}", exc_info=True)
         return query_text
 
 
@@ -669,9 +692,6 @@ def _create_query_episode(
     session_id: str,
     run_id: str,
     augmented_query_text: str,
-    augment_queries: bool,
-    similarity_threshold: float,
-    top_k_similar: int,
     memory: RyumemGoogleADK
 ) -> str:
     """Create episode for user query with metadata."""
@@ -698,7 +718,7 @@ def _create_query_episode(
         session_id=session_id,
         source="message",
         metadata=episode_metadata.model_dump(),
-        extract_entities=memory.extract_entities
+        extract_entities=memory.ryumem.config.entity_extraction.enabled
     )
 
     _insert_run_information_in_episode(query_episode_id, run_id, session_id, query_run, memory)
@@ -712,9 +732,6 @@ def _prepare_query_and_episode(
     user_id: str,
     session_id: str,
     memory: RyumemGoogleADK,
-    augment_queries: bool,
-    similarity_threshold: float,
-    top_k_similar: int,
     original_runner
 ):
     """
@@ -727,9 +744,6 @@ def _prepare_query_and_episode(
         user_id: User identifier
         session_id: Session identifier
         memory: RyumemGoogleADK instance
-        augment_queries: Whether to augment with historical context
-        similarity_threshold: Minimum similarity for augmentation
-        top_k_similar: Number of similar queries to use
         original_runner: The runner instance for storing context
 
     Returns:
@@ -749,9 +763,13 @@ def _prepare_query_and_episode(
     augmented_message = new_message
 
     # Augment query with historical context if enabled
-    if augment_queries:
+    augment_enabled = memory.ryumem.config.tool_tracking.augment_queries
+    logger.info(f"Query augmentation enabled: {augment_enabled}")
+
+    if augment_enabled:
+        logger.info(f"Attempting to augment query: {query_text[:50]}...")
         augmented_query_text = _augment_query_with_history(
-            query_text, memory, user_id, session_id, similarity_threshold, top_k_similar
+            query_text, memory, user_id, session_id
         )
 
         # Update message if context was added (query text might be same but context added)
@@ -762,9 +780,11 @@ def _prepare_query_and_episode(
                 parts=[types.Part(text=augmented_query_text)]
             )
         else:
+            logger.debug("Query text unchanged after augmentation attempt")
             # Query text unchanged, but make sure to use it in message anyway
             augmented_query_text = original_query_text
     else:
+        logger.debug("Query augmentation is disabled in config")
         augmented_query_text = original_query_text
 
     # Check if session already has an episode
@@ -797,17 +817,8 @@ def _prepare_query_and_episode(
             session_id=session_id,
             run_id=run_id,
             augmented_query_text=augmented_query_text,
-            augment_queries=augment_queries,
-            similarity_threshold=similarity_threshold,
-            top_k_similar=top_k_similar,
             memory=memory
         )
-
-    # Store context on runner instance for tool tracker
-    original_runner._ryumem_current_run_id = run_id
-    original_runner._ryumem_query_episode = query_episode_id
-    original_runner._ryumem_session_id = session_id
-    original_runner._ryumem_user_id = user_id
 
     return original_query_text, augmented_message, query_episode_id, run_id
 
@@ -838,17 +849,11 @@ def _save_agent_response_to_episode(
         agent_response = ' '.join(agent_response_parts)
         logger.debug(f"Captured agent response ({len(agent_response)} chars) for query {query_episode_id}")
 
-        # Get existing episode
-        existing_episode_results = memory.ryumem.execute(
-            "MATCH (e:Episode {uuid: $uuid}) RETURN e.metadata AS metadata",
-            {"uuid": query_episode_id}
-        )
-        # Convert CypherResult objects to dicts
-        existing_episode = [result.data for result in existing_episode_results]
+        # Get existing episode via API
+        episode = memory.ryumem.get_episode_by_uuid(query_episode_id)
 
-        if existing_episode:
-            metadata_str = existing_episode[0].get("metadata", "{}")
-            metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+        if episode:
+            metadata_dict = episode.metadata if episode.metadata else {}
 
             # Parse into Pydantic model
             episode_metadata = EpisodeMetadata(**metadata_dict)
@@ -858,10 +863,10 @@ def _save_agent_response_to_episode(
             if latest_run:
                 latest_run.agent_response = agent_response
 
-                # Save back to database
-                memory.ryumem.execute(
-                    "MATCH (e:Episode {uuid: $uuid}) SET e.metadata = $metadata",
-                    {"uuid": query_episode_id, "metadata": json.dumps(episode_metadata.model_dump())}
+                # Save back to database via API
+                memory.ryumem.update_episode_metadata(
+                    episode_uuid=query_episode_id,
+                    metadata=episode_metadata.model_dump()
                 )
                 logger.info(f"Saved agent response to episode {query_episode_id} session {session_id[:8]}")
     except Exception as e:
@@ -873,52 +878,40 @@ def _save_agent_response_to_episode(
 
 def wrap_runner_with_tracking(
     original_runner,
-    memory: RyumemGoogleADK,
-    track_queries: bool = True,
-    augment_queries: bool = True,
-    similarity_threshold: float = 0.3,
-    top_k_similar: int = 5,
+    agent_with_memory,
 ):
     """
-    Wrap a Google ADK Runner to automatically track user queries as episodes
-    and optionally augment queries with historical context.
+    Wrap a Google ADK runner with query tracking and augmentation.
 
-    This wrapper intercepts both runner.run() and runner.run_async() calls to:
-    1. Augment incoming queries with similar past queries and their tool usage (if enabled)
-    2. Create episodes for user queries before they're processed by the agent
-    3. Link tool executions to these query episodes for hierarchical tracking
+    Modifies the runner in-place by:
+    - Intercepting queries before they reach the agent
+    - Augmenting queries with historical context
+    - Tracking queries and responses as episodes
+
+    All configuration comes from the agent's ryumem instance.
 
     Args:
-        original_runner: The original Google ADK Runner instance
-        memory: RyumemGoogleADK instance for storing episodes
-        track_queries: Whether to track user queries (default: True)
-        augment_queries: Whether to augment queries with historical context (default: True)
-        similarity_threshold: Minimum similarity score for query matching (0.0-1.0, default: 0.3)
-        top_k_similar: Number of similar queries to consider for augmentation (default: 5, -1 for all)
+        original_runner: Google ADK Runner instance
+        agent_with_memory: Agent that has been enhanced with add_memory_to_agent()
 
     Returns:
-        Wrapped runner with query tracking and augmentation enabled for both sync and async methods
+        The same runner object (for chaining)
 
     Example:
-        ```python
-        runner = Runner(agent=agent, app_name="my_app", session_service=session_service)
-
-        # Enable query tracking and augmentation
-        runner = wrap_runner_with_tracking(
-            runner,
-            memory,
-            augment_queries=True,      # Enable augmentation
-            similarity_threshold=0.3,  # Match queries with 30%+ similarity
-            top_k_similar=5            # Use top 5 similar queries
+        ryumem = Ryumem()
+        agent = add_memory_to_agent(genai.Agent(...), ryumem)
+        runner = genai.Runner(agent=agent)
+        runner = wrap_runner_with_tracking(runner, agent)
+    """
+    # Extract memory interface from agent
+    if not hasattr(agent_with_memory, '_ryumem_memory'):
+        raise ValueError(
+            "agent_with_memory must be an agent enhanced with add_memory_to_agent(). "
+            f"Got {type(agent_with_memory)} without ._ryumem_memory attribute."
         )
 
-        # Use runner normally - works with both sync and async
-        runner.run(user_id="user123", session_id="session456", new_message=content)
-        # OR
-        await runner.run_async(user_id="user123", session_id="session456", new_message=content)
-        ```
-    """
-    if not track_queries:
+    memory: RyumemGoogleADK = agent_with_memory._ryumem_memory
+    if not memory.ryumem.config.tool_tracking.track_queries:
         return original_runner
 
     # NOTE: Google ADK's Runner.run() internally calls run_async() in a thread.
@@ -935,9 +928,6 @@ def wrap_runner_with_tracking(
                 user_id=user_id,
                 session_id=session_id,
                 memory=memory,
-                augment_queries=augment_queries,
-                similarity_threshold=similarity_threshold,
-                top_k_similar=top_k_similar,
                 original_runner=original_runner
             )
 
@@ -978,10 +968,5 @@ def wrap_runner_with_tracking(
         memory.tracker._runner = original_runner
         logger.debug("Stored runner reference in tool tracker for episode ID lookup")
 
-    augmentation_status = "enabled" if augment_queries else "disabled"
-    logger.info(f"Runner wrapped for query tracking (augmentation: {augmentation_status})")
-
     return original_runner
 
-
-# Removed old complex instruction saving logic - now handled directly in add_memory_to_agent

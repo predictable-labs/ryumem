@@ -294,16 +294,15 @@ If the user wants a hint, use get_hint.""",
     print()
 
     # ⭐ Add memory + tool tracking + query augmentation
-    # Using a valid API key registered for demo_company_v2
+    # Auto-loads RYUMEM_API_URL and RYUMEM_API_KEY from environment
     ryumem = Ryumem(
-        api_key="ryu_sywtp0foYYd7lVlEX8uW3oWfidVo4XF24V5iiI1fHNc",
+        track_tools=True,        # Enable tool tracking
+        augment_queries=True,    # ✨ Enable augmentation - this is key!
+        similarity_threshold=0.3,  # Match queries with 30%+ similarity
+        top_k_similar=5,         # Use top 5 similar queries for context
     )
-    
-    memory = add_memory_to_agent(
-        password_agent,
-        ryumem_instance=ryumem,
-        enable_tool_tracking=True,
-    )
+
+    password_agent = add_memory_to_agent(password_agent, ryumem)
 
     print("✓ Memory and tool tracking enabled")
     print()
@@ -326,13 +325,8 @@ If the user wants a hint, use get_hint.""",
     )
 
     # ⭐ Wrap runner to automatically track user queries and augment with history
-    runner = wrap_runner_with_tracking(
-        runner,
-        memory,
-        augment_queries=True,      # ✨ Enable augmentation - this is key!
-        similarity_threshold=0.3,  # Match queries with 30%+ similarity
-        top_k_similar=5            # Use top 5 similar queries for context
-    )
+    # Config (augment_queries, similarity_threshold, etc.) is read from ryumem.config
+    runner = wrap_runner_with_tracking(runner, password_agent)
 
     print("✓ Runner wrapped with query tracking and augmentation")
     print()
