@@ -128,11 +128,10 @@ class EpisodeIngestion:
 
         if existing_episode:
             logger.info(
-                f"⚠️  Duplicate episode detected! Skipping ingestion. "
+                f"Duplicate episode detected! Skipping ingestion. "
                 f"Existing episode: {existing_episode['uuid'][:8]}... "
                 f"created at {existing_episode['created_at']}"
             )
-            logger.info(f"💰 Saved ~6-13 seconds and ~1000-3000 tokens by skipping duplicate!")
             return existing_episode["uuid"]
 
         start_time = datetime.utcnow()
