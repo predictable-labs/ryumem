@@ -1905,6 +1905,15 @@ async def get_all_settings(
         service = ConfigService(ryumem.db)
         grouped_configs = service.get_all_configs_grouped(mask_sensitive=mask_sensitive)
 
+        # Create virtual "api_keys" category from llm API keys
+        if "llm" in grouped_configs:
+            api_key_configs = [cfg for cfg in grouped_configs["llm"] if "api_key" in cfg["key"]]
+            non_api_key_configs = [cfg for cfg in grouped_configs["llm"] if "api_key" not in cfg["key"]]
+
+            if api_key_configs:
+                grouped_configs["api_keys"] = api_key_configs
+                grouped_configs["llm"] = non_api_key_configs
+
         # Convert to response model
         settings_dict = {}
         total = 0
@@ -1955,7 +1964,14 @@ async def get_settings_by_category(
         from ryumem_server.core.config_service import ConfigService
 
         service = ConfigService(ryumem.db)
-        configs = service.db.get_configs_by_category(category)
+
+        # Handle virtual "api_keys" category
+        if category == "api_keys":
+            # Get all llm configs and filter to just API keys
+            all_configs = service.db.get_configs_by_category("llm")
+            configs = [cfg for cfg in all_configs if "api_key" in cfg["key"]]
+        else:
+            configs = service.db.get_configs_by_category(category)
 
         if not configs:
             raise HTTPException(status_code=404, detail=f"Category not found: {category}")
