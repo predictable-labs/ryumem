@@ -220,6 +220,12 @@ class Ryumem:
                         data["metadata"] = json.loads(data["metadata"])
                     except json.JSONDecodeError:
                         data["metadata"] = {}
+
+                # Handle kind enum conversion
+                if "kind" in data and isinstance(data["kind"], str):
+                    from ryumem.core.models import EpisodeKind
+                    data["kind"] = EpisodeKind.from_str(data["kind"])
+
                 return EpisodeNode(**data)
             return None
         except requests.exceptions.HTTPError as e:

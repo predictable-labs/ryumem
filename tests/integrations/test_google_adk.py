@@ -247,19 +247,20 @@ class TestMemoryToolsRealIntegration:
         assert "user_id and session_id are required" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_save_memory_adds_to_existing_episode(self, ryumem, agent, unique_user, unique_session):
-        """Test save_memory adds memory to existing episode."""
+    async def test_save_memory_creates_separate_memory_episode(self, ryumem, agent, unique_user, unique_session):
+        """Test save_memory creates a new separate episode with kind='memory'."""
         memory = RyumemGoogleADK(agent=agent, ryumem=ryumem)
 
-        # First create an episode for this session (add_memory requires existing episode)
+        # First create a query episode for this session
         initial_episode_id = ryumem.add_episode(
             content="Initial episode content",
             user_id=unique_user,
             session_id=unique_session,
-            source="text"
+            source="text",
+            kind="query"
         )
 
-        # Now save_memory should work (episode has session_id in metadata)
+        # save_memory should create a NEW separate episode with kind='memory'
         tool_context = SimpleToolContext(user_id=unique_user, session_id=unique_session)
         result = await memory.save_memory(
             tool_context=tool_context,
@@ -270,12 +271,17 @@ class TestMemoryToolsRealIntegration:
         # Verify save succeeded
         assert result["status"] == "success", f"Expected success but got: {result}"
         assert "episode_id" in result
-        episode_id = result["episode_id"]
+        memory_episode_id = result["episode_id"]
 
-        # Verify episode exists
-        episode = ryumem.get_episode_by_uuid(episode_id)
-        assert episode is not None
-        assert episode.user_id == unique_user
+        # Verify memory episode is different from initial episode
+        assert memory_episode_id != initial_episode_id, "save_memory should create a new episode"
+
+        # Verify memory episode exists with correct kind
+        memory_episode = ryumem.get_episode_by_uuid(memory_episode_id)
+        assert memory_episode is not None
+        assert memory_episode.user_id == unique_user
+        assert memory_episode.kind.value == "memory", f"Expected kind='memory' but got {memory_episode.kind.value}"
+        assert memory_episode.content == "Important fact about testing"
 
     @pytest.mark.asyncio
     async def test_save_memory_different_source_types(self, ryumem, agent, unique_user):

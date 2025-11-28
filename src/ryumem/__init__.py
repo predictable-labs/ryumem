@@ -37,6 +37,7 @@ from ryumem.core.models import (
     EntityNode,
     EpisodeNode,
     EpisodeType,
+    EpisodeKind,
     EpisodicEdge,
     SearchConfig,
     SearchResult,
@@ -53,6 +54,7 @@ __all__ = [
     "EntityEdge",
     "EpisodicEdge",
     "EpisodeType",
+    "EpisodeKind",
     "SearchConfig",
     "SearchResult",
 ]
