@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Tuple
 
 from rank_bm25 import BM25Okapi
 
-from ryumem_server.core.models import EntityEdge, EntityNode
+from ryumem_server.core.models import EntityEdge, EntityNode, EpisodeNode
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,11 @@ class BM25Index:
         self.edge_uuids: List[str] = []
         self.edge_corpus: List[List[str]] = []
         self.edge_bm25: Optional[BM25Okapi] = None
+
+        # Episode index
+        self.episode_uuids: List[str] = []
+        self.episode_corpus: List[List[str]] = []
+        self.episode_bm25: Optional[BM25Okapi] = None
 
         logger.info("BM25Index initialized")
 
@@ -112,6 +117,51 @@ class BM25Index:
         self._rebuild_edge_index()
 
         logger.debug(f"Added edge to BM25: {edge.fact[:50]}...")
+
+    def add_episode(self, episode: EpisodeNode) -> None:
+        """
+        Add an episode to the BM25 index.
+
+        Indexes both episode content and memories from metadata.
+
+        Args:
+            episode: Episode node to index
+
+        Example:
+            index.add_episode(EpisodeNode(
+                uuid="789",
+                content="Python is a programming language",
+                ...
+            ))
+        """
+        # Collect text to index: episode content + memories from metadata
+        texts_to_index = [episode.content]
+
+        # Extract memories from episode metadata if present
+        if episode.metadata:
+            import json
+            metadata_dict = episode.metadata if isinstance(episode.metadata, dict) else json.loads(episode.metadata)
+
+            # Check if metadata has sessions with query runs
+            if 'sessions' in metadata_dict:
+                for session_id, runs in metadata_dict['sessions'].items():
+                    if isinstance(runs, list):
+                        for run in runs:
+                            # Add LLM saved memory if present
+                            if isinstance(run, dict) and 'llm_saved_memory' in run and run['llm_saved_memory']:
+                                texts_to_index.append(run['llm_saved_memory'])
+
+        # Combine all texts and tokenize
+        combined_text = " ".join(texts_to_index)
+        tokens = tokenize(combined_text)
+
+        self.episode_uuids.append(episode.uuid)
+        self.episode_corpus.append(tokens)
+
+        # Rebuild BM25 index
+        self._rebuild_episode_index()
+
+        logger.debug(f"Added episode to BM25: {episode.content[:50]}... (with {len(texts_to_index)-1} memories)")
 
     def search_entities(
         self,
@@ -203,6 +253,51 @@ class BM25Index:
         # Return top_k
         return results[:top_k]
 
+    def search_episodes(
+        self,
+        query: str,
+        top_k: int = 10,
+        min_score: float = 0.0,
+    ) -> List[Tuple[str, float]]:
+        """
+        Search episodes using BM25 keyword matching.
+
+        Args:
+            query: Search query
+            top_k: Maximum number of results
+            min_score: Minimum BM25 score threshold
+
+        Returns:
+            List of (episode_uuid, score) tuples, sorted by score descending
+
+        Example:
+            results = index.search_episodes("programming language", top_k=5)
+            for episode_uuid, score in results:
+                print(f"{episode_uuid}: {score:.3f}")
+        """
+        if not self.episode_bm25 or not self.episode_corpus:
+            logger.warning("Episode BM25 index is empty")
+            return []
+
+        # Tokenize query
+        query_tokens = tokenize(query)
+
+        # Get BM25 scores
+        scores = self.episode_bm25.get_scores(query_tokens)
+
+        # Create (uuid, score) pairs
+        results = [
+            (uuid, score)
+            for uuid, score in zip(self.episode_uuids, scores)
+            if score >= min_score
+        ]
+
+        # Sort by score descending
+        results.sort(key=lambda x: x[1], reverse=True)
+
+        # Return top_k
+        return results[:top_k]
+
     def remove_entity(self, entity_uuid: str) -> bool:
         """
         Remove an entity from the BM25 index.
@@ -258,6 +353,13 @@ class BM25Index:
             self.edge_bm25 = BM25Okapi(self.edge_corpus)
         else:
             self.edge_bm25 = None
+
+    def _rebuild_episode_index(self) -> None:
+        """Rebuild the episode BM25 index."""
+        if self.episode_corpus:
+            self.episode_bm25 = BM25Okapi(self.episode_corpus)
+        else:
+            self.episode_bm25 = None
 
     def save(self, path: str) -> None:
         """
@@ -336,6 +438,10 @@ class BM25Index:
         self.edge_corpus = []
         self.edge_bm25 = None
 
+        self.episode_uuids = []
+        self.episode_corpus = []
+        self.episode_bm25 = None
+
         logger.info("BM25 index cleared")
 
     def stats(self) -> Dict[str, int]:
@@ -343,14 +449,62 @@ class BM25Index:
         Get index statistics.
 
         Returns:
-            Dictionary with entity_count and edge_count
+            Dictionary with entity_count, edge_count, and episode_count
         """
         return {
             "entity_count": len(self.entity_uuids),
             "edge_count": len(self.edge_uuids),
+            "episode_count": len(self.episode_uuids),
         }
 
     def __repr__(self) -> str:
         """String representation."""
         stats = self.stats()
-        return f"BM25Index(entities={stats['entity_count']}, edges={stats['edge_count']})"
+        return f"BM25Index(entities={stats['entity_count']}, edges={stats['edge_count']}, episodes={stats['episode_count']})"
+
+    def build_from_data(
+        self,
+        episodes: List[EpisodeNode] = None,
+        entities: List[EntityNode] = None,
+        edges: List[EntityEdge] = None,
+    ) -> None:
+        """
+        Framework method to build BM25 index from episodes, entities, and edges.
+
+        This is a convenience method that allows you to build the entire index
+        from lists of data in one call.
+
+        Args:
+            episodes: List of episode nodes to index
+            entities: List of entity nodes to index
+            edges: List of entity edges to index
+
+        Example:
+            index = BM25Index()
+            index.build_from_data(
+                episodes=[episode1, episode2],
+                entities=[entity1, entity2],
+                edges=[edge1, edge2]
+            )
+        """
+        logger.info("Building BM25 index from data...")
+
+        # Add episodes
+        if episodes:
+            for episode in episodes:
+                self.add_episode(episode)
+            logger.info(f"Added {len(episodes)} episodes to BM25 index")
+
+        # Add entities
+        if entities:
+            for entity in entities:
+                self.add_entity(entity)
+            logger.info(f"Added {len(entities)} entities to BM25 index")
+
+        # Add edges
+        if edges:
+            for edge in edges:
+                self.add_edge(edge)
+            logger.info(f"Added {len(edges)} edges to BM25 index")
+
+        logger.info(f"BM25 index built: {self}")

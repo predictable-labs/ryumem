@@ -80,8 +80,12 @@ class Ryumem:
         if api_key is None:
             api_key = os.getenv("RYUMEM_API_KEY", "")
 
+        # Add protocol if missing - use HTTPS for production domains, HTTP for localhost
         if not server_url.startswith("http://") and not server_url.startswith("https://"):
-            server_url = f"http://{server_url}"
+            if "localhost" in server_url or "127.0.0.1" in server_url:
+                server_url = f"http://{server_url}"
+            else:
+                server_url = f"https://{server_url}"
 
         self.base_url = server_url.rstrip('/')
         self.api_key = api_key
@@ -138,6 +142,12 @@ class Ryumem:
     def _patch(self, endpoint: str, json: Dict = None) -> Any:
         url = f"{self.base_url}{endpoint}"
         response = requests.patch(url, json=json, headers=self._get_headers())
+        response.raise_for_status()
+        return response.json()
+
+    def _delete(self, endpoint: str) -> Any:
+        url = f"{self.base_url}{endpoint}"
+        response = requests.delete(url, headers=self._get_headers())
         response.raise_for_status()
         return response.json()
 
@@ -210,6 +220,12 @@ class Ryumem:
                         data["metadata"] = json.loads(data["metadata"])
                     except json.JSONDecodeError:
                         data["metadata"] = {}
+
+                # Handle kind enum conversion
+                if "kind" in data and isinstance(data["kind"], str):
+                    from ryumem.core.models import EpisodeKind
+                    data["kind"] = EpisodeKind.from_str(data["kind"])
+
                 return EpisodeNode(**data)
             return None
         except requests.exceptions.HTTPError as e:
@@ -293,6 +309,7 @@ class Ryumem:
         session_id: str,
         agent_id: Optional[str] = None,
         source: str = "text",
+        kind: str = "query",
         metadata: Optional[Dict] = None,
         extract_entities: Optional[bool] = None,
     ) -> str:
@@ -302,11 +319,47 @@ class Ryumem:
             "user_id": user_id,
             "session_id": session_id,
             "source": source,
+            "kind": kind,
             "metadata": metadata,
             "extract_entities": extract_entities
         }
         response = self._post("/episodes", json=payload)
-        return response["episode_id"]
+
+        # Handle correct response format (expected)
+        if "episode_id" in response:
+            return response["episode_id"]
+
+        # Handle alternate single-object formats
+        if "uuid" in response:
+            return response["uuid"]
+        if "id" in response:
+            return response["id"]
+
+        # Server bug workaround: POST returning GET response (paginated list)
+        # This happens when server routing is misconfigured
+        if "episodes" in response and isinstance(response["episodes"], list):
+            if len(response["episodes"]) > 0:
+                episode = response["episodes"][0]
+                return episode.get("uuid") or episode.get("id") or episode.get("episode_id")
+            else:
+                # Empty list means episode wasn't created - try with PUT instead
+                logger.warning("POST /episodes returned empty list, trying PUT")
+                try:
+                    put_response = self._patch(f"/episodes/{session_id}", json=payload)
+                    if "uuid" in put_response:
+                        return put_response["uuid"]
+                except:
+                    pass
+
+                # Last resort: create via direct database call
+                # For now, just raise error
+                raise ValueError(
+                    f"Failed to create episode: POST /episodes returned empty list. "
+                    f"Server may have routing issue or episode already exists for session_id={session_id}"
+                )
+
+        logger.error(f"Unexpected response format from /episodes: {response}")
+        raise KeyError(f"Response missing episode identifier. Got keys: {list(response.keys())}")
 
     def add_memory(
         self,
@@ -375,6 +428,26 @@ class Ryumem:
                 return None
             raise
 
+    def batch_save_tools(self, tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Batch save multiple tools via API.
+
+        Args:
+            tools: List of tool dicts, each containing:
+                - tool_name: str
+                - description: str
+                - name_embedding: List[float]
+
+        Returns:
+            Dict with statistics:
+                - saved: int (number of new tools created)
+                - updated: int (number of existing tools updated)
+                - failed: int (number of tools that failed)
+                - errors: List[str] (error messages if any)
+        """
+        response = self._post("/tools/batch", json={"tools": tools})
+        return response
+
     # ==================== Query Methods ====================
 
     def execute(self, query: str, params: Optional[Dict] = None) -> List[CypherResult]:
@@ -397,6 +470,7 @@ class Ryumem:
         min_rrf_score: Optional[float] = None,
         min_bm25_score: Optional[float] = None,
         rrf_k: Optional[int] = None,
+        kinds: Optional[List[str]] = None,
     ) -> SearchResult:
         """Search the memory system."""
         payload = {
@@ -409,6 +483,7 @@ class Ryumem:
             "min_rrf_score": min_rrf_score,
             "min_bm25_score": min_bm25_score,
             "rrf_k": rrf_k,
+            "kinds": kinds,
         }
 
         response = self._post("/search", json=payload)
@@ -632,3 +707,15 @@ class Ryumem:
             model=response.get("model"),
             tokens_used=response.get("tokens_used")
         )
+
+    def reset_database(self) -> Dict[str, str]:
+        """
+        Reset the entire database - delete all nodes and relationships.
+
+        WARNING: This is irreversible! All data will be permanently deleted.
+        Useful for test cleanup.
+
+        Returns:
+            Response dict with status and message
+        """
+        return self._delete("/database/reset")

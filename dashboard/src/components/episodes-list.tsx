@@ -130,6 +130,16 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
     }
   };
 
+  const getKindColor = (kind?: string) => {
+    switch (kind?.toLowerCase()) {
+      case "memory":
+        return "bg-amber-500/10 text-amber-600 border-amber-500/20";
+      case "query":
+      default:
+        return "bg-indigo-500/10 text-indigo-600 border-indigo-500/20";
+    }
+  };
+
   const getToolsUsed = (episode: EpisodeInfo) => {
     const metadata = episode.metadata;
     if (!metadata) return [];
@@ -274,9 +284,14 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                       )}
                     </div>
                   </div>
-                  <Badge className={`${getSourceColor(episode.source)} shrink-0`}>
-                    {episode.source}
-                  </Badge>
+                  <div className="flex gap-2 shrink-0">
+                    <Badge className={getKindColor(episode.kind)}>
+                      {episode.kind || 'query'}
+                    </Badge>
+                    <Badge className={getSourceColor(episode.source)}>
+                      {episode.source}
+                    </Badge>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>

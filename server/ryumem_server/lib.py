@@ -227,6 +227,7 @@ class Ryumem:
         agent_id: Optional[str] = None,
         session_id: Optional[str] = None,
         source: str = "text",
+        kind: str = "query",
         metadata: Optional[Dict] = None,
         extract_entities: Optional[bool] = None,
     ) -> str:
@@ -264,12 +265,17 @@ class Ryumem:
         # Convert source string to EpisodeType
         source_type = EpisodeType.from_str(source)
 
+        # Convert kind string to EpisodeKind
+        from ryumem_server.core.models import EpisodeKind
+        kind_enum = EpisodeKind.from_str(kind)
+
         episode_id = self.ingestion.ingest(
             content=content,
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
             source=source_type,
+            kind=kind_enum,
             metadata=metadata,
             extract_entities=extract_entities,
         )
@@ -381,6 +387,7 @@ class Ryumem:
         min_rrf_score: Optional[float] = None,
         min_bm25_score: Optional[float] = None,
         rrf_k: Optional[int] = None,
+        kinds: Optional[List[str]] = None,
     ) -> SearchResult:
         """
         Search the memory system.
@@ -423,6 +430,7 @@ class Ryumem:
             strategy=strategy,
             similarity_threshold=similarity_threshold,
             max_depth=max_depth,
+            kinds=kinds,
         )
 
         # Override with explicit parameters if provided

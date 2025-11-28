@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 from uuid import uuid4
 
 from ryumem_server.core.graph_db import RyugraphDB
-from ryumem_server.core.models import EpisodeNode, EpisodeType, EpisodicEdge
+from ryumem_server.core.models import EpisodeNode, EpisodeType, EpisodeKind, EpisodicEdge
 from ryumem_server.ingestion.entity_extractor import EntityExtractor
 from ryumem_server.ingestion.relation_extractor import RelationExtractor
 from ryumem_server.utils.embeddings import EmbeddingClient
@@ -82,6 +82,7 @@ class EpisodeIngestion:
         agent_id: Optional[str] = None,
         session_id: Optional[str] = None,
         source: EpisodeType = EpisodeType.text,
+        kind: 'EpisodeKind' = None,
         source_description: str = "",
         metadata: Optional[Dict] = None,
         name: Optional[str] = None,
@@ -150,6 +151,15 @@ class EpisodeIngestion:
         # Generate embedding for episode content
         content_embedding = self.embedding_client.embed(content)
 
+        # Ensure metadata includes session_id if provided
+        episode_metadata = metadata.copy() if metadata else {}
+        if session_id:
+            # Initialize or update sessions structure so get_episode_by_session_id can find it
+            if 'sessions' not in episode_metadata:
+                episode_metadata['sessions'] = {}
+            if session_id not in episode_metadata['sessions']:
+                episode_metadata['sessions'][session_id] = []
+
         episode = EpisodeNode(
             uuid=episode_uuid,
             name=name,
@@ -157,15 +167,22 @@ class EpisodeIngestion:
             content_embedding=content_embedding,
             source=source,
             source_description=source_description,
+            kind=kind if kind is not None else EpisodeKind.query,
             created_at=start_time,
             valid_at=start_time,
             user_id=user_id,
             agent_id=agent_id,
-            metadata=metadata or {},
+            metadata=episode_metadata,
         )
 
         # Save episode to database
         self.db.save_episode(episode)
+
+        # Add episode to BM25 index for keyword search
+        if self.bm25_index:
+            self.bm25_index.add_episode(episode)
+            logger.debug(f"Added episode to BM25 index")
+
         step_duration = (datetime.utcnow() - step_start).total_seconds()
         logger.info(f"⏱️  [TIMING] Step 1 - Create episode node with embedding: {step_duration:.2f}s")
         logger.debug(f"Created episode node: {episode_uuid}")

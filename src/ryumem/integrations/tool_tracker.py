@@ -66,21 +66,21 @@ class ToolTracker:
         )
 
     def register_tools(self, tools: List[Dict[str, str]]) -> None:
-        """ess": true, "duration_ms": 0, "timestamp": "2025-11-20T10:16:39.548231", "input_params": {"guess": "AAAA"}, "output_summary": "{\'valid\': True, \'correct\': False, \'correct_positions\': 2, \'attempts_remaining\': 2, \'message\': \\"\'AAAA\' has 2 characters in the correct position. 2 attempts remaining.\\"}", "error": null}, {"tool_name": "validate_with_password", "success": true, "duration_ms": 0, "timestamp": "2025-11-20T10:16:43.805684", "input_params": {"guess": "BBBB"}, "output_summary": "{\'valid\': True, \'correct\': False, \'correct_positions\': 1, \'attempts_remaining\': 1, \'message\': \\"\'BBBB\' has 1 characters in the correct position. 1 attempts remaining.\\"}", "error": null}, {"tool_name": "get_hint", "success": true, "duration_ms": 0, "timestamp": "2025-11-20T10:16:47.868517", "input_params": {}, "output_summary": "{\'hint\': \\"Now try \'CCCC\' to check for C\'s. This will help you understand the character distribution.\\"}", "error": null}], "llm_saved_memory": ""}]}}'}]
-INFO - Tracked tool execution: validate_with_password - success in 0ms [in query: game_session_7770]
-INFO - Sending out request, model: gemini-2.0-flash-exp, backend: GoogleLLMVariant.GEMINI_API, stream: False
-INFO - Response received from the model.
-INFO - Saved agent response to episode a84642ff-d34c-4394-b196-ae019f203604 session game_ses
+        """
+        Register tools in the database at startup using batch endpoint.
 
-
-        Register tools in the database at startup.
-
-        Only generates descriptions for new tools (doesn't re-process existing ones).
+        Efficiently registers multiple tools in a single API call.
+        Backend handles duplicate detection automatically.
 
         Args:
             tools: List of tool dicts with 'name' and 'description' keys
         """
         try:
+            if not tools:
+                return
+
+            # Prepare batch of tools with embeddings
+            tools_batch = []
             for tool in tools:
                 tool_name = tool.get("name")
                 tool_description = tool.get("description", "")
@@ -89,13 +89,7 @@ INFO - Saved agent response to episode a84642ff-d34c-4394-b196-ae019f203604 sess
                     logger.warning(f"Skipping tool with no name: {tool}")
                     continue
 
-                # Check if tool already exists
-                existing_tool = self.ryumem.get_tool_by_name(tool_name)
-                if existing_tool:
-                    logger.debug(f"Tool already registered: {tool_name}")
-                    continue
-
-                # New tool - generate enhanced description using LLM
+                # Generate enhanced description using LLM if enabled
                 enhanced_description = tool_description
                 if tool_description and self.ryumem.config.tool_tracking.enhance_descriptions:
                     enhanced_description = self._generate_tool_description(
@@ -106,14 +100,29 @@ INFO - Saved agent response to episode a84642ff-d34c-4394-b196-ae019f203604 sess
                 # Create embedding for tool name
                 embedding_response = self.ryumem.embed(tool_name)
 
-                # Save tool to database
-                self.ryumem.save_tool(
-                    tool_name=tool_name,
-                    description=enhanced_description or f"Tool: {tool_name}",
-                    name_embedding=embedding_response.embedding,
-                )
+                # Add to batch
+                tools_batch.append({
+                    "tool_name": tool_name,
+                    "description": enhanced_description or f"Tool: {tool_name}",
+                    "name_embedding": embedding_response.embedding
+                })
 
-                logger.debug(f"Registered new tool: {tool_name}")
+            if not tools_batch:
+                logger.warning("No valid tools to register")
+                return
+
+            # Batch save all tools in one API call
+            result = self.ryumem.batch_save_tools(tools_batch)
+
+            logger.info(
+                f"Batch tool registration: {result.get('saved', 0)} new, "
+                f"{result.get('updated', 0)} updated, {result.get('failed', 0)} failed"
+            )
+
+            # Log any errors
+            if result.get('errors'):
+                for error in result['errors']:
+                    logger.error(f"Tool registration error: {error}")
 
         except Exception as e:
             logger.error(f"Failed to register tools: {e}")

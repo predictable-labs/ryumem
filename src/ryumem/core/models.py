@@ -35,6 +35,26 @@ class EpisodeType(Enum):
         raise ValueError(f'Episode type: {episode_type} not implemented')
 
 
+class EpisodeKind(Enum):
+    """
+    Enumeration of episode kinds - distinguishes query episodes from memory episodes.
+
+    Attributes:
+        query: Regular user query/interaction episode
+        memory: LLM-saved memory episode
+    """
+    query = 'query'
+    memory = 'memory'
+
+    @staticmethod
+    def from_str(kind: str) -> 'EpisodeKind':
+        if kind == 'query':
+            return EpisodeKind.query
+        if kind == 'memory':
+            return EpisodeKind.memory
+        raise ValueError(f'Episode kind: {kind} not implemented')
+
+
 class EpisodeNode(BaseModel):
     """
     Represents an episode (a discrete unit of ingestion).
@@ -49,6 +69,7 @@ class EpisodeNode(BaseModel):
     )
     source: EpisodeType = Field(default=EpisodeType.text, description='Source type of episode')
     source_description: str = Field(default='', description='Description of the data source')
+    kind: EpisodeKind = Field(default=EpisodeKind.query, description='Episode kind: query or memory')
     created_at: datetime = Field(default_factory=datetime.utcnow)
     valid_at: datetime = Field(
         default_factory=datetime.utcnow,

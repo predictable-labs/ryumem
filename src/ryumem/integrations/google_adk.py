@@ -115,8 +115,6 @@ class RyumemGoogleADK:
 
     async def search_memory(self, tool_context: ToolContext, query: str, limit: int = 5) -> Dict[str, Any]:
         """
-        Auto-generated search function for retrieving memories.
-
         This function is automatically registered as a tool with the agent.
 
         Args:
@@ -152,9 +150,17 @@ class RyumemGoogleADK:
                 user_id=user_id,
                 session_id=session_id,
                 strategy="hybrid",
-                limit=limit
+                limit=limit,
+                kinds=['memory'],  # NEW: Search only memory episodes
+                min_rrf_score=0.01  # Lower threshold for memory episodes (episode-only content)
             )
 
+            # Collect all results: edges (facts), episodes (content), and entities
+            memories = []
+            episodes_list = []
+            entities_list = []
+
+            # Add edges as memories (facts/relationships)
             if results.edges:
                 memories = [
                     {
@@ -165,11 +171,40 @@ class RyumemGoogleADK:
                     }
                     for edge in results.edges
                 ]
-                logger.info(f"Found {len(memories)} memories for user '{user_id}'")
+
+            # Add episodes (content)
+            if results.episodes:
+                episodes_list = [
+                    {
+                        "content": episode.content,
+                        "score": results.scores.get(episode.uuid, 0.0),
+                        "uuid": episode.uuid,
+                        "created_at": str(episode.created_at)
+                    }
+                    for episode in results.episodes
+                ]
+
+            # Add entities
+            if results.entities:
+                entities_list = [
+                    {
+                        "name": entity.name,
+                        "type": entity.entity_type,
+                        "score": results.scores.get(entity.uuid, 0.0),
+                        "uuid": entity.uuid
+                    }
+                    for entity in results.entities
+                ]
+
+            # Return results if we found anything
+            if memories or episodes_list or entities_list:
+                logger.info(f"Found {len(memories)} memories, {len(episodes_list)} episodes, {len(entities_list)} entities for user '{user_id}'")
                 return {
                     "status": "success",
-                    "count": len(memories),
-                    "memories": memories
+                    "count": len(memories) + len(episodes_list) + len(entities_list),
+                    "memories": memories,
+                    "episodes": episodes_list,
+                    "entities": entities_list
                 }
             else:
                 logger.info(f"No memories found for user '{user_id}'")
@@ -224,17 +259,16 @@ class RyumemGoogleADK:
             if source not in valid_sources:
                 source = "text"
 
-            episode = self.ryumem.add_memory(
+            # Create separate memory episode with kind='memory'
+            episode_id = self.ryumem.add_episode(
                 content=content,
                 user_id=user_id,
                 session_id=session_id,
                 source=source,
+                kind='memory',  # NEW: Mark as memory episode
             )
 
-            # Extract just the UUID string for JSON serialization
-            episode_id = episode.uuid
-
-            logger.info(f"Saved memory for user '{user_id}' with episode_id: {episode_id}")
+            logger.info(f"Saved memory episode for user '{user_id}' with episode_id: {episode_id}")
 
             return {
                 "status": "success",
@@ -390,22 +424,9 @@ def add_memory_to_agent(
         try:
             tool_tracker = ToolTracker(ryumem=ryumem_instance)
 
-            # Wrap agent tools
+            # Wrap agent tools BEFORE adding memory tools
             tool_tracker.wrap_agent_tools(agent)
             logger.info(f"Tool tracking enabled for agent: {agent.name if hasattr(agent, 'name') else 'unnamed'}")
-
-            # Register tools
-            if hasattr(agent, 'tools'):
-                tools_to_register = [
-                    {
-                        'name': getattr(tool, 'name', getattr(tool, '__name__', 'unknown')),
-                        'description': getattr(tool, 'description', getattr(tool, '__doc__', '')) or f"Tool: {getattr(tool, 'name', 'unknown')}"
-                    }
-                    for tool in agent.tools
-                ]
-                if tools_to_register:
-                    tool_tracker.register_tools(tools_to_register)
-                    logger.info(f"Registered {len(tools_to_register)} tools in database")
 
         except Exception as e:
             logger.error(f"Failed to initialize tool tracking: {e}")
@@ -424,9 +445,32 @@ def add_memory_to_agent(
         agent.tools = []
         logger.warning("Agent doesn't have 'tools' attribute, creating new list")
 
+    # Collect existing tools before adding memory tools
+    existing_tools = list(agent.tools) if hasattr(agent, 'tools') else []
+
     # Add memory tools
     agent.tools.extend(memory.tools)
     logger.info(f"Added {len(memory.tools)} memory tools to agent")
+
+    # Register ALL tools (existing + memory) in ONE call
+    # register_tools() will skip any that already exist in database
+    if tool_tracker:
+        try:
+            all_tools = existing_tools + memory.tools
+            tools_to_register = [
+                {
+                    'name': getattr(tool, 'name', getattr(tool, '__name__', 'unknown')),
+                    'description': getattr(tool, 'description', getattr(tool, '__doc__', '')) or f"Tool: {getattr(tool, 'name', 'unknown')}"
+                }
+                for tool in all_tools
+            ]
+            if tools_to_register:
+                tool_tracker.register_tools(tools_to_register)
+                logger.info(f"Registered {len(tools_to_register)} tools in database (skips duplicates)")
+        except Exception as e:
+            logger.error(f"Failed to register tools: {e}")
+            if not ryumem_instance.config.tool_tracking.ignore_errors:
+                raise
 
     # Build enhanced instruction
     base_instruction = agent.instruction or ""

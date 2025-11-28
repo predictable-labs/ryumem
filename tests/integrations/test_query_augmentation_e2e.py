@@ -24,15 +24,10 @@ class TestQueryAugmentationE2E:
     """End-to-end tests for query augmentation with multi-user isolation."""
 
     @pytest.fixture
-    def server_url(self):
-        """Get test server URL from environment."""
-        return os.getenv("RYUMEM_TEST_SERVER_URL", "http://localhost:8000")
-
-    @pytest.fixture
-    def ryumem_client(self, server_url):
+    def ryumem_client(self):
         """Create Ryumem client for testing."""
-        api_key = os.getenv("RYUMEM_API_KEY")
-        return Ryumem(server_url=server_url, api_key=api_key)
+        # Use environment variables - Ryumem() will auto-detect RYUMEM_API_URL
+        return Ryumem()
 
     @pytest.fixture
     def unique_user(self):
@@ -73,9 +68,6 @@ class TestQueryAugmentationE2E:
             source="message"
         )
 
-        # Wait briefly for indexing
-        time.sleep(0.5)
-
         # Search for similar queries (should find the one we just created)
         results = ryumem_client.search(
             query="What is the capital of France?",
@@ -102,8 +94,6 @@ class TestQueryAugmentationE2E:
         )
 
         # Wait briefly for indexing
-        time.sleep(0.5)
-
         # Search from session 2 (cross-session search)
         results = ryumem_client.search(
             query="How do I reset my password?",  # Same query
@@ -139,8 +129,6 @@ class TestQueryAugmentationE2E:
             session_id=session_b,
             source="message"
         )
-
-        time.sleep(0.5)
 
         # User B searches - should NOT see User A's episode
         results_b = ryumem_client.search(

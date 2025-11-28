@@ -18,6 +18,7 @@ export interface EpisodeInfo {
   content: string;
   source: string;
   source_description: string;
+  kind?: string;
   created_at: string;
   valid_at: string;
   user_id?: string;

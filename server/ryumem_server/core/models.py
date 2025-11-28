@@ -35,6 +35,26 @@ class EpisodeType(Enum):
         raise ValueError(f'Episode type: {episode_type} not implemented')
 
 
+class EpisodeKind(Enum):
+    """
+    Enumeration of episode kinds - distinguishes query episodes from memory episodes.
+
+    Attributes:
+        query: Regular user query/interaction episode
+        memory: LLM-saved memory episode
+    """
+    query = 'query'
+    memory = 'memory'
+
+    @staticmethod
+    def from_str(kind: str) -> 'EpisodeKind':
+        if kind == 'query':
+            return EpisodeKind.query
+        if kind == 'memory':
+            return EpisodeKind.memory
+        raise ValueError(f'Episode kind: {kind} not implemented')
+
+
 class EpisodeNode(BaseModel):
     """
     Represents an episode (a discrete unit of ingestion).
@@ -49,6 +69,10 @@ class EpisodeNode(BaseModel):
     )
     source: EpisodeType = Field(description='Source type of episode')
     source_description: str = Field(default='', description='Description of the data source')
+    kind: EpisodeKind = Field(
+        default=EpisodeKind.query,
+        description='Episode kind: query or memory'
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     valid_at: datetime = Field(
         default_factory=datetime.utcnow,
@@ -178,8 +202,10 @@ class SearchConfig(BaseModel):
     """Configuration for search operations"""
     query: str = Field(description='Search query text')
     user_id: str | None = Field(default=None, description='Optional user ID filter')
-    agent_id: str | None = Field(default=None, description='Optional agent ID filter')
-    session_id: str | None = Field(default=None, description='Optional session ID filter')
+    kinds: list[str] | None = Field(
+        default=None,
+        description='Filter episodes by kinds (["query"], ["memory"], ["query", "memory"], or None for all)'
+    )
     limit: int = Field(default=10, description='Maximum number of results')
     strategy: str = Field(
         default='hybrid',

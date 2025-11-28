@@ -61,6 +61,7 @@ class RyugraphDB:
                 content_embedding FLOAT[{self.embedding_dimensions}],
                 source STRING,
                 source_description STRING,
+                kind STRING DEFAULT 'query',
                 created_at TIMESTAMP,
                 valid_at TIMESTAMP,
                 user_id STRING,
@@ -219,6 +220,7 @@ class RyugraphDB:
             e.content_embedding = $content_embedding,
             e.source = $source,
             e.source_description = $source_description,
+            e.kind = $kind,
             e.created_at = $created_at,
             e.valid_at = $valid_at,
             e.user_id = $user_id,
@@ -227,7 +229,8 @@ class RyugraphDB:
             e.entity_edges = $entity_edges
         ON MATCH SET
             e.entity_edges = $entity_edges,
-            e.content_embedding = $content_embedding
+            e.content_embedding = $content_embedding,
+            e.kind = $kind
         RETURN e.uuid AS uuid
         """
 
@@ -238,6 +241,7 @@ class RyugraphDB:
             "content_embedding": getattr(episode, 'content_embedding', None),
             "source": episode.source.value,
             "source_description": episode.source_description,
+            "kind": episode.kind.value if hasattr(episode.kind, 'value') else str(episode.kind),
             "created_at": episode.created_at,
             "valid_at": episode.valid_at,
             "user_id": episode.user_id,
@@ -650,6 +654,7 @@ class RyugraphDB:
         user_id: str,
         threshold: float = 0.7,
         limit: int = 10,
+        kinds: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search for episodes similar to the given embedding.
@@ -659,14 +664,22 @@ class RyugraphDB:
             user_id: User ID (required)
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
+            kinds: Filter by episode kinds (e.g., ['query'], ['memory'], or None for all)
 
         Returns:
             List of similar episodes with similarity scores
         """
+        # Build kind filter
+        kind_filter = ""
+        if kinds:
+            kind_list = "', '".join(kinds)
+            kind_filter = f"AND ep.kind IN ['{kind_list}']"
+
         query = f"""
         MATCH (ep:Episode)
         WHERE ep.content_embedding IS NOT NULL
           AND ep.user_id = $user_id
+          {kind_filter}
         WITH ep, array_cosine_similarity(ep.content_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
         WHERE similarity >= $threshold
         RETURN
@@ -675,6 +688,7 @@ class RyugraphDB:
             ep.content AS content,
             ep.source AS source,
             ep.source_description AS source_description,
+            ep.kind AS kind,
             ep.created_at AS created_at,
             ep.valid_at AS valid_at,
             ep.user_id AS user_id,
@@ -1002,6 +1016,7 @@ class RyugraphDB:
             e.content AS content,
             e.source AS source,
             e.source_description AS source_description,
+            e.kind AS kind,
             e.created_at AS created_at,
             e.valid_at AS valid_at,
             e.user_id AS user_id,
@@ -1036,6 +1051,7 @@ class RyugraphDB:
             e.content AS content,
             e.source AS source,
             e.source_description AS source_description,
+            e.kind AS kind,
             e.created_at AS created_at,
             e.valid_at AS valid_at,
             e.user_id AS user_id,
