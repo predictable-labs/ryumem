@@ -1,8 +1,7 @@
 """
 Ryumem - Bi-temporal Knowledge Graph Memory System
 
-A memory system inspired by the Zep paper, combining the best of mem0 and graphiti,
-using ryugraph as the graph database layer.
+A memory system using ryugraph as the graph database layer.
 
 Example:
     from ryumem import Ryumem

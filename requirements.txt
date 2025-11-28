@@ -1,47 +1,17 @@
-# Ryumem Core Dependencies
-# Generated from pyproject.toml
-
-# Graph database (kuzu renamed)
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-dotenv==1.0.1
+pydantic==2.10.3
+pydantic-settings==2.6.1
 ryugraph>=25.9.1
-
-# OpenAI API client
 openai>=1.0.0
-
-# Unified LLM API for 100+ providers
 litellm>=1.0.0
-
-# Data validation
-pydantic>=2.0.0
-
-# Settings management with env support
-pydantic-settings>=2.0.0
-
-# Array operations
 numpy>=1.24.0
-
-# Environment variable management
-python-dotenv>=1.0.0
-
-# Graph algorithms for community detection
 networkx>=3.0
-
-# Scientific computing
 scipy>=1.10.0
-
-# Retry logic
 tenacity>=8.0.0
-
-# BM25 keyword search
 rank-bm25>=0.2.2
-
-# HTTP requests
 requests>=2.31.0
-
-# Google Generative AI (for Gemini client)
 google-genai>=0.2.0
-
-# Data manipulation
 pandas>=2.0.0
-
-# Google ADK integration
 google-adk>=1.18.0

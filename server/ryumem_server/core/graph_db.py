@@ -1,5 +1,5 @@
 """
-Ryugraph database layer - adapted from mem0's kuzu implementation.
+Ryugraph database layer.
 Ryugraph is a renamed version of kuzu, so the API should be identical.
 """
 

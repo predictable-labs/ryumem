@@ -39,13 +39,6 @@ To view:
    - Relationships between entities
    - Memory isolation per user
 
-Benefits over mem0:
-- Zero boilerplate: No need to write search_memory() and save_memory() functions
-- One-line integration: Just call add_memory_to_agent(agent, user_id="...")
-- Automatic memory isolation: Each user gets their own isolated memory
-- Knowledge graph: Structured memory with entity relationships
-- Local LLM support: Works with Ollama for privacy
-- Interactive dashboard: Visualize and explore the knowledge graph
 """
 
 import os
@@ -326,15 +319,6 @@ Personalize recommendations based on what you know about the user."""
     vprint("  • See all entities (Alice, Bob, Google, TensorFlow...)")
     vprint("  • Visualize relationships between entities")
     vprint("  • Explore the knowledge graph interactively")
-    vprint("\n📚 Compare with mem0:")
-    vprint("  mem0: ~20 lines of boilerplate to write search/save functions")
-    vprint("  Ryumem: 1 line - add_memory_to_agent(agent, ryumem_customer_id='...')")
-    vprint("  mem0: No multi-user isolation out of the box")
-    vprint("  Ryumem: Built-in memory isolation per user")
-    vprint("  mem0: No built-in visualization dashboard")
-    vprint("  Ryumem: Interactive dashboard to explore the knowledge graph")
-    vprint("  mem0: Requires separate API keys for agent and memory")
-    vprint("  Ryumem: Auto-detects GOOGLE_API_KEY from your ADK setup")
     vprint("=" * 60)
 
 

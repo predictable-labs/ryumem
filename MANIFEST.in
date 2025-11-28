@@ -1,0 +1,25 @@
+# Include essential files
+include LICENSE
+include README.md
+include pyproject.toml
+include requirements.txt
+
+# Include examples with new structure
+recursive-include examples *.py
+recursive-include examples *.md
+recursive-include examples .env.example
+
+# Exclude unnecessary files
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store
+recursive-exclude tests *
+recursive-exclude server *
+recursive-exclude dashboard *
+recursive-exclude docs *
+recursive-exclude data *
+exclude .gitignore
+exclude .coverage
+exclude dump_*.py
+exclude debug_*.py
+exclude ecosystem.config.js

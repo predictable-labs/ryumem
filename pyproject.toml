@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ryumem"
 version = "0.1.0"
-description = "Bi-temporal knowledge graph memory system inspired by Zep, using ryugraph"
+description = "Bi-temporal knowledge graph memory system using ryugraph"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "ryugraph>=0.1.0",  # Graph database (kuzu renamed)
+    "ryugraph>=25.9.1",  # Graph database (kuzu renamed)
     "openai>=1.0.0",     # OpenAI API client
     "litellm>=1.0.0",    # Unified LLM API for 100+ providers
     "pydantic>=2.0.0",   # Data validation
@@ -35,6 +35,8 @@ dependencies = [
     "scipy>=1.10.0",     # Scientific computing
     "tenacity>=8.0.0",   # Retry logic
     "rank-bm25>=0.2.2",  # BM25 keyword search
+    "requests>=2.31.0",  # HTTP client for server communication
+    "google-genai>=0.2.0",  # Gemini embeddings
 ]
 
 [project.optional-dependencies]
@@ -46,12 +48,15 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.5.0",
 ]
+google-adk = [
+    "google-adk>=1.18.0",  # Google ADK integration
+]
 
 [project.urls]
-Homepage = "https://github.com/ryumem/ryumem"
-Documentation = "https://ryumem.readthedocs.io"
-Repository = "https://github.com/ryumem/ryumem"
-"Bug Tracker" = "https://github.com/ryumem/ryumem/issues"
+Homepage = "https://github.com/predictable-labs/ryumem"
+Repository = "https://github.com/predictable-labs/ryumem"
+"Bug Tracker" = "https://github.com/predictable-labs/ryumem/issues"
+Documentation = "https://github.com/predictable-labs/ryumem#readme"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

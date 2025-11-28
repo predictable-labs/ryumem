@@ -1,5 +1,5 @@
 """
-Data models for Ryumem - adapted from Graphiti
+Data models for Ryumem
 Simplified for ryugraph with full multi-tenancy support
 """
 

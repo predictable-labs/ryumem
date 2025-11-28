@@ -26,8 +26,7 @@ class Ryumem:
     """
     Ryumem - Bi-temporal Knowledge Graph Memory System.
 
-    A memory system that combines the best of mem0 and graphiti,
-    using ryugraph as the graph database layer.
+    A memory system using ryugraph as the graph database layer.
 
     Features:
     - Episode-first ingestion
