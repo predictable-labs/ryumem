@@ -150,6 +150,15 @@ class EpisodeIngestion:
         # Generate embedding for episode content
         content_embedding = self.embedding_client.embed(content)
 
+        # Ensure metadata includes session_id if provided
+        episode_metadata = metadata.copy() if metadata else {}
+        if session_id:
+            # Initialize or update sessions structure so get_episode_by_session_id can find it
+            if 'sessions' not in episode_metadata:
+                episode_metadata['sessions'] = {}
+            if session_id not in episode_metadata['sessions']:
+                episode_metadata['sessions'][session_id] = []
+
         episode = EpisodeNode(
             uuid=episode_uuid,
             name=name,
@@ -161,7 +170,7 @@ class EpisodeIngestion:
             valid_at=start_time,
             user_id=user_id,
             agent_id=agent_id,
-            metadata=metadata or {},
+            metadata=episode_metadata,
         )
 
         # Save episode to database

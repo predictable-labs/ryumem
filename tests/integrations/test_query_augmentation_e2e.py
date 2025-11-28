@@ -24,15 +24,10 @@ class TestQueryAugmentationE2E:
     """End-to-end tests for query augmentation with multi-user isolation."""
 
     @pytest.fixture
-    def server_url(self):
-        """Get test server URL from environment."""
-        return os.getenv("RYUMEM_TEST_SERVER_URL", "http://localhost:8000")
-
-    @pytest.fixture
-    def ryumem_client(self, server_url):
+    def ryumem_client(self):
         """Create Ryumem client for testing."""
-        api_key = os.getenv("RYUMEM_API_KEY")
-        return Ryumem(server_url=server_url, api_key=api_key)
+        # Use environment variables - Ryumem() will auto-detect RYUMEM_API_URL
+        return Ryumem()
 
     @pytest.fixture
     def unique_user(self):
