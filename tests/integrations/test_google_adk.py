@@ -135,62 +135,86 @@ class TestMemoryToolsRealIntegration:
         # Create real memory interface
         memory = RyumemGoogleADK(agent=agent, ryumem=ryumem)
 
-        # Store real data using add_memory (which stores facts)
-        # First create an episode
+        # First create an episode for the session
         ep_id = ryumem.add_episode(
-            content="Python is a programming language",
+            content="Initial episode for search test",
             user_id=unique_user,
             session_id=unique_session,
             source="text"
         )
 
-        # Search using real tool
+        # Now save a memory using save_memory (creates facts/relationships)
         tool_context = SimpleToolContext(user_id=unique_user, session_id=unique_session)
+        save_result = await memory.save_memory(
+            tool_context=tool_context,
+            content="Python is a programming language used for web development",
+            source="text"
+        )
+
+        assert save_result["status"] == "success"
+
+        # Search using real tool
         result = await memory.search_memory(
             tool_context=tool_context,
             query="programming languages",
             limit=5
         )
 
-        # Verify real results
-        assert result["status"] in ["success", "no_memories"]
-        if result["status"] == "success":
-            assert result["count"] >= 1
-            assert len(result["memories"]) >= 1
+        # Should find the episode content we saved
+        assert result["status"] == "success"
+        assert result["count"] >= 1
 
-            # Check real data structure
-            first_memory = result["memories"][0]
-            assert "fact" in first_memory
-            assert "score" in first_memory
-            assert isinstance(first_memory["score"], float)
+        # Should have episodes (since entity extraction is disabled)
+        assert "episodes" in result
+        assert len(result["episodes"]) >= 1
+
+        # Check episode data structure
+        first_episode = result["episodes"][0]
+        assert "content" in first_episode
+        assert "score" in first_episode
+        assert isinstance(first_episode["score"], float)
+        assert "Python" in first_episode["content"] or "programming" in first_episode["content"]
 
     @pytest.mark.asyncio
     async def test_search_memory_respects_limit(self, ryumem, agent, unique_user):
         """Test that limit parameter actually works."""
         memory = RyumemGoogleADK(agent=agent, ryumem=ryumem)
 
-        # Create multiple episodes with unique sessions
+        # Create multiple memories with unique sessions
         sessions = []
         for i in range(3):
             session = f"session_{uuid.uuid4().hex[:8]}"
             sessions.append(session)
+
+            # Create episode first
             ryumem.add_episode(
-                content=f"Test memory {i} about coding",
+                content=f"Initial episode {i}",
                 user_id=unique_user,
                 session_id=session,
                 source="text"
             )
 
-        # Search from first session
+            # Save memory to create searchable facts
+            tool_context = SimpleToolContext(user_id=unique_user, session_id=session)
+            await memory.save_memory(
+                tool_context=tool_context,
+                content=f"Memory {i} about Python coding and programming",
+                source="text"
+            )
+
+        # Search from first session with limit
         tool_context = SimpleToolContext(user_id=unique_user, session_id=sessions[0])
         result = await memory.search_memory(
             tool_context=tool_context,
-            query="coding",
+            query="coding programming",
             limit=2
         )
 
-        if result["status"] == "success":
-            assert len(result["memories"]) <= 2
+        # Should respect the limit
+        assert result["status"] == "success"
+        # Total count of all results (memories + episodes + entities) should respect limit
+        total_results = len(result.get("memories", [])) + len(result.get("episodes", [])) + len(result.get("entities", []))
+        assert total_results <= 2
 
     @pytest.mark.asyncio
     async def test_search_memory_no_results(self, ryumem, agent, unique_user, unique_session):

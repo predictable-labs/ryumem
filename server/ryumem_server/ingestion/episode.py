@@ -175,6 +175,12 @@ class EpisodeIngestion:
 
         # Save episode to database
         self.db.save_episode(episode)
+
+        # Add episode to BM25 index for keyword search
+        if self.bm25_index:
+            self.bm25_index.add_episode(episode)
+            logger.debug(f"Added episode to BM25 index")
+
         step_duration = (datetime.utcnow() - step_start).total_seconds()
         logger.info(f"⏱️  [TIMING] Step 1 - Create episode node with embedding: {step_duration:.2f}s")
         logger.debug(f"Created episode node: {episode_uuid}")

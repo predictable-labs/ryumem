@@ -414,6 +414,12 @@ class SearchEngine:
             top_k=config.limit,
         )
 
+        # Search episodes using BM25
+        episode_results = self.bm25_index.search_episodes(
+            query=config.query,
+            top_k=config.limit,
+        )
+
         # Fetch full entity objects from database
         entities: List[EntityNode] = []
         scores: Dict[str, float] = {}
@@ -463,11 +469,28 @@ class SearchEngine:
                 edges.append(edge)
                 scores[edge.uuid] = score
 
-        logger.info(f"BM25 search found {len(entities)} entities, {len(edges)} edges (threshold: {config.min_bm25_score})")
+        # Fetch full episode objects from database
+        episodes: List[EpisodeNode] = []
+
+        for episode_uuid, score in episode_results:
+            # Apply BM25 score threshold
+            if score < config.min_bm25_score:
+                continue
+
+            # Get episode from DB
+            episode_data = self.db.get_episode_by_uuid(episode_uuid)
+            if episode_data:
+                # Apply user_id filter if specified
+                if config.user_id is None or episode_data.get("user_id") == config.user_id:
+                    episodes.append(episode_data)
+                    scores[episode_data.uuid] = score
+
+        logger.info(f"BM25 search found {len(entities)} entities, {len(edges)} edges, {len(episodes)} episodes (threshold: {config.min_bm25_score})")
 
         return SearchResult(
             entities=entities[:config.limit],
             edges=edges[:config.limit],
+            episodes=episodes[:config.limit],
             scores=scores,
             metadata={
                 "strategy": "bm25",

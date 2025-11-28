@@ -115,8 +115,6 @@ class RyumemGoogleADK:
 
     async def search_memory(self, tool_context: ToolContext, query: str, limit: int = 5) -> Dict[str, Any]:
         """
-        Auto-generated search function for retrieving memories.
-
         This function is automatically registered as a tool with the agent.
 
         Args:
@@ -155,6 +153,12 @@ class RyumemGoogleADK:
                 limit=limit
             )
 
+            # Collect all results: edges (facts), episodes (content), and entities
+            memories = []
+            episodes_list = []
+            entities_list = []
+
+            # Add edges as memories (facts/relationships)
             if results.edges:
                 memories = [
                     {
@@ -165,11 +169,40 @@ class RyumemGoogleADK:
                     }
                     for edge in results.edges
                 ]
-                logger.info(f"Found {len(memories)} memories for user '{user_id}'")
+
+            # Add episodes (content)
+            if results.episodes:
+                episodes_list = [
+                    {
+                        "content": episode.content,
+                        "score": results.scores.get(episode.uuid, 0.0),
+                        "uuid": episode.uuid,
+                        "created_at": str(episode.created_at)
+                    }
+                    for episode in results.episodes
+                ]
+
+            # Add entities
+            if results.entities:
+                entities_list = [
+                    {
+                        "name": entity.name,
+                        "type": entity.entity_type,
+                        "score": results.scores.get(entity.uuid, 0.0),
+                        "uuid": entity.uuid
+                    }
+                    for entity in results.entities
+                ]
+
+            # Return results if we found anything
+            if memories or episodes_list or entities_list:
+                logger.info(f"Found {len(memories)} memories, {len(episodes_list)} episodes, {len(entities_list)} entities for user '{user_id}'")
                 return {
                     "status": "success",
-                    "count": len(memories),
-                    "memories": memories
+                    "count": len(memories) + len(episodes_list) + len(entities_list),
+                    "memories": memories,
+                    "episodes": episodes_list,
+                    "entities": entities_list
                 }
             else:
                 logger.info(f"No memories found for user '{user_id}'")
