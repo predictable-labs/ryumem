@@ -303,6 +303,7 @@ class Ryumem:
         session_id: str,
         agent_id: Optional[str] = None,
         source: str = "text",
+        kind: str = "query",
         metadata: Optional[Dict] = None,
         extract_entities: Optional[bool] = None,
     ) -> str:
@@ -312,6 +313,7 @@ class Ryumem:
             "user_id": user_id,
             "session_id": session_id,
             "source": source,
+            "kind": kind,
             "metadata": metadata,
             "extract_entities": extract_entities
         }
@@ -442,6 +444,7 @@ class Ryumem:
         min_rrf_score: Optional[float] = None,
         min_bm25_score: Optional[float] = None,
         rrf_k: Optional[int] = None,
+        kinds: Optional[List[str]] = None,
     ) -> SearchResult:
         """Search the memory system."""
         payload = {
@@ -454,6 +457,7 @@ class Ryumem:
             "min_rrf_score": min_rrf_score,
             "min_bm25_score": min_bm25_score,
             "rrf_k": rrf_k,
+            "kinds": kinds,
         }
 
         response = self._post("/search", json=payload)

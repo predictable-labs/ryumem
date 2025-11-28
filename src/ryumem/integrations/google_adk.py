@@ -150,7 +150,9 @@ class RyumemGoogleADK:
                 user_id=user_id,
                 session_id=session_id,
                 strategy="hybrid",
-                limit=limit
+                limit=limit,
+                kinds=['memory'],  # NEW: Search only memory episodes
+                min_rrf_score=0.01  # Lower threshold for memory episodes (episode-only content)
             )
 
             # Collect all results: edges (facts), episodes (content), and entities
@@ -257,17 +259,16 @@ class RyumemGoogleADK:
             if source not in valid_sources:
                 source = "text"
 
-            episode = self.ryumem.add_memory(
+            # Create separate memory episode with kind='memory'
+            episode_id = self.ryumem.add_episode(
                 content=content,
                 user_id=user_id,
                 session_id=session_id,
                 source=source,
+                kind='memory',  # NEW: Mark as memory episode
             )
 
-            # Extract just the UUID string for JSON serialization
-            episode_id = episode.uuid
-
-            logger.info(f"Saved memory for user '{user_id}' with episode_id: {episode_id}")
+            logger.info(f"Saved memory episode for user '{user_id}' with episode_id: {episode_id}")
 
             return {
                 "status": "success",

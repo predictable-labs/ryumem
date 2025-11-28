@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 from uuid import uuid4
 
 from ryumem_server.core.graph_db import RyugraphDB
-from ryumem_server.core.models import EpisodeNode, EpisodeType, EpisodicEdge
+from ryumem_server.core.models import EpisodeNode, EpisodeType, EpisodeKind, EpisodicEdge
 from ryumem_server.ingestion.entity_extractor import EntityExtractor
 from ryumem_server.ingestion.relation_extractor import RelationExtractor
 from ryumem_server.utils.embeddings import EmbeddingClient
@@ -82,6 +82,7 @@ class EpisodeIngestion:
         agent_id: Optional[str] = None,
         session_id: Optional[str] = None,
         source: EpisodeType = EpisodeType.text,
+        kind: 'EpisodeKind' = None,
         source_description: str = "",
         metadata: Optional[Dict] = None,
         name: Optional[str] = None,
@@ -166,6 +167,7 @@ class EpisodeIngestion:
             content_embedding=content_embedding,
             source=source,
             source_description=source_description,
+            kind=kind if kind is not None else EpisodeKind.query,
             created_at=start_time,
             valid_at=start_time,
             user_id=user_id,

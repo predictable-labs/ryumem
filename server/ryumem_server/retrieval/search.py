@@ -129,12 +129,13 @@ class SearchEngine:
         logger.debug(f"🔍 Query embedding: {query_embedding}")
 
         # Step 1: Search similar episodes (NEW)
-        logger.debug(f"🎬 Searching for similar episodes (threshold: {config.similarity_threshold}, limit: {config.limit})")
+        logger.debug(f"🎬 Searching for similar episodes (threshold: {config.similarity_threshold}, limit: {config.limit}, kinds: {config.kinds})")
         episode_results = self.db.search_similar_episodes(
             embedding=query_embedding,
             user_id=config.user_id,
             threshold=config.similarity_threshold,
             limit=config.limit,
+            kinds=config.kinds,
         )
         logger.debug(f"📊 Found {len(episode_results)} similar episodes")
 
@@ -235,12 +236,14 @@ class SearchEngine:
                     except (json.JSONDecodeError, TypeError):
                         metadata = {}
                 
+                from ryumem_server.core.models import EpisodeKind
                 episode = EpisodeNode(
                     uuid=result["uuid"],
                     name=result.get("name", ""),
                     content=result["content"],
                     source=EpisodeType.from_str(result.get("source", "text")),
                     source_description=result.get("source_description", ""),
+                    kind=EpisodeKind.from_str(result.get("kind", "query")),
                     user_id=safe_str_or_none(result.get("user_id")),
                     agent_id=safe_str_or_none(result.get("agent_id")),
                     session_id=safe_str_or_none(result.get("session_id")),
@@ -482,8 +485,39 @@ class SearchEngine:
             if episode_data:
                 # Apply user_id filter if specified
                 if config.user_id is None or episode_data.get("user_id") == config.user_id:
-                    episodes.append(episode_data)
-                    scores[episode_data.uuid] = score
+                    try:
+                        # Handle nan values for optional string fields
+                        def safe_str_or_none(value):
+                            if value is None or (isinstance(value, float) and math.isnan(value)):
+                                return None
+                            return value
+
+                        # Handle metadata deserialization
+                        metadata = episode_data.get("metadata", {})
+                        if isinstance(metadata, str):
+                            try:
+                                metadata = json.loads(metadata)
+                            except (json.JSONDecodeError, TypeError):
+                                metadata = {}
+
+                        from ryumem_server.core.models import EpisodeKind
+                        episode = EpisodeNode(
+                            uuid=episode_data["uuid"],
+                            name=episode_data.get("name", ""),
+                            content=episode_data["content"],
+                            source=EpisodeType.from_str(episode_data.get("source", "text")),
+                            source_description=episode_data.get("source_description", ""),
+                            kind=EpisodeKind.from_str(episode_data.get("kind", "query")),
+                            user_id=safe_str_or_none(episode_data.get("user_id")),
+                            agent_id=safe_str_or_none(episode_data.get("agent_id")),
+                            session_id=safe_str_or_none(episode_data.get("session_id")),
+                            metadata=metadata,
+                        )
+                        episodes.append(episode)
+                        scores[episode.uuid] = score
+                    except Exception as e:
+                        logger.warning(f"Failed to convert episode {episode_uuid} to EpisodeNode: {e}, skipping")
+                        continue
 
         logger.info(f"BM25 search found {len(entities)} entities, {len(edges)} edges, {len(episodes)} episodes (threshold: {config.min_bm25_score})")
 

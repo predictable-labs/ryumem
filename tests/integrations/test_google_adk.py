@@ -711,6 +711,7 @@ class TestMultiUserIsolation:
         )
 
         # User B should NOT see User A's secret
+        assert result["status"] in ["success", "no_memories"]
         if result["status"] == "success":
             for mem in result["memories"]:
                 assert "abc123" not in mem["fact"]

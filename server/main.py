@@ -242,6 +242,7 @@ class AddEpisodeRequest(BaseModel):
     user_id: str = Field(..., description="User ID for isolation")
     session_id: Optional[str] = Field(None, description="Optional session ID")
     source: str = Field("text", description="Episode source type: text, message, or json")
+    kind: str = Field("query", description="Episode kind: 'query' or 'memory'")
     metadata: Optional[Dict] = Field(None, description="Optional metadata")
     extract_entities: Optional[bool] = Field(None, description="Override config setting for entity extraction (None uses config default)")
 
@@ -270,6 +271,7 @@ class EpisodeInfo(BaseModel):
     content: str
     source: str
     source_description: str
+    kind: Optional[str] = None
     created_at: datetime
     valid_at: datetime
     user_id: Optional[str] = None
@@ -292,6 +294,7 @@ class SearchRequest(BaseModel):
     strategy: str = Field("hybrid", description="Search strategy: semantic, bm25, traversal, or hybrid")
     min_rrf_score: Optional[float] = Field(None, description="Minimum RRF score for hybrid search")
     min_bm25_score: Optional[float] = Field(None, description="Minimum BM25 score")
+    kinds: Optional[List[str]] = Field(None, description="Filter episodes by kinds (e.g., ['query'], ['memory'], or None for all)")
 
     class Config:
         json_schema_extra = {
@@ -619,6 +622,7 @@ async def add_episode(
             user_id=request.user_id,
             session_id=request.session_id,
             source=request.source,
+            kind=request.kind,
             metadata=request.metadata,
             extract_entities=request.extract_entities,
         )
@@ -700,7 +704,6 @@ async def get_episode_by_session_id(
         # Let's assume it exists as the client code was using it.
         
         episode = ryumem.db.get_episode_by_session_id(session_id)
-        print("Episode:", episode)
         if not episode:
              # Return None (200 OK with null body) or 404?
              # Client expects None if not found usually.
@@ -850,6 +853,7 @@ async def get_episodes(
                     content=ep["content"],
                     source=ep["source"],
                     source_description=ep["source_description"],
+                    kind=ep.get("kind"),
                     created_at=ep["created_at"].isoformat() if isinstance(ep["created_at"], datetime) else str(ep["created_at"]),
                     valid_at=ep["valid_at"].isoformat() if isinstance(ep["valid_at"], datetime) else str(ep["valid_at"]),
                     user_id=clean_value(ep.get("user_id")),
@@ -894,6 +898,7 @@ async def search(
             strategy=request.strategy,
             min_rrf_score=request.min_rrf_score,
             min_bm25_score=request.min_bm25_score,
+            kinds=request.kinds,
         )
 
         episodes = []
@@ -904,6 +909,7 @@ async def search(
                 content=episode.content,
                 source=episode.source,
                 source_description=episode.source_description,
+                kind=episode.kind.value if hasattr(episode.kind, 'value') else str(episode.kind) if episode.kind else None,
                 created_at=episode.created_at,
                 valid_at=episode.valid_at,
                 user_id=episode.user_id or None,
