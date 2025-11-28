@@ -466,6 +466,19 @@ class ToolResponse(BaseModel):
     created_at: Optional[str] = Field(None, description="Creation timestamp")
 
 
+class BatchSaveToolsRequest(BaseModel):
+    """Request model for batch saving tools"""
+    tools: List[SaveToolRequest] = Field(..., description="List of tools to save")
+
+
+class BatchSaveToolsResponse(BaseModel):
+    """Response model for batch save tools operation"""
+    saved: int = Field(..., description="Number of tools saved")
+    updated: int = Field(..., description="Number of tools updated (already existed)")
+    failed: int = Field(..., description="Number of tools that failed")
+    errors: List[str] = Field(default_factory=list, description="Error messages if any")
+
+
 class EmbedRequest(BaseModel):
     """Request model for embedding text"""
     text: str = Field(..., description="Text to embed")
@@ -1123,6 +1136,60 @@ async def get_tool_by_name(
     except Exception as e:
         logger.error(f"Error getting tool: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error getting tool: {str(e)}")
+
+
+@app.post("/tools/batch", response_model=BatchSaveToolsResponse)
+async def batch_save_tools(
+    request: BatchSaveToolsRequest,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Batch save multiple tools to the database.
+
+    This endpoint efficiently saves multiple tools in a single request.
+    For each tool:
+    - If it doesn't exist, it creates a new tool node
+    - If it already exists, it updates the description and increments mentions
+
+    Returns statistics about the operation including number of tools saved,
+    updated, and any errors encountered.
+    """
+    saved = 0
+    updated = 0
+    failed = 0
+    errors = []
+
+    for tool in request.tools:
+        try:
+            # Check if tool already exists
+            existing = ryumem.db.get_tool_by_name(tool.tool_name)
+
+            # save_tool handles both create and update
+            ryumem.db.save_tool(
+                tool_name=tool.tool_name,
+                description=tool.description,
+                name_embedding=tool.name_embedding
+            )
+
+            if existing:
+                updated += 1
+            else:
+                saved += 1
+
+        except Exception as e:
+            failed += 1
+            error_msg = f"Failed to save tool '{tool.tool_name}': {str(e)}"
+            errors.append(error_msg)
+            logger.error(error_msg, exc_info=True)
+
+    logger.info(f"Batch save completed: {saved} saved, {updated} updated, {failed} failed")
+
+    return BatchSaveToolsResponse(
+        saved=saved,
+        updated=updated,
+        failed=failed,
+        errors=errors
+    )
 
 
 @app.post("/embeddings", response_model=EmbedResponse)

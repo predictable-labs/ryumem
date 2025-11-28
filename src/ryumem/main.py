@@ -428,6 +428,26 @@ class Ryumem:
                 return None
             raise
 
+    def batch_save_tools(self, tools: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Batch save multiple tools via API.
+
+        Args:
+            tools: List of tool dicts, each containing:
+                - tool_name: str
+                - description: str
+                - name_embedding: List[float]
+
+        Returns:
+            Dict with statistics:
+                - saved: int (number of new tools created)
+                - updated: int (number of existing tools updated)
+                - failed: int (number of tools that failed)
+                - errors: List[str] (error messages if any)
+        """
+        response = self._post("/tools/batch", json={"tools": tools})
+        return response
+
     # ==================== Query Methods ====================
 
     def execute(self, query: str, params: Optional[Dict] = None) -> List[CypherResult]:
