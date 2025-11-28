@@ -90,7 +90,7 @@ export function StatsPanel({ refreshKey }: StatsPanelProps) {
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-muted-foreground">{item.label}</p>
-                  <p className="text-2xl font-bold">{item.value.toLocaleString()}</p>
+                  <p className="text-2xl font-bold">{(item.value ?? 0).toLocaleString()}</p>
                   <p className="text-xs text-muted-foreground mt-1">{item.description}</p>
                 </div>
               </div>
