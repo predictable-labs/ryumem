@@ -97,14 +97,11 @@ class ToolTracker:
                         base_description=tool_description
                     )
 
-                # Create embedding for tool name
-                embedding_response = self.ryumem.embed(tool_name)
-
-                # Add to batch
+                # Add to batch (no embeddings needed for batch operation)
                 tools_batch.append({
                     "tool_name": tool_name,
                     "description": enhanced_description or f"Tool: {tool_name}",
-                    "name_embedding": embedding_response.embedding
+                    "name_embedding": None
                 })
 
             if not tools_batch:
