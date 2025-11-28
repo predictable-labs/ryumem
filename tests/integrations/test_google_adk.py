@@ -25,6 +25,16 @@ from ryumem.main import Ryumem
 from ryumem.core.metadata_models import EpisodeMetadata, QueryRun
 
 
+# ===== Pytest Hooks for Test Result Tracking =====
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Hook to capture test results for cleanup logic."""
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, f"rep_{rep.when}", rep)
+
+
 # ===== Minimal Mock Objects for Google ADK Components =====
 # We only mock what we don't control (Google's SDK)
 
@@ -65,6 +75,12 @@ class SimpleRunner:
 
 # ===== Test Fixtures =====
 
+@pytest.fixture(scope="session")
+def ryumem_session():
+    """Session-scoped Ryumem instance for cleanup."""
+    return Ryumem()
+
+
 @pytest.fixture
 def ryumem():
     """Real Ryumem instance - NO MOCKING."""
@@ -74,9 +90,26 @@ def ryumem():
 
 
 @pytest.fixture
-def unique_user():
-    """Generate unique user ID for test isolation."""
-    return f"test_user_{uuid.uuid4().hex[:8]}"
+def unique_user(request, ryumem_session):
+    """Generate unique user ID for test isolation with cleanup."""
+    user_id = f"test_user_{uuid.uuid4().hex[:8]}"
+
+    # Register cleanup to delete all test data after test completes successfully
+    def cleanup():
+        # Only clean up if test passed (no exceptions)
+        # Check if rep_call exists and if the test passed
+        if hasattr(request.node, 'rep_call') and request.node.rep_call.passed:
+            try:
+                ryumem_session.reset_database()
+                print(f"✓ Cleaned up test data for {user_id}")
+            except Exception as e:
+                print(f"Warning: Cleanup failed for {user_id}: {e}")
+        else:
+            # Test failed or status unavailable - skip cleanup to preserve data for debugging
+            print(f"⚠ Test failed or status unavailable - skipping cleanup for {user_id} (data preserved for debugging)")
+
+    request.addfinalizer(cleanup)
+    return user_id
 
 
 @pytest.fixture
@@ -110,8 +143,6 @@ class TestMemoryToolsRealIntegration:
             session_id=unique_session,
             source="text"
         )
-
-        time.sleep(1.0)  # Wait for indexing
 
         # Search using real tool
         tool_context = SimpleToolContext(user_id=unique_user, session_id=unique_session)
@@ -149,8 +180,6 @@ class TestMemoryToolsRealIntegration:
                 session_id=session,
                 source="text"
             )
-
-        time.sleep(1.0)
 
         # Search from first session
         tool_context = SimpleToolContext(user_id=unique_user, session_id=sessions[0])
@@ -330,8 +359,6 @@ class TestQueryAugmentationReal:
             source="message",
             metadata=metadata.model_dump()
         )
-
-        time.sleep(0.5)
 
         # Search from session 2
         similar = _find_similar_query_episodes(
@@ -560,8 +587,6 @@ class TestRunnerWrappingReal:
         assert len(events) > 0
 
         # Wait briefly for async processing
-        time.sleep(0.5)
-
         # Episode should be created
         episode = ryumem.get_episode_by_session_id(unique_session)
         if episode:
@@ -652,8 +677,6 @@ class TestMultiUserIsolation:
             content="User A's secret password is abc123",
             source="text"
         )
-
-        time.sleep(0.5)
 
         # User B searches for "password"
         ctx_b = SimpleToolContext(user_id=user_b, session_id=session_b)

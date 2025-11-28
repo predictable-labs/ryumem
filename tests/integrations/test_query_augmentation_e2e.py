@@ -68,9 +68,6 @@ class TestQueryAugmentationE2E:
             source="message"
         )
 
-        # Wait briefly for indexing
-        time.sleep(0.5)
-
         # Search for similar queries (should find the one we just created)
         results = ryumem_client.search(
             query="What is the capital of France?",
@@ -97,8 +94,6 @@ class TestQueryAugmentationE2E:
         )
 
         # Wait briefly for indexing
-        time.sleep(0.5)
-
         # Search from session 2 (cross-session search)
         results = ryumem_client.search(
             query="How do I reset my password?",  # Same query
@@ -134,8 +129,6 @@ class TestQueryAugmentationE2E:
             session_id=session_b,
             source="message"
         )
-
-        time.sleep(0.5)
 
         # User B searches - should NOT see User A's episode
         results_b = ryumem_client.search(

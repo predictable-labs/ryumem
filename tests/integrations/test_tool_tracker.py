@@ -16,6 +16,16 @@ from ryumem import Ryumem
 from ryumem.integrations.tool_tracker import ToolTracker
 
 
+# ===== Pytest Hooks for Test Result Tracking =====
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Hook to capture test results for cleanup logic."""
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, f"rep_{rep.when}", rep)
+
+
 # ===== Minimal Mock Objects =====
 
 class SimpleAgent:
@@ -37,6 +47,12 @@ async def simple_async_tool(text: str) -> str:
 
 # ===== Test Fixtures =====
 
+@pytest.fixture(scope="session")
+def ryumem_session():
+    """Session-scoped Ryumem instance for cleanup."""
+    return Ryumem()
+
+
 @pytest.fixture
 def ryumem():
     """Real Ryumem instance - NO MOCKING."""
@@ -50,9 +66,26 @@ def tracker(ryumem):
 
 
 @pytest.fixture
-def unique_user():
-    """Generate unique user ID for test isolation."""
-    return f"test_user_{uuid.uuid4().hex[:8]}"
+def unique_user(request, ryumem_session):
+    """Generate unique user ID for test isolation with cleanup."""
+    user_id = f"test_user_{uuid.uuid4().hex[:8]}"
+
+    # Register cleanup to delete all test data after test completes successfully
+    def cleanup():
+        # Only clean up if test passed (no exceptions)
+        # Check if rep_call exists and if the test passed
+        if hasattr(request.node, 'rep_call') and request.node.rep_call.passed:
+            try:
+                ryumem_session.reset_database()
+                print(f"✓ Cleaned up test data for {user_id}")
+            except Exception as e:
+                print(f"Warning: Cleanup failed for {user_id}: {e}")
+        else:
+            # Test failed or status unavailable - skip cleanup to preserve data for debugging
+            print(f"⚠ Test failed or status unavailable - skipping cleanup for {user_id} (data preserved for debugging)")
+
+    request.addfinalizer(cleanup)
+    return user_id
 
 
 # ===== Test Classes =====

@@ -145,6 +145,12 @@ class Ryumem:
         response.raise_for_status()
         return response.json()
 
+    def _delete(self, endpoint: str) -> Any:
+        url = f"{self.base_url}{endpoint}"
+        response = requests.delete(url, headers=self._get_headers())
+        response.raise_for_status()
+        return response.json()
+
     # ==================== Configuration ====================
 
     @property
@@ -671,3 +677,15 @@ class Ryumem:
             model=response.get("model"),
             tokens_used=response.get("tokens_used")
         )
+
+    def reset_database(self) -> Dict[str, str]:
+        """
+        Reset the entire database - delete all nodes and relationships.
+
+        WARNING: This is irreversible! All data will be permanently deleted.
+        Useful for test cleanup.
+
+        Returns:
+            Response dict with status and message
+        """
+        return self._delete("/database/reset")
