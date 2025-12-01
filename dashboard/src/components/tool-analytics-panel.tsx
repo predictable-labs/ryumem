@@ -8,11 +8,12 @@ import { Wrench, TrendingUp, User, Clock, CheckCircle, XCircle } from 'lucide-re
 import { api } from '@/lib/api';
 
 interface Tool {
-  uuid: string;
+  uuid: string | null;
   tool_name: string;
   description: string;
   mentions: number;
-  created_at: string;
+  usage_count?: number;  // Only present when include_tracked=true
+  created_at: string | null;
 }
 
 interface ToolMetrics {
@@ -132,19 +133,19 @@ export function ToolAnalyticsPanel({ userId, preselectedTool }: ToolAnalyticsPan
             {tools.length > 0 ? (
               tools.map((tool) => (
                 <div
-                  key={tool.uuid}
+                  key={tool.tool_name}
                   className="p-4 border rounded-lg hover:bg-accent cursor-pointer"
                   onClick={() => handleLoadToolMetrics(tool.tool_name)}
                 >
                   <div className="flex items-center justify-between">
-                    <div>
+                    <div className="flex-1">
                       <h4 className="font-semibold">{tool.tool_name}</h4>
                       <p className="text-sm text-muted-foreground">
                         {tool.description}
                       </p>
                     </div>
-                    <Badge variant="outline">
-                      {tool.mentions || 0} mentions
+                    <Badge variant="default">
+                      {tool.usage_count || 0} {(tool.usage_count || 0) === 1 ? 'use' : 'uses'}
                     </Badge>
                   </div>
                 </div>

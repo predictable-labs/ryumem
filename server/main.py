@@ -2617,6 +2617,12 @@ async def get_all_tools(ryumem: Ryumem = Depends(get_ryumem)):
     Get all registered tools.
 
     Returns list of all tools with their descriptions.
+
+    Args:
+        user_id: Optional user ID to filter tracked tools
+
+    Returns:
+        List of all tools with their descriptions and usage counts, sorted by usage count.
     """
     try:
         tools = ryumem.get_all_tools()
