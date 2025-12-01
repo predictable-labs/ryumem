@@ -18,6 +18,10 @@ class ToolExecution(BaseModel):
     input_params: dict = Field(default_factory=dict)
     output_summary: str = ""
     error: Optional[str] = None
+    parent_tool_name: Optional[str] = Field(
+        default=None,
+        description="Name of immediate parent tool if called from another tool"
+    )
 
 
 class QueryRun(BaseModel):

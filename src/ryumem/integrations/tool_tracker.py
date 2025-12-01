@@ -36,6 +36,25 @@ from ryumem import Ryumem
 
 logger = logging.getLogger(__name__)
 
+# Module-level context variable - tracks the currently executing tool
+_current_tool: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    '_current_tool',
+    default=None
+)
+
+def _set_current_tool(tool_name: str) -> contextvars.Token:
+    """Set the currently executing tool, returns token for cleanup."""
+    return _current_tool.set(tool_name)
+
+def _clear_current_tool(token: contextvars.Token) -> None:
+    """Clear the current tool using token."""
+    _current_tool.reset(token)
+
+def _get_parent_tool() -> Optional[str]:
+    """Get the name of the parent tool if one is currently executing."""
+    return _current_tool.get()
+
+
 class ToolTracker:
     """
     Automatic tool usage tracker for Google ADK agents.
@@ -292,8 +311,9 @@ Make it user-friendly and avoid technical jargon. Just return the description te
         user_id: Optional[str],
         session_id: Optional[str],
         context: Optional[str],
+        parent_tool_name: Optional[str] = None,  # NEW parameter
     ) -> None:
-        """Store tool execution by updating the parent query episode's metadata."""
+        """Store tool execution with optional parent by updating the parent query episode's metadata."""
         try:
             # Sanitize and summarize data
             sanitized_params = self._sanitize_params(input_params)
@@ -306,13 +326,14 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             # Build tool execution record
             tool_execution = {
-                "tool_name": tool_name,
+                "tool_name": tool_name,  # Already in dot notation
                 "input_params": sanitized_params,
                 "output_summary": output_summary,
                 "success": success,
                 "error": error,
                 "duration_ms": duration_ms,
                 "timestamp": datetime.utcnow().isoformat(),
+                "parent_tool_name": parent_tool_name,  # NEW FIELD
             }
 
             # Update parent episode's metadata (append to tools_used array)
@@ -361,6 +382,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
         user_id: Optional[str] = None,
         session_id: Optional[str] = None,
         context: Optional[str] = None,
+        parent_tool_name: Optional[str] = None,
     ) -> None:
         """
         Track a tool execution.
@@ -387,7 +409,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                     self._store_tool_execution_async(
                         tool_name, tool_description, input_params,
                         output, success, error, duration_ms,
-                        user_id, session_id, context
+                        user_id, session_id, context, parent_tool_name
                     )
                 )
                 # Keep reference to prevent garbage collection
@@ -402,7 +424,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                     target=self._store_tool_execution_sync,
                     args=(tool_name, tool_description, input_params,
                           output, success, error, duration_ms,
-                          user_id, session_id, context)
+                          user_id, session_id, context, parent_tool_name)
                 )
                 thread.daemon = True  # Don't block program exit
                 thread.start()
@@ -412,7 +434,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             self._store_tool_execution_sync(
                 tool_name, tool_description, input_params,
                 output, success, error, duration_ms,
-                user_id, session_id, context
+                user_id, session_id, context, parent_tool_name
             )
 
     def create_wrapper(
@@ -439,6 +461,13 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
+            # Check for parent tool
+            parent_tool = _get_parent_tool()
+            display_name = f"{parent_tool}.{_tool_name}" if parent_tool else _tool_name
+
+            # Set as current tool
+            token = _set_current_tool(_tool_name)
+
             start_time = time.time()
             success = True
             error = None
@@ -452,6 +481,9 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                 error = str(e)
                 raise
             finally:
+                # Clear current tool
+                _clear_current_tool(token)
+
                 duration_ms = int((time.time() - start_time) * 1000)
 
                 # Extract user_id and session_id from kwargs if available
@@ -467,7 +499,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                 # Track execution
                 try:
                     self.track_execution(
-                        tool_name=_tool_name,
+                        tool_name=display_name,  # Use dot notation
                         tool_description=_tool_description,
                         input_params=input_params,
                         output=output,
@@ -476,9 +508,10 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                         duration_ms=duration_ms,
                         user_id=user_id,
                         session_id=session_id,
+                        parent_tool_name=parent_tool  # NEW parameter
                     )
                 except Exception as track_error:
-                    logger.error(f"Tracking failed for {_tool_name}: {track_error}")
+                    logger.error(f"Tracking failed for {display_name}: {track_error}")
                     if not self.ryumem.config.tool_tracking.ignore_errors:
                         raise
 
@@ -569,6 +602,15 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
         # Create tracking wrapper
         async def tracking_run_async(*, args, tool_context):
+            # Check if there's a parent tool currently executing
+            parent_tool = _get_parent_tool()
+
+            # Build display name (dot notation if parent exists)
+            display_name = f"{parent_tool}.{tool_name}" if parent_tool else tool_name
+
+            # Set this tool as current (for any nested calls it might make)
+            token = _set_current_tool(tool_name)
+
             start_time = time.time()
             success = True
             error = None
@@ -583,6 +625,9 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                 error = str(e)
                 raise
             finally:
+                # Clear current tool BEFORE storing
+                _clear_current_tool(token)
+
                 duration_ms = int((time.time() - start_time) * 1000)
 
                 # Extract user_id and session_id from tool_context.session
@@ -599,9 +644,9 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                     raise ValueError(f"tool_context.session.id is required but was None for tool '{tool_name}'")
 
                 try:
-                    # Store tracking data synchronously
+                    # Store tracking data with parent info
                     await self._store_tool_execution_async(
-                        tool_name=tool_name,
+                        tool_name=display_name,  # Use dot notation
                         tool_description=tool_description,
                         input_params=args,
                         output=output,
@@ -611,9 +656,10 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                         user_id=user_id,
                         session_id=session_id,
                         context=None,
+                        parent_tool_name=parent_tool  # NEW parameter
                     )
                 except Exception as track_error:
-                    logger.error(f"Tracking failed for {tool_name}: {track_error}")
+                    logger.error(f"Tracking failed for {display_name}: {track_error}")
                     if not self.ryumem.config.tool_tracking.ignore_errors:
                         raise
 
