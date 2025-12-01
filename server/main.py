@@ -455,7 +455,7 @@ class SaveToolRequest(BaseModel):
     """Request model for saving a tool"""
     tool_name: str = Field(..., description="Tool name")
     description: str = Field(..., description="Tool description")
-    name_embedding: List[float] = Field(..., description="Embedding of tool name")
+    name_embedding: Optional[List[float]] = Field(None, description="Embedding of tool name (optional)")
 
 
 class ToolResponse(BaseModel):

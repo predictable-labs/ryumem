@@ -436,7 +436,7 @@ class Ryumem:
             tools: List of tool dicts, each containing:
                 - tool_name: str
                 - description: str
-                - name_embedding: List[float]
+                - name_embedding: List[float] (optional)
 
         Returns:
             Dict with statistics:
