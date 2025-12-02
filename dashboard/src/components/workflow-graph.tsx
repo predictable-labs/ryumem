@@ -13,6 +13,8 @@ import ReactFlow, {
   useEdgesState,
   MarkerType,
   Panel,
+  Handle,
+  Position,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { WorkflowNode, NodeType, Tool, api } from '@/lib/api';
@@ -39,11 +41,13 @@ interface WorkflowGraphProps {
 const ToolNode = ({ data }: { data: any }) => {
   return (
     <div className="px-4 py-2 shadow-md rounded-md bg-blue-50 border-2 border-blue-400 min-w-[150px]">
+      <Handle type="target" position={Position.Top} />
       <div className="flex items-center gap-2">
         <Wrench className="h-4 w-4 text-blue-600" />
         <div className="font-bold text-sm">{data.tool_name || 'Tool'}</div>
       </div>
       <div className="text-xs text-gray-500 mt-1">ID: {data.node_id}</div>
+      <Handle type="source" position={Position.Bottom} />
     </div>
   );
 };
@@ -51,12 +55,14 @@ const ToolNode = ({ data }: { data: any }) => {
 const MCPNode = ({ data }: { data: any }) => {
   return (
     <div className="px-4 py-2 shadow-md rounded-md bg-indigo-50 border-2 border-indigo-400 min-w-[150px]">
+      <Handle type="target" position={Position.Top} />
       <div className="flex items-center gap-2">
         <Server className="h-4 w-4 text-indigo-600" />
         <div className="font-bold text-sm">MCP</div>
       </div>
       <div className="text-xs text-gray-500 mt-1">{data.mcp_server || 'Server'}</div>
       <div className="text-xs text-gray-600">{data.tool_name}</div>
+      <Handle type="source" position={Position.Bottom} />
     </div>
   );
 };
@@ -64,11 +70,13 @@ const MCPNode = ({ data }: { data: any }) => {
 const LLMTriggerNode = ({ data }: { data: any }) => {
   return (
     <div className="px-4 py-2 shadow-md rounded-md bg-purple-50 border-2 border-purple-400 min-w-[150px]">
+      <Handle type="target" position={Position.Top} />
       <div className="flex items-center gap-2">
         <Brain className="h-4 w-4 text-purple-600" />
         <div className="font-bold text-sm">LLM Trigger</div>
       </div>
       <div className="text-xs text-gray-500 mt-1">ID: {data.node_id}</div>
+      <Handle type="source" position={Position.Bottom} />
     </div>
   );
 };
@@ -76,11 +84,13 @@ const LLMTriggerNode = ({ data }: { data: any }) => {
 const UserTriggerNode = ({ data }: { data: any }) => {
   return (
     <div className="px-4 py-2 shadow-md rounded-md bg-green-50 border-2 border-green-400 min-w-[150px]">
+      <Handle type="target" position={Position.Top} />
       <div className="flex items-center gap-2">
         <MessageSquare className="h-4 w-4 text-green-600" />
         <div className="font-bold text-sm">User Input</div>
       </div>
       <div className="text-xs text-gray-500 mt-1">ID: {data.node_id}</div>
+      <Handle type="source" position={Position.Bottom} />
     </div>
   );
 };
@@ -88,6 +98,7 @@ const UserTriggerNode = ({ data }: { data: any }) => {
 const ConditionNode = ({ data }: { data: any }) => {
   return (
     <div className="px-4 py-2 shadow-md rounded-md bg-yellow-50 border-2 border-yellow-400 min-w-[150px]">
+      <Handle type="target" position={Position.Top} />
       <div className="flex items-center gap-2">
         <GitBranch className="h-4 w-4 text-yellow-600" />
         <div className="font-bold text-sm">Condition</div>
@@ -95,6 +106,7 @@ const ConditionNode = ({ data }: { data: any }) => {
       <div className="text-xs text-gray-500 mt-1">
         {data.branches?.length || 0} branches
       </div>
+      <Handle type="source" position={Position.Bottom} />
     </div>
   );
 };
