@@ -167,10 +167,68 @@ export function WorkflowGraph({ workflowNodes, onNodesChange }: WorkflowGraphPro
       });
     });
 
+    // Add edges for condition node branches
+    const branchColors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
+    workflowNodes.forEach((wn) => {
+      if (wn.node_type === 'condition' && wn.branches && wn.branches.length > 0) {
+        wn.branches.forEach((branch, branchIndex) => {
+          branch.next_nodes.forEach((targetNodeId) => {
+            flowEdges.push({
+              id: `${wn.node_id}-${targetNodeId}-${branch.branch_id}`,
+              source: wn.node_id,
+              target: targetNodeId,
+              label: branch.condition_expr || branch.branch_id,
+              type: 'smoothstep',
+              animated: true,
+              style: {
+                stroke: branchColors[branchIndex % branchColors.length],
+                strokeWidth: 2,
+              },
+              labelStyle: {
+                fill: branchColors[branchIndex % branchColors.length],
+                fontWeight: 600,
+                fontSize: 10,
+              },
+              markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: branchColors[branchIndex % branchColors.length],
+              },
+            });
+          });
+        });
+
+        // Add edge for default branch if specified
+        if (wn.default_branch) {
+          flowEdges.push({
+            id: `${wn.node_id}-${wn.default_branch}-default`,
+            source: wn.node_id,
+            target: wn.default_branch,
+            label: 'default',
+            type: 'smoothstep',
+            animated: false,
+            style: {
+              stroke: '#6b7280',
+              strokeWidth: 2,
+              strokeDasharray: '5,5',
+            },
+            labelStyle: {
+              fill: '#6b7280',
+              fontWeight: 600,
+              fontSize: 10,
+            },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: '#6b7280',
+            },
+          });
+        }
+      }
+    });
+
     setEdges(flowEdges);
   }, [workflowNodes, setNodes, setEdges]);
 
-  // Handle new connections (dependencies)
+  // Handle new connections (dependencies or condition branches)
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
@@ -178,19 +236,38 @@ export function WorkflowGraph({ workflowNodes, onNodesChange }: WorkflowGraphPro
       // Update edges
       setEdges((eds) => addEdge(connection, eds));
 
-      // Update workflow nodes with new dependency
-      const updatedNodes = workflowNodes.map((wn) => {
-        if (wn.node_id === connection.target) {
-          const newDeps = [...wn.dependencies];
-          if (!newDeps.includes(connection.source!)) {
-            newDeps.push(connection.source!);
-          }
-          return { ...wn, dependencies: newDeps };
-        }
-        return wn;
-      });
+      const sourceNode = workflowNodes.find(n => n.node_id === connection.source);
 
-      onNodesChange(updatedNodes);
+      // If source is a condition node, create a branch
+      if (sourceNode?.node_type === 'condition') {
+        const updatedNodes = workflowNodes.map((wn) => {
+          if (wn.node_id === connection.source) {
+            // Create a new branch for this connection
+            const newBranch = {
+              branch_id: `branch_${Date.now()}`,
+              condition_expr: '', // Empty - user will fill this in
+              next_nodes: [connection.target!],
+            };
+            const newBranches = [...(wn.branches || []), newBranch];
+            return { ...wn, branches: newBranches };
+          }
+          return wn;
+        });
+        onNodesChange(updatedNodes);
+      } else {
+        // Otherwise, treat as regular dependency
+        const updatedNodes = workflowNodes.map((wn) => {
+          if (wn.node_id === connection.target) {
+            const newDeps = [...wn.dependencies];
+            if (!newDeps.includes(connection.source!)) {
+              newDeps.push(connection.source!);
+            }
+            return { ...wn, dependencies: newDeps };
+          }
+          return wn;
+        });
+        onNodesChange(updatedNodes);
+      }
     },
     [workflowNodes, onNodesChange, setEdges]
   );
@@ -199,16 +276,32 @@ export function WorkflowGraph({ workflowNodes, onNodesChange }: WorkflowGraphPro
   const onEdgesDelete = useCallback(
     (edgesToDelete: Edge[]) => {
       edgesToDelete.forEach((edge) => {
-        // Update workflow nodes to remove dependency
-        const updatedNodes = workflowNodes.map((wn) => {
-          if (wn.node_id === edge.target) {
-            const newDeps = wn.dependencies.filter((dep) => dep !== edge.source);
-            return { ...wn, dependencies: newDeps };
-          }
-          return wn;
-        });
+        const sourceNode = workflowNodes.find(n => n.node_id === edge.source);
 
-        onNodesChange(updatedNodes);
+        // If source is a condition node, remove the branch
+        if (sourceNode?.node_type === 'condition') {
+          const updatedNodes = workflowNodes.map((wn) => {
+            if (wn.node_id === edge.source) {
+              // Remove branch that points to this target
+              const newBranches = (wn.branches || []).filter(
+                branch => !branch.next_nodes.includes(edge.target as string)
+              );
+              return { ...wn, branches: newBranches };
+            }
+            return wn;
+          });
+          onNodesChange(updatedNodes);
+        } else {
+          // Otherwise, remove as regular dependency
+          const updatedNodes = workflowNodes.map((wn) => {
+            if (wn.node_id === edge.target) {
+              const newDeps = wn.dependencies.filter((dep) => dep !== edge.source);
+              return { ...wn, dependencies: newDeps };
+            }
+            return wn;
+          });
+          onNodesChange(updatedNodes);
+        }
       });
     },
     [workflowNodes, onNodesChange]
@@ -266,20 +359,6 @@ export function WorkflowGraph({ workflowNodes, onNodesChange }: WorkflowGraphPro
 
     onNodesChange([...workflowNodes, newWorkflowNode]);
   }, [workflowNodes, onNodesChange]);
-
-  // Add a new branch to condition node
-  const addBranch = useCallback(() => {
-    if (!selectedNode || selectedNode.node_type !== 'condition') return;
-
-    const newBranch = {
-      branch_id: `branch_${Date.now()}`,
-      condition_expr: '',
-      next_nodes: [],
-    };
-
-    const updatedBranches = [...(selectedNode.branches || []), newBranch];
-    updateSelectedNode('branches', updatedBranches);
-  }, [selectedNode, updateSelectedNode]);
 
   // Remove a branch from condition node
   const removeBranch = useCallback((branchId: string) => {
@@ -482,72 +561,97 @@ export function WorkflowGraph({ workflowNodes, onNodesChange }: WorkflowGraphPro
             {/* Condition branches editor */}
             {selectedNode.node_type === 'condition' && (
               <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <Label>Condition Branches</Label>
-                  <Button onClick={addBranch} size="sm" variant="outline">
-                    <Plus className="h-3 w-3 mr-1" />
-                    Add Branch
-                  </Button>
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-xs font-semibold text-blue-900 mb-1">How to create IF/ELSE conditions:</p>
+                  <ol className="text-xs text-blue-800 space-y-1 list-decimal ml-4">
+                    <li><strong>Draw a connection</strong> from this condition node to a target node</li>
+                    <li>A new branch will be created automatically</li>
+                    <li>Enter the condition expression below (e.g., <code className="bg-blue-100 px-1">status == 'success'</code>)</li>
+                    <li>Draw more connections for additional IF conditions</li>
+                    <li>Optionally set a "Default Branch" for ELSE fallback</li>
+                  </ol>
                 </div>
 
-                {(selectedNode.branches || []).map((branch) => (
-                  <Card key={branch.branch_id} className="p-3 bg-gray-50">
+                <Label className="text-sm font-semibold">Condition Branches (IF statements)</Label>
+
+                {(selectedNode.branches || []).length === 0 && (
+                  <div className="p-4 border-2 border-dashed rounded-md text-center text-sm text-gray-500">
+                    No branches yet. Draw a connection from this condition node to create your first IF branch.
+                  </div>
+                )}
+
+                {(selectedNode.branches || []).map((branch, idx) => (
+                  <Card key={branch.branch_id} className="p-3 bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-300">
                     <div className="space-y-2">
                       <div className="flex justify-between items-start">
-                        <Label className="text-xs">Branch: {branch.branch_id}</Label>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 bg-blue-500 text-white text-xs font-bold rounded">
+                            IF #{idx + 1}
+                          </span>
+                          <span className="text-xs text-gray-600">→ {branch.next_nodes.join(', ')}</span>
+                        </div>
                         <Button
                           onClick={() => removeBranch(branch.branch_id)}
                           size="sm"
                           variant="ghost"
                           className="h-6 w-6 p-0"
+                          title="Delete this branch (or delete the edge on the graph)"
                         >
                           <Trash2 className="h-3 w-3 text-red-600" />
                         </Button>
                       </div>
 
                       <div>
-                        <Label className="text-xs">Condition Expression *</Label>
+                        <Label className="text-xs font-semibold">IF Condition Expression *</Label>
                         <Input
                           value={branch.condition_expr}
                           onChange={(e) =>
                             updateBranch(branch.branch_id, 'condition_expr', e.target.value)
                           }
-                          placeholder="e.g., status == 'success'"
-                          className="text-xs"
+                          placeholder="status == 'success' OR count > 10 OR result == 'approved'"
+                          className="text-xs font-mono"
                         />
-                      </div>
-
-                      <div>
-                        <Label className="text-xs">Next Nodes (comma-separated)</Label>
-                        <Input
-                          value={branch.next_nodes.join(', ')}
-                          onChange={(e) =>
-                            updateBranch(
-                              branch.branch_id,
-                              'next_nodes',
-                              e.target.value.split(',').map((n) => n.trim()).filter((n) => n)
-                            )
-                          }
-                          placeholder="e.g., node_2, node_3"
-                          className="text-xs"
-                        />
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Examples: <code className="bg-gray-100 px-1">error == null</code>, <code className="bg-gray-100 px-1">score {'>'} 50</code>
+                        </p>
                       </div>
                     </div>
                   </Card>
                 ))}
 
-                <div>
-                  <Label className="text-xs">Default Branch (optional)</Label>
+                <div className="p-3 bg-gray-50 border-2 border-gray-300 rounded-md">
+                  <Label className="text-xs font-semibold flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-gray-500 text-white text-xs font-bold rounded">ELSE</span>
+                    Default Branch (optional)
+                  </Label>
                   <Input
                     value={selectedNode.default_branch || ''}
                     onChange={(e) => updateSelectedNode('default_branch', e.target.value)}
-                    placeholder="e.g., fallback_node"
-                    className="text-xs"
+                    placeholder="error_handler, fallback_node"
+                    className="text-xs font-mono mt-2"
                   />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Node to execute if no conditions match
+                  <p className="text-xs text-gray-500 mt-1">
+                    Node ID to execute if <strong>NONE</strong> of the above conditions match (ELSE case)
                   </p>
                 </div>
+
+                {(selectedNode.branches || []).length > 0 && (
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                    <p className="text-xs font-semibold text-green-900 mb-1">Flow Summary:</p>
+                    <div className="text-xs text-green-800 space-y-1">
+                      {(selectedNode.branches || []).map((branch, idx) => (
+                        <div key={branch.branch_id} className="font-mono">
+                          <strong>IF</strong> {branch.condition_expr || '(no condition)'} <strong>→</strong> {branch.next_nodes.join(', ')}
+                        </div>
+                      ))}
+                      {selectedNode.default_branch && (
+                        <div className="font-mono">
+                          <strong>ELSE</strong> → {selectedNode.default_branch}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
