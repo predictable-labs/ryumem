@@ -353,6 +353,15 @@ class ToolTrackingConfig(BaseSettings):
     )
 
 
+class WorkflowConfig(BaseSettings):
+    """Workflow configuration"""
+
+    workflow_mode_enabled: bool = Field(
+        default=True,
+        description="Enable workflow features"
+    )
+
+
 class RyumemConfig(BaseSettings):
     """
     Main configuration for Ryumem instance.
@@ -380,6 +389,7 @@ class RyumemConfig(BaseSettings):
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     system: SystemConfig = Field(default_factory=SystemConfig)
+    workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
 
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",
