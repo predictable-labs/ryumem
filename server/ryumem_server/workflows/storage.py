@@ -79,7 +79,7 @@ class WorkflowStorage:
 
         # Create an Episode node for each query template (for vector + BM25 search)
         for query_template in workflow.query_templates:
-            query_embedding = self.embedding_client.get_embedding(query_template)
+            query_embedding = self.embedding_client.embed(query_template)
 
             metadata = json.dumps({
                 "workflow_id": workflow.workflow_id,
