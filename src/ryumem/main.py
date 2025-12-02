@@ -760,6 +760,139 @@ class Ryumem:
         params = {"user_id": user_id} if user_id else {}
         return self._get("/sessions/active", params=params)
 
+    # ==================== Workflow Methods ====================
+
+    def search_workflows(
+        self, query: str, user_id: str, threshold: float = 0.7
+    ) -> List[Dict]:
+        """
+        Search for similar workflows in vector DB.
+
+        Args:
+            query: Query to search for
+            user_id: User ID
+            threshold: Similarity threshold (default: 0.7)
+
+        Returns:
+            List of similar workflows
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        return self._post(
+            "/workflows/search",
+            json={"query": query, "user_id": user_id, "threshold": threshold},
+        )
+
+    def create_workflow(self, workflow: Dict) -> Dict:
+        """
+        Save a new workflow to server.
+
+        Args:
+            workflow: Workflow definition dictionary
+
+        Returns:
+            Dict with workflow_id
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        return self._post("/workflows", json=workflow)
+
+    def get_workflow(self, workflow_id: str) -> Optional[Dict]:
+        """
+        Get specific workflow by ID.
+
+        Args:
+            workflow_id: Workflow ID
+
+        Returns:
+            Workflow definition or None
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        return self._get(f"/workflows/{workflow_id}")
+
+    def list_workflows(
+        self, user_id: Optional[str] = None, limit: int = 100
+    ) -> List[Dict]:
+        """
+        List all workflows.
+
+        Args:
+            user_id: Filter by user ID (optional)
+            limit: Maximum number of workflows
+
+        Returns:
+            List of workflows
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        params = {"limit": limit}
+        if user_id:
+            params["user_id"] = user_id
+        return self._get("/workflows", params=params)
+
+    def mark_workflow_success(self, workflow_id: str, session_id: str) -> Dict:
+        """
+        Mark workflow execution as successful.
+
+        Args:
+            workflow_id: Workflow ID
+            session_id: Session ID
+
+        Returns:
+            Updated workflow
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        return self._post(
+            f"/workflows/{workflow_id}/mark_success", json={"session_id": session_id}
+        )
+
+    def mark_workflow_failure(
+        self, workflow_id: str, session_id: str, error: str
+    ) -> Dict:
+        """
+        Mark workflow execution as failed.
+
+        Args:
+            workflow_id: Workflow ID
+            session_id: Session ID
+            error: Error message
+
+        Returns:
+            Updated workflow
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        return self._post(
+            f"/workflows/{workflow_id}/mark_failure",
+            json={"session_id": session_id, "error": error},
+        )
+
     # ==================== Embedding & LLM Methods ====================
 
     def embed(self, text: str) -> EmbeddingResponse:

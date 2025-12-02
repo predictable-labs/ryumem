@@ -334,6 +334,30 @@ class ToolTrackingConfig(BaseSettings):
     )
 
 
+class WorkflowConfig(BaseSettings):
+    """Workflow mode configuration"""
+
+    workflow_mode_enabled: bool = Field(
+        default=False,
+        description="Enable workflow mode (DAG-based tool orchestration)"
+    )
+    similarity_threshold: float = Field(
+        default=0.7,
+        description="Similarity threshold for workflow retrieval",
+        ge=0.0,
+        le=1.0
+    )
+    auto_save_workflows: bool = Field(
+        default=True,
+        description="Automatically save newly generated workflows"
+    )
+
+    model_config = SettingsConfigDict(
+        env_prefix="RYUMEM_WORKFLOW_",
+        env_nested_delimiter="__"
+    )
+
+
 class RyumemConfig(BaseSettings):
     """
     Main configuration for Ryumem instance.
@@ -360,6 +384,7 @@ class RyumemConfig(BaseSettings):
     search: SearchConfig = Field(default_factory=SearchConfig)
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
 
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",

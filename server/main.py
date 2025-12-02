@@ -34,6 +34,8 @@ from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.core.config_service import ConfigService
 from ryumem_server.sessions.manager import SessionManager
 from ryumem_server.sessions.models import SessionRun, SessionStatus
+from ryumem_server.workflows.storage import WorkflowStorage
+from ryumem_server.workflows.models import WorkflowDefinition
 
 # Load environment variables
 load_dotenv()
@@ -206,6 +208,14 @@ def get_session_manager(customer_id: str = Depends(get_current_customer)):
     _session_managers[customer_id] = manager
 
     return manager
+
+
+def get_workflow_storage(ryumem: Ryumem = Depends(get_ryumem)):
+    """
+    Get WorkflowStorage instance using the existing Ryumem instance.
+    No separate caching needed - created on-demand from Ryumem.
+    """
+    return WorkflowStorage(db=ryumem.db, embedding_client=ryumem.embedding_client)
 
 
 def get_write_ryumem(customer_id: str = Depends(get_current_customer)):
@@ -2283,6 +2293,141 @@ async def update_session(
             session_manager.add_query_run(session_id, request.user_id, request.query_run)
 
     return {"status": "success", "session_id": session_id}
+
+
+# ===== Workflow Management Endpoints =====
+
+class SearchWorkflowsRequest(BaseModel):
+    """Request to search for similar workflows."""
+    query: str
+    user_id: str
+    threshold: float = 0.7
+
+
+@app.post("/workflows/search", response_model=List[Dict[str, Any]])
+async def search_workflows(
+    request: SearchWorkflowsRequest,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """
+    Search for similar workflows in vector DB.
+    Server only does search, NOT generation (that happens on client).
+    """
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    # Generate embedding for query
+    query_embedding = ryumem.embedding_client.get_embedding(request.query)
+
+    # Search for similar workflows using hybrid search (BM25 + vector)
+    similar_workflows = workflow_storage.search_similar_workflows(
+        query=request.query,
+        query_embedding=query_embedding,
+        threshold=request.threshold,
+        user_id=request.user_id
+    )
+
+    # Return workflows (without similarity scores)
+    return [workflow.model_dump() for workflow, _ in similar_workflows]
+
+
+@app.post("/workflows", response_model=Dict[str, str])
+async def create_workflow(
+    workflow: WorkflowDefinition,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Save a newly generated workflow from client."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    # Save workflow
+    workflow_id = workflow_storage.save_workflow(workflow)
+
+    return {"workflow_id": workflow_id}
+
+
+@app.get("/workflows/{workflow_id}", response_model=Optional[Dict[str, Any]])
+async def get_workflow(
+    workflow_id: str,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Get a specific workflow by ID."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    workflow = workflow_storage.get_workflow(workflow_id)
+    if workflow:
+        return workflow.model_dump()
+    return None
+
+
+@app.get("/workflows", response_model=List[Dict[str, Any]])
+async def list_workflows(
+    user_id: Optional[str] = None,
+    limit: int = 100,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """List all workflows."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    workflows = workflow_storage.list_workflows(user_id=user_id, limit=limit)
+    return [w.model_dump() for w in workflows]
+
+
+class MarkSuccessRequest(BaseModel):
+    """Request to mark workflow as successful."""
+    session_id: str
+
+
+@app.post("/workflows/{workflow_id}/mark_success", response_model=Dict[str, Any])
+async def mark_workflow_success(
+    workflow_id: str,
+    request: MarkSuccessRequest,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Mark workflow execution as successful and increment success count."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    workflow_storage.increment_success_count(workflow_id)
+    updated_workflow = workflow_storage.get_workflow(workflow_id)
+
+    return updated_workflow.model_dump() if updated_workflow else {}
+
+
+class MarkFailureRequest(BaseModel):
+    """Request to mark workflow as failed."""
+    session_id: str
+    error: str
+
+
+@app.post("/workflows/{workflow_id}/mark_failure", response_model=Dict[str, Any])
+async def mark_workflow_failure(
+    workflow_id: str,
+    request: MarkFailureRequest,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Mark workflow execution as failed and increment failure count."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    workflow_storage.increment_failure_count(workflow_id)
+    updated_workflow = workflow_storage.get_workflow(workflow_id)
+
+    return updated_workflow.model_dump() if updated_workflow else {}
 
 
 @app.delete("/database/reset")

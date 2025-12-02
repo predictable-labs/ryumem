@@ -34,26 +34,25 @@ class WorkflowStorage:
         """
         Save a workflow to the database.
 
+        Creates a Workflow node for the definition and Episode nodes for each query template.
+
         Args:
             workflow: Workflow definition to save
 
         Returns:
             UUID of the saved workflow
         """
-        # Generate embedding for workflow description
-        description_embedding = self.embedding_client.get_embedding(workflow.description)
+        from uuid import uuid4
 
         # Serialize nodes to JSON
         nodes_json = json.dumps([node.model_dump() for node in workflow.nodes])
 
-        # Insert workflow node
-        query = """
+        # Insert workflow node (stores the workflow definition)
+        workflow_query = """
         CREATE (w:Workflow {
             uuid: $uuid,
             name: $name,
             description: $description,
-            query_template: $query_template,
-            description_embedding: $description_embedding,
             nodes_json: $nodes_json,
             success_count: $success_count,
             failure_count: $failure_count,
@@ -64,13 +63,11 @@ class WorkflowStorage:
         """
 
         self.db.execute(
-            query,
+            workflow_query,
             {
                 "uuid": workflow.workflow_id,
                 "name": workflow.name,
                 "description": workflow.description,
-                "query_template": workflow.query_template,
-                "description_embedding": description_embedding,
                 "nodes_json": nodes_json,
                 "success_count": workflow.success_count,
                 "failure_count": workflow.failure_count,
@@ -80,7 +77,53 @@ class WorkflowStorage:
             },
         )
 
-        logger.info(f"Saved workflow {workflow.workflow_id}: {workflow.name}")
+        # Create an Episode node for each query template (for vector + BM25 search)
+        for query_template in workflow.query_templates:
+            query_embedding = self.embedding_client.get_embedding(query_template)
+
+            metadata = json.dumps({
+                "workflow_id": workflow.workflow_id,
+                "workflow_name": workflow.name,
+            })
+
+            episode_query = """
+            CREATE (e:Episode {
+                uuid: $uuid,
+                name: $name,
+                content: $content,
+                content_embedding: $content_embedding,
+                source: $source,
+                source_description: $source_description,
+                kind: $kind,
+                created_at: $created_at,
+                valid_at: $valid_at,
+                user_id: $user_id,
+                agent_id: $agent_id,
+                metadata: $metadata,
+                entity_edges: $entity_edges
+            })
+            """
+
+            self.db.execute(
+                episode_query,
+                {
+                    "uuid": str(uuid4()),
+                    "name": f"Workflow Trigger: {workflow.name}",
+                    "content": query_template,
+                    "content_embedding": query_embedding,
+                    "source": "workflow",
+                    "source_description": f"Trigger query for workflow: {workflow.name}",
+                    "kind": "workflow_trigger",
+                    "created_at": workflow.created_at,
+                    "valid_at": workflow.created_at,
+                    "user_id": workflow.user_id,
+                    "agent_id": None,
+                    "metadata": metadata,
+                    "entity_edges": [],
+                },
+            )
+
+        logger.info(f"Saved workflow {workflow.workflow_id}: {workflow.name} with {len(workflow.query_templates)} trigger queries")
         return workflow.workflow_id
 
     def get_workflow(self, workflow_id: str) -> Optional[WorkflowDefinition]:
@@ -93,26 +136,37 @@ class WorkflowStorage:
         Returns:
             WorkflowDefinition or None if not found
         """
-        query = """
+        # Get workflow definition
+        workflow_query = """
         MATCH (w:Workflow {uuid: $workflow_id})
-        RETURN w.uuid, w.name, w.description, w.query_template,
+        RETURN w.uuid, w.name, w.description,
                w.nodes_json, w.success_count, w.failure_count,
                w.created_at, w.updated_at, w.user_id
         """
 
-        results = self.db.execute(query, {"workflow_id": workflow_id})
+        workflow_results = self.db.execute(workflow_query, {"workflow_id": workflow_id})
 
-        if not results:
+        if not workflow_results:
             return None
 
-        row = results[0]
+        row = workflow_results[0]
         nodes = json.loads(row["w.nodes_json"])
+
+        # Get query templates from Episode nodes
+        query_templates_query = """
+        MATCH (e:Episode {kind: 'workflow_trigger'})
+        WHERE e.metadata CONTAINS $workflow_id
+        RETURN e.content
+        """
+
+        template_results = self.db.execute(query_templates_query, {"workflow_id": workflow_id})
+        query_templates = [r["e.content"] for r in template_results]
 
         return WorkflowDefinition(
             workflow_id=row["w.uuid"],
             name=row["w.name"],
             description=row["w.description"],
-            query_template=row["w.query_template"],
+            query_templates=query_templates,
             nodes=nodes,
             success_count=row["w.success_count"],
             failure_count=row["w.failure_count"],
@@ -122,61 +176,70 @@ class WorkflowStorage:
         )
 
     def search_similar_workflows(
-        self, query_embedding: List[float], threshold: float = 0.7, limit: int = 5,
+        self, query: str, query_embedding: List[float], threshold: float = 0.7, limit: int = 5,
         user_id: Optional[str] = None
     ) -> List[Tuple[WorkflowDefinition, float]]:
         """
-        Search for workflows similar to a query.
+        Search for workflows similar to a query using hybrid search (BM25 + vector).
 
         Args:
-            query_embedding: Embedding vector of the query
-            threshold: Minimum similarity score (0-1)
+            query: Query text for BM25 search
+            query_embedding: Embedding vector for semantic search
+            threshold: Minimum RRF score (0-1)
             limit: Maximum number of results
             user_id: Optional user ID filter
 
         Returns:
-            List of (WorkflowDefinition, similarity_score) tuples
+            List of (WorkflowDefinition, rrf_score) tuples
         """
-        user_filter = "AND w.user_id = $user_id" if user_id else ""
+        user_filter = "AND e.user_id = $user_id" if user_id else ""
 
-        query = f"""
-        MATCH (w:Workflow)
-        WHERE array_cosine_similarity(w.description_embedding, $embedding) >= $threshold
+        # Hybrid search on Episode nodes with kind='workflow_trigger'
+        search_query = f"""
+        MATCH (e:Episode {{kind: 'workflow_trigger'}})
+        WHERE array_cosine_similarity(e.content_embedding, $embedding) >= $threshold
         {user_filter}
-        RETURN w.uuid, w.name, w.description, w.query_template,
-               w.nodes_json, w.success_count, w.failure_count,
-               w.created_at, w.updated_at, w.user_id,
-               array_cosine_similarity(w.description_embedding, $embedding) AS similarity
-        ORDER BY similarity DESC
+        WITH e,
+             bm25(e.content, $query) AS bm25_score,
+             array_cosine_similarity(e.content_embedding, $embedding) AS semantic_score
+        WITH e,
+             1.0 / (60 + rank() OVER (ORDER BY bm25_score DESC)) +
+             1.0 / (60 + rank() OVER (ORDER BY semantic_score DESC)) AS rrf_score
+        WHERE rrf_score >= $threshold
+        RETURN e.metadata, rrf_score
+        ORDER BY rrf_score DESC
         LIMIT $limit
         """
 
         params = {
+            "query": query,
             "embedding": query_embedding,
             "threshold": threshold,
-            "limit": limit,
+            "limit": limit * 3,  # Get more to handle multiple templates per workflow
         }
         if user_id:
             params["user_id"] = user_id
 
-        results = self.db.execute(query, params)
+        results = self.db.execute(search_query, params)
 
-        workflows = []
+        # Group by workflow_id and get the best score for each
+        workflow_scores = {}
         for row in results:
-            nodes = json.loads(row["w.nodes_json"])
-            workflow = WorkflowDefinition(
-                workflow_id=row["w.uuid"],
-                name=row["w.name"],
-                description=row["w.description"],
-                query_template=row["w.query_template"],
-                nodes=nodes,
-                success_count=row["w.success_count"],
-                failure_count=row["w.failure_count"],
-                created_at=row["w.created_at"],
-                updated_at=row["w.updated_at"],
-                user_id=row["w.user_id"],
-            )
-            workflows.append((workflow, row["similarity"]))
+            metadata = json.loads(row["e.metadata"])
+            workflow_id = metadata.get("workflow_id")
+            if not workflow_id:
+                continue
+
+            score = row["rrf_score"]
+            if workflow_id not in workflow_scores or score > workflow_scores[workflow_id]:
+                workflow_scores[workflow_id] = score
+
+        # Retrieve full workflow definitions
+        workflows = []
+        for workflow_id, score in sorted(workflow_scores.items(), key=lambda x: x[1], reverse=True)[:limit]:
+            workflow = self.get_workflow(workflow_id)
+            if workflow:
+                workflows.append((workflow, score))
 
         logger.info(f"Found {len(workflows)} similar workflows (threshold={threshold})")
         return workflows
@@ -239,7 +302,7 @@ class WorkflowStorage:
         query = f"""
         MATCH (w:Workflow)
         {user_filter}
-        RETURN w.uuid, w.name, w.description, w.query_template,
+        RETURN w.uuid, w.name, w.description,
                w.nodes_json, w.success_count, w.failure_count,
                w.created_at, w.updated_at, w.user_id
         ORDER BY w.created_at DESC
@@ -254,12 +317,24 @@ class WorkflowStorage:
 
         workflows = []
         for row in results:
+            workflow_id = row["w.uuid"]
             nodes = json.loads(row["w.nodes_json"])
+
+            # Get query templates from Episode nodes
+            query_templates_query = """
+            MATCH (e:Episode {kind: 'workflow_trigger'})
+            WHERE e.metadata CONTAINS $workflow_id
+            RETURN e.content
+            """
+
+            template_results = self.db.execute(query_templates_query, {"workflow_id": workflow_id})
+            query_templates = [r["e.content"] for r in template_results]
+
             workflow = WorkflowDefinition(
-                workflow_id=row["w.uuid"],
+                workflow_id=workflow_id,
                 name=row["w.name"],
                 description=row["w.description"],
-                query_template=row["w.query_template"],
+                query_templates=query_templates,
                 nodes=nodes,
                 success_count=row["w.success_count"],
                 failure_count=row["w.failure_count"],
@@ -273,7 +348,7 @@ class WorkflowStorage:
 
     def delete_workflow(self, workflow_id: str) -> bool:
         """
-        Delete a workflow.
+        Delete a workflow and its trigger query Episodes.
 
         Args:
             workflow_id: UUID of the workflow to delete
@@ -281,12 +356,20 @@ class WorkflowStorage:
         Returns:
             True if deleted, False if not found
         """
-        query = """
+        # Delete workflow node
+        workflow_query = """
         MATCH (w:Workflow {uuid: $workflow_id})
         DELETE w
         """
+        self.db.execute(workflow_query, {"workflow_id": workflow_id})
 
-        results = self.db.execute(query, {"workflow_id": workflow_id})
+        # Delete associated Episode trigger nodes
+        episode_query = """
+        MATCH (e:Episode {kind: 'workflow_trigger'})
+        WHERE e.metadata CONTAINS $workflow_id
+        DELETE e
+        """
+        self.db.execute(episode_query, {"workflow_id": workflow_id})
 
-        logger.info(f"Deleted workflow {workflow_id}")
+        logger.info(f"Deleted workflow {workflow_id} and its trigger queries")
         return True

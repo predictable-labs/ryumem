@@ -35,13 +35,14 @@ class WorkflowNode(BaseModel):
     """
     Represents a single tool execution in a workflow DAG.
 
-    Nodes can reference session variables using ${session_variables.key} syntax.
+    Nodes can reference session variables using ${variable} syntax.
+    Previous node outputs are stored as ${node_id}.
     """
     node_id: str = Field(description="Unique identifier for this node")
     tool_name: str = Field(description="Name of the tool to execute")
     input_params: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Input parameters for the tool. Can reference ${session_variables.key}"
+        description="Input parameters for the tool. Can reference ${variable} or ${node_id}"
     )
     dependencies: List[str] = Field(
         default_factory=list,
@@ -51,10 +52,10 @@ class WorkflowNode(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "node_id": "node_1",
+                "node_id": "fetch_weather",
                 "tool_name": "get_weather",
                 "input_params": {
-                    "location": "${session_variables.user_location}"
+                    "location": "${user_location}"
                 },
                 "dependencies": []
             }
@@ -73,7 +74,7 @@ class WorkflowDefinition(BaseModel):
     )
     name: str = Field(description="Human-readable name for the workflow")
     description: str = Field(description="Description of what the workflow does")
-    query_template: str = Field(description="Original query pattern that this workflow handles")
+    query_templates: List[str] = Field(description="List of query patterns that trigger this workflow")
     nodes: List[WorkflowNode] = Field(description="List of nodes in the workflow DAG")
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
@@ -102,19 +103,24 @@ class WorkflowDefinition(BaseModel):
                 "workflow_id": "wf_123",
                 "name": "Weather Workflow",
                 "description": "Get weather and provide recommendation",
-                "query_template": "What's the weather like?",
+                "query_templates": [
+                    "What's the weather like?",
+                    "How's the weather today?",
+                    "Tell me about the weather",
+                    "What's the temperature?"
+                ],
                 "nodes": [
                     {
-                        "node_id": "node_1",
+                        "node_id": "fetch_weather",
                         "tool_name": "get_weather",
-                        "input_params": {"location": "${session_variables.user_location}"},
+                        "input_params": {"location": "${user_location}"},
                         "dependencies": []
                     },
                     {
-                        "node_id": "node_2",
+                        "node_id": "generate_recommendation",
                         "tool_name": "get_recommendation",
-                        "input_params": {"weather": "${session_variables.node_1_output}"},
-                        "dependencies": ["node_1"]
+                        "input_params": {"weather": "${fetch_weather}"},
+                        "dependencies": ["fetch_weather"]
                     }
                 ],
                 "success_count": 5

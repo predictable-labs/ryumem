@@ -494,6 +494,33 @@ class RyumemAPI {
       method: 'DELETE',
     });
   }
+
+  // ========================= Workflow Methods =========================
+
+  async listWorkflows(userId?: string, limit: number = 100): Promise<WorkflowDefinition[]> {
+    const params = new URLSearchParams();
+    if (userId) params.append('user_id', userId);
+    params.append('limit', limit.toString());
+    return this.request(`/workflows?${params.toString()}`);
+  }
+
+  async getWorkflow(workflowId: string): Promise<WorkflowDefinition> {
+    return this.request(`/workflows/${workflowId}`);
+  }
+
+  async createWorkflow(workflow: Omit<WorkflowDefinition, 'workflow_id' | 'created_at' | 'updated_at' | 'success_count' | 'failure_count'>): Promise<{ workflow_id: string }> {
+    return this.request('/workflows', {
+      method: 'POST',
+      body: JSON.stringify(workflow),
+    });
+  }
+
+  async searchWorkflows(query: string, userId: string, threshold: number = 0.7): Promise<WorkflowDefinition[]> {
+    return this.request('/workflows/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, user_id: userId, threshold }),
+    });
+  }
 }
 
 export interface ConfigValue {
@@ -536,6 +563,27 @@ export interface DeleteDatabaseResponse {
   message: string;
   customer_id: string;
   timestamp: string;
+}
+
+// Workflow types
+export interface WorkflowNode {
+  node_id: string;
+  tool_name: string;
+  input_params: Record<string, any>;
+  dependencies: string[];
+}
+
+export interface WorkflowDefinition {
+  workflow_id: string;
+  name: string;
+  description: string;
+  query_templates: string[];
+  nodes: WorkflowNode[];
+  created_at: string;
+  updated_at: string;
+  success_count: number;
+  failure_count: number;
+  user_id?: string;
 }
 
 export const api = new RyumemAPI();
