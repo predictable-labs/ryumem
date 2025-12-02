@@ -97,16 +97,21 @@ const UserTriggerNode = ({ data }: { data: any }) => {
 
 const ConditionNode = ({ data }: { data: any }) => {
   return (
-    <div className="px-4 py-2 shadow-md rounded-md bg-yellow-50 border-2 border-yellow-400 min-w-[150px]">
-      <Handle type="target" position={Position.Top} />
-      <div className="flex items-center gap-2">
-        <GitBranch className="h-4 w-4 text-yellow-600" />
-        <div className="font-bold text-sm">Condition</div>
+    <div className="relative w-32 h-32 flex items-center justify-center">
+      <Handle type="target" position={Position.Top} className="z-10" />
+      {/* Diamond shape */}
+      <div className="absolute w-28 h-28 bg-yellow-50 border-2 border-yellow-400 shadow-lg transform rotate-45" />
+      {/* Content (counter-rotated to appear upright) */}
+      <div className="relative z-10 flex flex-col items-center justify-center text-center px-2">
+        <GitBranch className="h-5 w-5 text-yellow-600 mb-1" />
+        <div className="font-bold text-xs text-gray-800">Condition</div>
+        <div className="text-xs text-gray-500 mt-0.5">
+          {data.branches?.length || 0} branches
+        </div>
       </div>
-      <div className="text-xs text-gray-500 mt-1">
-        {data.branches?.length || 0} branches
-      </div>
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Bottom} className="z-10" />
+      <Handle type="source" position={Position.Left} className="z-10" />
+      <Handle type="source" position={Position.Right} className="z-10" />
     </div>
   );
 };
