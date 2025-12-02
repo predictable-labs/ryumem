@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User, History, Cog, LogOut } from "lucide-react";
+import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User, History, Cog, LogOut, Workflow as WorkflowIcon } from "lucide-react";
 import { EpisodesList } from "@/components/episodes-list";
 import { EpisodeFormModal } from "@/components/episode-form-modal";
 import { ChatInterface } from "@/components/chat-interface";
@@ -13,11 +13,13 @@ import { EntityDetailPanel } from "@/components/entity-detail-panel";
 import { ToolAnalyticsPanel } from "@/components/tool-analytics-panel";
 import { AgentInstructionEditor } from "@/components/agent-instruction-editor";
 import AugmentedQueriesViewer from "@/components/augmented-queries-viewer";
+import { WorkflowList } from "@/components/workflow-list";
+import { WorkflowEditor } from "@/components/workflow-editor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { api, Entity, GraphDataResponse, EntitiesListResponse, Edge } from "@/lib/api";
+import { api, Entity, GraphDataResponse, EntitiesListResponse, Edge, WorkflowDefinition } from "@/lib/api";
 
 export default function Home() {
   const [users, setUsers] = useState<string[]>([]);
@@ -45,6 +47,11 @@ export default function Home() {
   // Tool analytics state - shared between tabs
   const [activeTab, setActiveTab] = useState("chat");
   const [selectedToolForAnalytics, setSelectedToolForAnalytics] = useState<string | null>(null);
+
+  // Workflow state
+  const [showWorkflowEditor, setShowWorkflowEditor] = useState(false);
+  const [editingWorkflow, setEditingWorkflow] = useState<WorkflowDefinition | undefined>(undefined);
+  const [workflowRefresh, setWorkflowRefresh] = useState(0);
 
   // Load users on mount
   useEffect(() => {
@@ -211,7 +218,7 @@ export default function Home() {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className={`grid w-full ${entityExtractionEnabled ? 'grid-cols-3 lg:grid-cols-7' : 'grid-cols-3 lg:grid-cols-5'} lg:w-full`}>
+          <TabsList className={`grid w-full ${entityExtractionEnabled ? 'grid-cols-3 lg:grid-cols-8' : 'grid-cols-3 lg:grid-cols-6'} lg:w-full`}>
             <TabsTrigger value="chat" className="flex items-center gap-2">
               <BookOpen className="h-4 w-4" />
               Chat & Query
@@ -251,6 +258,10 @@ export default function Home() {
             <TabsTrigger value="settings" className="flex items-center gap-2">
               <Settings className="h-4 w-4" />
               Agent Settings
+            </TabsTrigger>
+            <TabsTrigger value="workflows" className="flex items-center gap-2">
+              <WorkflowIcon className="h-4 w-4" />
+              Workflows
             </TabsTrigger>
           </TabsList>
 
@@ -390,6 +401,37 @@ export default function Home() {
                 <AgentInstructionEditor userId={userId} />
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="workflows" className="space-y-4">
+            {showWorkflowEditor ? (
+              <WorkflowEditor
+                workflow={editingWorkflow}
+                userId={userId}
+                onSave={() => {
+                  setShowWorkflowEditor(false);
+                  setEditingWorkflow(undefined);
+                  setWorkflowRefresh(prev => prev + 1);
+                }}
+                onCancel={() => {
+                  setShowWorkflowEditor(false);
+                  setEditingWorkflow(undefined);
+                }}
+              />
+            ) : (
+              <WorkflowList
+                userId={userId}
+                refreshKey={workflowRefresh}
+                onCreateClick={() => {
+                  setEditingWorkflow(undefined);
+                  setShowWorkflowEditor(true);
+                }}
+                onEditClick={(workflow) => {
+                  setEditingWorkflow(workflow);
+                  setShowWorkflowEditor(true);
+                }}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </div>
