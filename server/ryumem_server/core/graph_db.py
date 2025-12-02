@@ -103,6 +103,25 @@ class RyugraphDB:
             """
         )
 
+        # Workflow nodes for workflow orchestration
+        self.execute(
+            f"""
+            CREATE NODE TABLE IF NOT EXISTS Workflow(
+                uuid STRING PRIMARY KEY,
+                name STRING,
+                description STRING,
+                query_template STRING,
+                description_embedding FLOAT[{self.embedding_dimensions}],
+                nodes_json STRING,
+                success_count INT64,
+                failure_count INT64,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP,
+                user_id STRING
+            );
+            """
+        )
+
         # SystemConfig nodes for storing application configuration
         self.execute(
             """

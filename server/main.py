@@ -27,11 +27,13 @@ from pydantic import BaseModel, Field
 
 from ryumem_server import Ryumem
 from ryumem_server.core.config import RyumemConfig
-from ryumem_server.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
+from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
 
 from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.core.config_service import ConfigService
+from ryumem_server.sessions.manager import SessionManager
+from ryumem_server.sessions.models import SessionRun, SessionStatus
 
 # Load environment variables
 load_dotenv()
@@ -110,6 +112,7 @@ class AuthManager:
 
 _auth_manager: Optional[AuthManager] = None
 _ryumem_cache: Dict[str, Ryumem] = {}
+_session_managers: Dict[str, SessionManager] = {}  # Per-customer session managers
 
 
 
@@ -173,19 +176,36 @@ def get_ryumem(customer_id: str = Depends(get_current_customer)):
     """
     if customer_id in _ryumem_cache:
         return _ryumem_cache[customer_id]
-        
+
     # Create new instance
     db_folder = os.getenv("RYUMEM_DB_FOLDER", "./data")
     db_path = os.path.join(db_folder, f"{customer_id}.db")
-    
+
     logger.info(f"Creating Ryumem instance for {customer_id} at {db_path}")
-    
+
     # Initialize with specific DB path
     # We create a fresh config to avoid sharing state, though Ryumem(db_path=...) handles override
     instance = Ryumem(db_path=db_path)
-    
+
     _ryumem_cache[customer_id] = instance
     return instance
+
+
+def get_session_manager(customer_id: str = Depends(get_current_customer)):
+    """
+    Get the SessionManager instance for the current customer.
+    """
+    if customer_id in _session_managers:
+        return _session_managers[customer_id]
+
+    # Get the Ryumem instance (which has the DB)
+    ryumem = get_ryumem(customer_id)
+
+    # Create SessionManager
+    manager = SessionManager(db=ryumem.db)
+    _session_managers[customer_id] = manager
+
+    return manager
 
 
 def get_write_ryumem(customer_id: str = Depends(get_current_customer)):
@@ -2183,6 +2203,86 @@ async def get_customer_me(
     Get current authenticated customer details.
     """
     return {"customer_id": customer_id}
+
+
+# ===== Session Management Endpoints =====
+
+@app.get("/sessions", response_model=List[SessionRun])
+async def list_sessions(
+    user_id: Optional[str] = None,
+    limit: int = 100,
+    session_manager: SessionManager = Depends(get_session_manager)
+):
+    """List all sessions."""
+    return session_manager.list_sessions(user_id=user_id, limit=limit)
+
+
+@app.get("/sessions/active", response_model=List[SessionRun])
+async def get_active_sessions(
+    user_id: Optional[str] = None,
+    session_manager: SessionManager = Depends(get_session_manager)
+):
+    """Get all active sessions."""
+    return session_manager.get_active_sessions(user_id=user_id)
+
+
+@app.get("/sessions/{session_id}", response_model=Optional[SessionRun])
+async def get_session(
+    session_id: str,
+    session_manager: SessionManager = Depends(get_session_manager)
+):
+    """Get a specific session."""
+    return session_manager.get_session(session_id)
+
+
+class UpdateSessionRequest(BaseModel):
+    """Single request to update entire session state at once."""
+    user_id: str
+    status: Optional[SessionStatus] = None
+    workflow_id: Optional[str] = None
+    session_variables: Optional[Dict[str, Any]] = None
+    current_node: Optional[str] = None
+    error: Optional[str] = None
+    query_run: Optional[QueryRun] = None  # Add a query run if provided
+    episode_id: Optional[str] = None  # Link to specific episode
+
+
+@app.put("/sessions/{session_id}")
+async def update_session(
+    session_id: str,
+    request: UpdateSessionRequest,
+    session_manager: SessionManager = Depends(get_session_manager)
+):
+    """
+    Update entire session state in one call.
+    Only updates fields that are provided (not None).
+    """
+    # Update status if provided
+    if request.status is not None:
+        session_manager.set_session_status(session_id, request.user_id, request.status, request.error)
+
+    # Update workflow_id if provided
+    if request.workflow_id is not None:
+        session_manager.set_workflow_id(session_id, request.user_id, request.workflow_id)
+
+    # Update variables if provided
+    if request.session_variables is not None:
+        session_manager.update_session_variables(session_id, request.user_id, request.session_variables)
+
+    # Update current node if provided
+    if request.current_node is not None:
+        session_manager.set_current_node(session_id, request.user_id, request.current_node)
+
+    # Add query run if provided
+    if request.query_run is not None:
+        if request.episode_id:
+            # Link to specific episode
+            session_manager.add_query_run_to_episode(request.episode_id, session_id, request.user_id, request.query_run)
+        else:
+            # Find/create episode by session_id
+            session_manager.add_query_run(session_id, request.user_id, request.query_run)
+
+    return {"status": "success", "session_id": session_id}
 
 
 @app.delete("/database/reset")

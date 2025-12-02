@@ -700,34 +700,16 @@ def _insert_run_information_in_episode(
     query_run: QueryRun,
     memory: RyumemGoogleADK
 ):
-    """Check for duplicate episodes and append run if needed."""
-    import json
+    """Link episode to session by adding query run via SessionManager."""
+    logger.info(f"Linking session {session_id[:8]} to episode {query_episode_id[:8]}")
 
-    existing_episode = memory.ryumem.get_episode_by_uuid(query_episode_id)
-
-    if not existing_episode:
-        return
-
-    metadata_str = existing_episode.get('metadata', '{}')
-    metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-
-    # Parse into Pydantic model
-    episode_metadata = EpisodeMetadata(**metadata_dict)
-
-    # Check if this session already has runs
-    if session_id in episode_metadata.sessions:
-        existing_runs = episode_metadata.sessions[session_id]
-        if existing_runs and existing_runs[-1].run_id != run_id:
-            logger.info(f"Duplicate query detected - appending run to session {session_id[:8]} in episode {query_episode_id[:8]}")
-            episode_metadata.add_query_run(session_id, query_run)
-            memory.ryumem.update_episode_metadata(query_episode_id, episode_metadata.model_dump())
-            logger.info(f"Episode {query_episode_id[:8]} session {session_id[:8]} now has {len(episode_metadata.sessions[session_id])} runs")
-    else:
-        # New session - add it to the episode
-        logger.info(f"Linking new session {session_id[:8]} to existing episode {query_episode_id[:8]}")
-        episode_metadata.add_query_run(session_id, query_run)
-        memory.ryumem.update_episode_metadata(query_episode_id, episode_metadata.model_dump())
-        logger.info(f"Episode {query_episode_id[:8]} now has session {session_id[:8]} with 1 run")
+    # Use SessionManager API to link episode to session
+    memory.ryumem.link_episode_to_session(
+        episode_id=query_episode_id,
+        session_id=session_id,
+        user_id=query_run.user_id,
+        query_run=query_run
+    )
 
 
 def _create_query_episode(

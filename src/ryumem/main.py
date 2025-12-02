@@ -685,6 +685,81 @@ class Ryumem:
         response = self._get("/agent-instructions", params=params)
         return response
 
+    # ==================== Session Management Methods ====================
+
+    def link_episode_to_session(
+        self,
+        episode_id: str,
+        session_id: str,
+        user_id: str,
+        query_run: Any
+    ) -> Dict:
+        """
+        Link an existing episode to a session by adding a query run.
+
+        Args:
+            episode_id: Episode ID to link
+            session_id: Session ID
+            user_id: User ID
+            query_run: QueryRun object
+
+        Returns:
+            Success response dict
+        """
+        # Serialize QueryRun if it's an object
+        if hasattr(query_run, 'model_dump'):
+            query_run_dict = query_run.model_dump()
+        elif hasattr(query_run, 'dict'):
+            query_run_dict = query_run.dict()
+        else:
+            query_run_dict = query_run
+
+        payload = {
+            "user_id": user_id,
+            "episode_id": episode_id,
+            "query_run": query_run_dict
+        }
+
+        return self._put(f"/sessions/{session_id}", json=payload)
+
+    def update_session(
+        self,
+        session_id: str,
+        user_id: str,
+        status: str,
+        workflow_id: str,
+        session_variables: Dict[str, Any],
+        current_node: str
+    ) -> Dict:
+        """
+        Update session state (status, workflow, variables, current node).
+
+        Args:
+            session_id: Session ID
+            user_id: User ID
+            status: Session status
+            workflow_id: Workflow ID
+            session_variables: Session variables dict
+            current_node: Currently executing node
+
+        Returns:
+            Success response dict
+        """
+        payload = {
+            "user_id": user_id,
+            "status": status,
+            "workflow_id": workflow_id,
+            "session_variables": session_variables,
+            "current_node": current_node
+        }
+
+        return self._put(f"/sessions/{session_id}", json=payload)
+
+    def get_active_sessions(self, user_id: Optional[str] = None) -> List[Dict]:
+        """Get all active sessions."""
+        params = {"user_id": user_id} if user_id else {}
+        return self._get("/sessions/active", params=params)
+
     # ==================== Embedding & LLM Methods ====================
 
     def embed(self, text: str) -> EmbeddingResponse:
