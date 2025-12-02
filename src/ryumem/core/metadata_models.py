@@ -161,25 +161,13 @@ class EpisodeMetadata(BaseModel):
             String showing inputs that worked/failed for each tool with response sizes and errors
         """
         from collections import defaultdict
-        import ast
 
         def get_response_size(output_summary: str) -> str:
             """Calculate response size based on type."""
             if not output_summary or output_summary.strip() in ['', 'None', 'null', 'N/A']:
                 return 'None'
 
-            # Try to parse as JSON
-            try:
-                parsed = ast.literal_eval(output_summary)
-                if isinstance(parsed, dict):
-                    return f"{len(parsed)} keys"
-                elif isinstance(parsed, list):
-                    return f"{len(parsed)} items"
-                else:
-                    return str(parsed)
-            except (json.JSONDecodeError, TypeError):
-                # Not JSON, treat as string
-                return f"{len(output_summary)} chars"
+            return f"{len(output_summary)} chars"
 
         # Group by tool name, then by input params
         tool_data = defaultdict(lambda: {'worked': [], 'failed': [], 'empty': []})
