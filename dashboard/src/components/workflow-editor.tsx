@@ -133,13 +133,21 @@ export function WorkflowEditor({ workflow, userId, onSave, onCancel }: WorkflowE
 
     setIsSaving(true);
     try {
-      await api.createWorkflow({
+      const workflowData = {
         name,
         description,
         query_templates: validTemplates,
         nodes,
         user_id: userId,
-      });
+      };
+
+      if (workflow?.workflow_id) {
+        // Update existing workflow
+        await api.updateWorkflow(workflow.workflow_id, workflowData);
+      } else {
+        // Create new workflow
+        await api.createWorkflow(workflowData);
+      }
       onSave();
     } catch (error) {
       console.error("Failed to save workflow:", error);

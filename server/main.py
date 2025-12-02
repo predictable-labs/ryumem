@@ -919,6 +919,25 @@ async def get_episodes(
         raise HTTPException(status_code=500, detail=f"Error getting episodes: {str(e)}")
 
 
+@app.delete("/episodes/{episode_uuid}")
+async def delete_episode(
+    episode_uuid: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """Delete an episode by UUID."""
+    try:
+        # Delete the episode node and its relationships
+        query = """
+        MATCH (e:Episode {uuid: $uuid})
+        DETACH DELETE e
+        """
+        ryumem.db.query(query, {"uuid": episode_uuid})
+        return {"message": "Episode deleted successfully", "uuid": episode_uuid}
+    except Exception as e:
+        logger.error(f"Error deleting episode {episode_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting episode: {str(e)}")
+
+
 @app.post("/search", response_model=SearchResponse)
 async def search(
     request: SearchRequest,
@@ -2365,6 +2384,30 @@ async def get_workflow(
     if workflow:
         return workflow.model_dump()
     return None
+
+
+@app.put("/workflows/{workflow_id}", response_model=Dict[str, str])
+async def update_workflow(
+    workflow_id: str,
+    workflow: WorkflowDefinition,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Update an existing workflow."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    # Check if workflow exists
+    existing = workflow_storage.get_workflow(workflow_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    # Update workflow (use the provided workflow_id)
+    workflow.workflow_id = workflow_id
+    updated_id = workflow_storage.save_workflow(workflow)
+
+    return {"workflow_id": updated_id}
 
 
 @app.get("/workflows", response_model=List[Dict[str, Any]])

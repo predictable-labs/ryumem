@@ -515,6 +515,13 @@ class RyumemAPI {
     });
   }
 
+  async updateWorkflow(workflowId: string, workflow: Omit<WorkflowDefinition, 'workflow_id' | 'created_at' | 'updated_at' | 'success_count' | 'failure_count'>): Promise<{ workflow_id: string }> {
+    return this.request(`/workflows/${workflowId}`, {
+      method: 'PUT',
+      body: JSON.stringify(workflow),
+    });
+  }
+
   async searchWorkflows(query: string, userId: string, threshold: number = 0.7): Promise<WorkflowDefinition[]> {
     return this.request('/workflows/search', {
       method: 'POST',
