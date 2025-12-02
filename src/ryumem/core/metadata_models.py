@@ -150,10 +150,10 @@ class EpisodeMetadata(BaseModel):
 
         return tool_usage
 
-    def get_tool_usage_summary(self) -> str:
+    def get_simple_tool_usage_summary(self) -> str:
         """
-        Create concise tool usage summary for query augmentation.
-
+        Create concise tool usage summary (grouped by success/fail).
+        
         Returns:
             String showing inputs that worked/failed for each tool
         """
@@ -201,4 +201,37 @@ class EpisodeMetadata(BaseModel):
 
             summaries.append(''.join(parts))
 
+        return ', '.join(summaries)
+
+    def get_tool_usage_summary(self) -> str:
+        """
+        Create detailed tool usage summary including return values.
+        
+        Returns:
+            String showing inputs and outputs for each tool execution.
+            Format: tool_name with [input] -> [output]
+        """
+        summaries = []
+        
+        for tool in self.get_all_tools_used():
+            name = tool.tool_name
+            
+            # Format input
+            input_str = ""
+            if tool.input_params:
+                input_str = ', '.join([f"{k}={v}" for k, v in tool.input_params.items()])
+            
+            # Format output
+            output_str = "[]"
+            if tool.output_summary and tool.output_summary.strip() not in ['', 'None', 'null', 'N/A']:
+                output_str = tool.output_summary
+            
+            # Construct summary string
+            if input_str:
+                summary = f"{name} with [{input_str}] -> {output_str}"
+            else:
+                summary = f"{name} -> {output_str}"
+                
+            summaries.append(summary)
+            
         return ', '.join(summaries)

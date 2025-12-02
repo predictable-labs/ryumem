@@ -616,11 +616,13 @@ def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]
 
             # Get tool summary
             tool_summary = episode_metadata.get_tool_usage_summary()
+            tool_summary_with_stats = episode_metadata.get_simple_tool_usage_summary()
 
             # Fill template
             return augmentation_template.format(
                 agent_response=agent_response or "No previous response recorded",
                 tool_summary=tool_summary or "No tools used",
+                tool_summary_with_stats=tool_summary_with_stats or "No tools used",
                 query_text=query_text
             )
 
@@ -667,6 +669,7 @@ def _augment_query_with_history(
         logger.info(f"Found {len(similar_queries)} similar queries")
         top_k = memory.ryumem.config.tool_tracking.top_k_similar
         augmented_query = _build_context_section(query_text, similar_queries, memory, top_k)
+        logger.info(f"Augmented query: {augmented_query}")
 
         if augmented_query and augmented_query != query_text:
             logger.info(f"Augmented query with {len(similar_queries)} similar queries")

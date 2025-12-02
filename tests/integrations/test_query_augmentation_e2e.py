@@ -221,3 +221,48 @@ class TestQueryAugmentationE2E:
         assert isinstance(results.episodes, list), "Should return list of episodes"
         # Empty query should find nothing or handle gracefully
         assert len(results.episodes) >= 0, "Should not crash on empty query"
+
+    def test_tool_summary_detailed_format(self, ryumem_client, unique_user, unique_session):
+        """Test that tool_summary is correctly formatted with detailed stats in episode metadata."""
+        from ryumem.core.metadata_models import ToolExecution
+        
+        # Create a query run with tool executions
+        tool_exec = ToolExecution(
+            tool_name="test_tool",
+            success=True,
+            timestamp=datetime.datetime.utcnow().isoformat(),
+            input_params={"arg1": "val1"},
+            output_summary="result1"
+        )
+        
+        query_run = QueryRun(
+            run_id="run_stats",
+            user_id=unique_user,
+            timestamp=datetime.datetime.utcnow().isoformat(),
+            query="Stats test",
+            tools_used=[tool_exec]
+        )
+        
+        episode_metadata = EpisodeMetadata(integration="google_adk")
+        episode_metadata.add_query_run(unique_session, query_run)
+        
+        # Verify the stats format directly on metadata model (now using standard get_tool_usage_summary)
+        stats_summary = episode_metadata.get_tool_usage_summary()
+        expected = "test_tool with [arg1=val1] -> result1"
+        assert stats_summary == expected, f"Expected '{expected}', got '{stats_summary}'"
+        
+        # Verify empty output handling
+        tool_exec_empty = ToolExecution(
+            tool_name="empty_tool",
+            success=True,
+            timestamp=datetime.datetime.utcnow().isoformat(),
+            input_params={"arg": "val"},
+            output_summary=""
+        )
+        query_run.tools_used = [tool_exec_empty]
+        episode_metadata = EpisodeMetadata(integration="google_adk")
+        episode_metadata.add_query_run(unique_session, query_run)
+        
+        stats_summary = episode_metadata.get_tool_usage_summary()
+        expected = "empty_tool with [arg=val] -> []"
+        assert stats_summary == expected, f"Expected '{expected}', got '{stats_summary}'"
