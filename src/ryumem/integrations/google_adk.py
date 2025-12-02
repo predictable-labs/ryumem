@@ -64,7 +64,7 @@ Your previous approach was:
 {agent_response}
 
 Tools previously used:
-{tool_summary}
+{tool_summary_with_stats}
 
 Using this memory, improve your next attempt.
 

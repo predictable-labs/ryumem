@@ -6,6 +6,9 @@ These models provide type safety and validation for episode metadata structures.
 
 from pydantic import BaseModel, Field
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ToolExecution(BaseModel):
@@ -153,11 +156,30 @@ class EpisodeMetadata(BaseModel):
     def get_simple_tool_usage_summary(self) -> str:
         """
         Create concise tool usage summary (grouped by success/fail).
-        
+
         Returns:
-            String showing inputs that worked/failed for each tool
+            String showing inputs that worked/failed for each tool with response sizes and errors
         """
         from collections import defaultdict
+        import ast
+
+        def get_response_size(output_summary: str) -> str:
+            """Calculate response size based on type."""
+            if not output_summary or output_summary.strip() in ['', 'None', 'null', 'N/A']:
+                return 'None'
+
+            # Try to parse as JSON
+            try:
+                parsed = ast.literal_eval(output_summary)
+                if isinstance(parsed, dict):
+                    return f"{len(parsed)} keys"
+                elif isinstance(parsed, list):
+                    return f"{len(parsed)} items"
+                else:
+                    return str(parsed)
+            except (json.JSONDecodeError, TypeError):
+                # Not JSON, treat as string
+                return f"{len(output_summary)} chars"
 
         # Group by tool name, then by input params
         tool_data = defaultdict(lambda: {'worked': [], 'failed': [], 'empty': []})
@@ -172,15 +194,25 @@ class EpisodeMetadata(BaseModel):
             # Convert input params to simple string
             input_str = ', '.join([f"{k}={v}" for k, v in tool.input_params.items()])
 
+            # Get response size
+            response_size = get_response_size(tool.output_summary)
+
+            # Create entry with size information
+            entry = f"{input_str} (response: {response_size})"
+
+            # Add error if present
+            if tool.error:
+                entry += f" [error: {tool.error}]"
+
             # Check if output was empty
             is_empty = not tool.output_summary or tool.output_summary.strip() in ['', 'None', 'null', 'N/A']
 
             if is_empty:
-                tool_data[name]['empty'].append(input_str)
+                tool_data[name]['empty'].append(entry)
             elif tool.success:
-                tool_data[name]['worked'].append(input_str)
+                tool_data[name]['worked'].append(entry)
             else:
-                tool_data[name]['failed'].append(input_str)
+                tool_data[name]['failed'].append(entry)
 
         summaries = []
         for name, data in tool_data.items():
