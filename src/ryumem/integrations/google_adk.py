@@ -64,13 +64,16 @@ Your previous approach was:
 {agent_response}
 
 Tools previously used:
-{tool_summary}
+{simplified_tool_summary}
+
+Last Session Details:
+{last_session}
 
 Using this memory, improve your next attempt.
 
 ***IMPORTANT — REQUIRED BEHAVIOR***
-You MUST reuse any **concrete facts, results, conclusions, or discovered information** from the previous attempt if they are relevant. 
-Do NOT ignore previously known truths. 
+You MUST reuse any **concrete facts, results, conclusions, or discovered information** from the previous attempt if they are relevant.
+Do NOT ignore previously known truths.
 Treat the previous attempt as authoritative memory, not optional context.
 
 In your response, briefly include:
@@ -79,7 +82,7 @@ In your response, briefly include:
 3. Then continue with your improved reasoning (explicitly applying relevant past information).
 
 IMPORTANT:
-If the previous attempt already contains the correct final answer, or fully solves the task, you MUST NOT re-solve it. 
+If the previous attempt already contains the correct final answer, or fully solves the task, you MUST NOT re-solve it.
 Instead, directly use or return the final answer from memory.
 
 Using this information, answer the query: {query_text}
@@ -588,6 +591,79 @@ def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> Lis
         return []
 
 
+def _get_last_session_details(similar_queries: List[Dict[str, Any]]) -> str:
+    """Extract details from the most recent session across all similar queries."""
+    from datetime import datetime
+
+    most_recent_session = None
+    most_recent_timestamp = None
+    most_recent_session_id = None
+
+    # Find the most recent session across all similar queries
+    for similar in similar_queries:
+        query_metadata = similar.get("metadata")
+
+        try:
+            if not query_metadata:
+                continue
+
+            metadata_dict = json.loads(query_metadata) if isinstance(query_metadata, str) else query_metadata
+            episode_metadata = EpisodeMetadata(**metadata_dict)
+
+            # Check all sessions in this episode
+            for session_id, runs in episode_metadata.sessions.items():
+                if not runs:
+                    continue
+
+                # Get the latest timestamp from this session
+                latest_run = max(runs, key=lambda r: r.timestamp)
+                session_timestamp = datetime.fromisoformat(latest_run.timestamp)
+
+                if most_recent_timestamp is None or session_timestamp > most_recent_timestamp:
+                    most_recent_timestamp = session_timestamp
+                    most_recent_session = runs
+                    most_recent_session_id = session_id
+
+        except Exception as e:
+            logger.warning(f"Failed to parse session metadata: {e}")
+            continue
+
+    # Format the most recent session details
+    if not most_recent_session:
+        return "No previous session found"
+
+    session_details = []
+    session_details.append(f"Session ID: {most_recent_session_id}")
+    session_details.append(f"\nRuns in this session: {len(most_recent_session)}")
+
+    for idx, run in enumerate(most_recent_session, 1):
+        session_details.append(f"\n--- Run {idx} ---")
+        session_details.append(f"Timestamp: {run.timestamp}")
+        session_details.append(f"Query: {run.query}")
+
+        if run.augmented_query:
+            session_details.append(f"Augmented Query: {run.augmented_query[:200]}...")
+
+        if run.agent_response:
+            session_details.append(f"Agent Response: {run.agent_response}")
+
+        if run.tools_used:
+            session_details.append(f"Tools Used ({len(run.tools_used)}):")
+            for tool in run.tools_used:
+                tool_info = f"  - {tool.tool_name}"
+                if tool.input_params:
+                    params_str = ', '.join([f"{k}={v}" for k, v in tool.input_params.items()])
+                    tool_info += f" with [{params_str}]"
+                if tool.output_summary:
+                    tool_info += f" -> {tool.output_summary[:100]}"
+                if tool.error:
+                    tool_info += f" [ERROR: {tool.error}]"
+                tool_info += f" (success: {tool.success}, duration: {tool.duration_ms}ms)"
+                session_details.append(tool_info)
+
+    return '\n'.join(session_details)
+
+
 def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]], memory: RyumemGoogleADK, top_k: int) -> str:
     """Build historical context string from similar queries and their tool executions."""
 
@@ -616,11 +692,17 @@ def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]
 
             # Get tool summary
             tool_summary = episode_metadata.get_tool_usage_summary()
+            simplified_tool_summary = episode_metadata.get_simple_tool_usage_summary()
+
+            # Get last session details
+            last_session = _get_last_session_details(similar_queries)
 
             # Fill template
             return augmentation_template.format(
                 agent_response=agent_response or "No previous response recorded",
                 tool_summary=tool_summary or "No tools used",
+                simplified_tool_summary=simplified_tool_summary or "No tools used",
+                last_session=last_session,
                 query_text=query_text
             )
 
@@ -667,6 +749,7 @@ def _augment_query_with_history(
         logger.info(f"Found {len(similar_queries)} similar queries")
         top_k = memory.ryumem.config.tool_tracking.top_k_similar
         augmented_query = _build_context_section(query_text, similar_queries, memory, top_k)
+        logger.info(f"Augmented query: {augmented_query}")
 
         if augmented_query and augmented_query != query_text:
             logger.info(f"Augmented query with {len(similar_queries)} similar queries")

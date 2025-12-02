@@ -6,6 +6,9 @@ These models provide type safety and validation for episode metadata structures.
 
 from pydantic import BaseModel, Field
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ToolExecution(BaseModel):
@@ -150,14 +153,21 @@ class EpisodeMetadata(BaseModel):
 
         return tool_usage
 
-    def get_tool_usage_summary(self) -> str:
+    def get_simple_tool_usage_summary(self) -> str:
         """
-        Create concise tool usage summary for query augmentation.
+        Create concise tool usage summary (grouped by success/fail).
 
         Returns:
-            String showing inputs that worked/failed for each tool
+            String showing inputs that worked/failed for each tool with response sizes and errors
         """
         from collections import defaultdict
+
+        def get_response_size(output_summary: str) -> str:
+            """Calculate response size based on type."""
+            if not output_summary or output_summary.strip() in ['', 'None', 'null', 'N/A']:
+                return 'None'
+
+            return f"{len(output_summary)} chars"
 
         # Group by tool name, then by input params
         tool_data = defaultdict(lambda: {'worked': [], 'failed': [], 'empty': []})
@@ -172,15 +182,25 @@ class EpisodeMetadata(BaseModel):
             # Convert input params to simple string
             input_str = ', '.join([f"{k}={v}" for k, v in tool.input_params.items()])
 
+            # Get response size
+            response_size = get_response_size(tool.output_summary)
+
+            # Create entry with size information
+            entry = f"{input_str} (response: {response_size})"
+
+            # Add error if present
+            if tool.error:
+                entry += f" [error: {tool.error}]"
+
             # Check if output was empty
             is_empty = not tool.output_summary or tool.output_summary.strip() in ['', 'None', 'null', 'N/A']
 
             if is_empty:
-                tool_data[name]['empty'].append(input_str)
+                tool_data[name]['empty'].append(entry)
             elif tool.success:
-                tool_data[name]['worked'].append(input_str)
+                tool_data[name]['worked'].append(entry)
             else:
-                tool_data[name]['failed'].append(input_str)
+                tool_data[name]['failed'].append(entry)
 
         summaries = []
         for name, data in tool_data.items():
@@ -201,4 +221,37 @@ class EpisodeMetadata(BaseModel):
 
             summaries.append(''.join(parts))
 
+        return ', '.join(summaries)
+
+    def get_tool_usage_summary(self) -> str:
+        """
+        Create detailed tool usage summary including return values.
+        
+        Returns:
+            String showing inputs and outputs for each tool execution.
+            Format: tool_name with [input] -> [output]
+        """
+        summaries = []
+        
+        for tool in self.get_all_tools_used():
+            name = tool.tool_name
+            
+            # Format input
+            input_str = ""
+            if tool.input_params:
+                input_str = ', '.join([f"{k}={v}" for k, v in tool.input_params.items()])
+            
+            # Format output
+            output_str = "[]"
+            if tool.output_summary and tool.output_summary.strip() not in ['', 'None', 'null', 'N/A']:
+                output_str = tool.output_summary
+            
+            # Construct summary string
+            if input_str:
+                summary = f"{name} with [{input_str}] -> {output_str}"
+            else:
+                summary = f"{name} -> {output_str}"
+                
+            summaries.append(summary)
+            
         return ', '.join(summaries)
