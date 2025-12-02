@@ -566,11 +566,54 @@ export interface DeleteDatabaseResponse {
 }
 
 // Workflow types
+export type NodeType = "tool" | "mcp" | "llm_trigger" | "user_trigger" | "condition";
+
+export interface RetryConfig {
+  enabled: boolean;
+  max_attempts: number;
+  backoff_strategy: "fixed" | "exponential";
+  initial_delay_ms: number;
+  max_delay_ms: number;
+}
+
+export interface ConditionBranch {
+  branch_id: string;
+  condition_expr: string;
+  next_nodes: string[];
+}
+
 export interface WorkflowNode {
   node_id: string;
-  tool_name: string;
+  node_type?: NodeType;
+
+  // Tool/MCP specific
+  tool_name?: string;
+  mcp_server?: string;
+
+  // LLM Trigger specific
+  llm_prompt?: string;
+  llm_output_variable?: string;
+
+  // User Trigger specific
+  user_prompt?: string;
+  user_input_variable?: string;
+
+  // Condition specific
+  branches?: ConditionBranch[];
+  default_branch?: string;
+
+  // Common fields
   input_params: Record<string, any>;
   dependencies: string[];
+  retry_config?: RetryConfig;
+  timeout_ms?: number;
+}
+
+export interface Tool {
+  tool_name: string;
+  description: string;
+  mentions?: number;
+  created_at?: string;
 }
 
 export interface WorkflowDefinition {

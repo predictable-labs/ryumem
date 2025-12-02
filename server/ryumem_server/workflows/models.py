@@ -31,34 +31,124 @@ class NodeExecutionStatus(str, Enum):
     SKIPPED = "skipped"
 
 
+class NodeType(str, Enum):
+    """Type of workflow node."""
+    TOOL = "tool"              # Execute a tool
+    MCP = "mcp"                # MCP server operation
+    LLM_TRIGGER = "llm_trigger"  # LLM-based decision
+    USER_TRIGGER = "user_trigger"  # Wait for user input
+    CONDITION = "condition"    # Conditional branching
+
+
+class RetryConfig(BaseModel):
+    """Retry configuration for node execution."""
+    enabled: bool = Field(default=False, description="Whether retry is enabled")
+    max_attempts: int = Field(default=3, description="Maximum number of retry attempts")
+    backoff_strategy: Literal["fixed", "exponential"] = Field(
+        default="exponential",
+        description="Backoff strategy for retries"
+    )
+    initial_delay_ms: int = Field(
+        default=1000,
+        description="Initial delay in milliseconds before first retry"
+    )
+    max_delay_ms: int = Field(
+        default=30000,
+        description="Maximum delay in milliseconds between retries"
+    )
+
+
+class ConditionBranch(BaseModel):
+    """Single branch in a condition node."""
+    branch_id: str = Field(description="Unique identifier for this branch")
+    condition_expr: str = Field(description="Condition expression to evaluate")
+    next_nodes: List[str] = Field(
+        default_factory=list,
+        description="Node IDs to execute if condition is true"
+    )
+
+
 class WorkflowNode(BaseModel):
     """
-    Represents a single tool execution in a workflow DAG.
+    Represents a single node in a workflow DAG.
 
+    Supports multiple node types (tool, MCP, LLM, user trigger, condition).
     Nodes can reference session variables using ${variable} syntax.
     Previous node outputs are stored as ${node_id}.
     """
     node_id: str = Field(description="Unique identifier for this node")
-    tool_name: str = Field(description="Name of the tool to execute")
+    node_type: NodeType = Field(default=NodeType.TOOL, description="Type of node")
+
+    # Tool/MCP specific fields
+    tool_name: Optional[str] = Field(default=None, description="Name of the tool to execute (for TOOL and MCP types)")
+    mcp_server: Optional[str] = Field(default=None, description="MCP server identifier (for MCP type)")
+
+    # LLM Trigger specific fields
+    llm_prompt: Optional[str] = Field(default=None, description="Prompt for LLM evaluation (for LLM_TRIGGER type)")
+    llm_output_variable: Optional[str] = Field(default=None, description="Variable to store LLM output")
+
+    # User Trigger specific fields
+    user_prompt: Optional[str] = Field(default=None, description="Message to show user (for USER_TRIGGER type)")
+    user_input_variable: Optional[str] = Field(default=None, description="Variable to store user input")
+
+    # Condition specific fields
+    branches: List[ConditionBranch] = Field(
+        default_factory=list,
+        description="List of conditional branches (for CONDITION type)"
+    )
+    default_branch: Optional[str] = Field(
+        default=None,
+        description="Default node ID if no conditions match (for CONDITION type)"
+    )
+
+    # Common fields
     input_params: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Input parameters for the tool. Can reference ${variable} or ${node_id}"
+        description="Input parameters. Can reference ${variable} or ${node_id}"
     )
     dependencies: List[str] = Field(
         default_factory=list,
         description="List of node_ids this node depends on"
     )
+    retry_config: RetryConfig = Field(
+        default_factory=RetryConfig,
+        description="Retry configuration for this node"
+    )
+    timeout_ms: Optional[int] = Field(
+        default=None,
+        description="Timeout in milliseconds for node execution"
+    )
 
     class Config:
         json_schema_extra = {
-            "example": {
-                "node_id": "fetch_weather",
-                "tool_name": "get_weather",
-                "input_params": {
-                    "location": "${user_location}"
+            "examples": [
+                {
+                    "node_id": "fetch_weather",
+                    "node_type": "tool",
+                    "tool_name": "get_weather",
+                    "input_params": {"location": "${user_location}"},
+                    "dependencies": [],
+                    "retry_config": {"enabled": True, "max_attempts": 3}
                 },
-                "dependencies": []
-            }
+                {
+                    "node_id": "check_result",
+                    "node_type": "condition",
+                    "branches": [
+                        {
+                            "branch_id": "success",
+                            "condition_expr": "status == 'success'",
+                            "next_nodes": ["process_success"]
+                        },
+                        {
+                            "branch_id": "error",
+                            "condition_expr": "status == 'error'",
+                            "next_nodes": ["handle_error"]
+                        }
+                    ],
+                    "default_branch": "fallback_node",
+                    "dependencies": ["fetch_weather"]
+                }
+            ]
         }
 
 

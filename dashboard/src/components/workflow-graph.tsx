@@ -21,30 +21,83 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Plus, Trash2, X, Wrench, GitBranch, Brain, MessageSquare, Server } from 'lucide-react';
 
 interface WorkflowGraphProps {
   workflowNodes: WorkflowNode[];
   onNodesChange: (nodes: WorkflowNode[]) => void;
 }
 
-// Custom node component for workflow tools
+// Custom node components for different node types
 const ToolNode = ({ data }: { data: any }) => {
   return (
-    <div className="px-4 py-2 shadow-md rounded-md bg-white border-2 border-gray-300 min-w-[150px]">
-      <div className="font-bold text-sm">{data.tool_name || 'New Tool'}</div>
+    <div className="px-4 py-2 shadow-md rounded-md bg-blue-50 border-2 border-blue-400 min-w-[150px]">
+      <div className="flex items-center gap-2">
+        <Wrench className="h-4 w-4 text-blue-600" />
+        <div className="font-bold text-sm">{data.tool_name || 'Tool'}</div>
+      </div>
       <div className="text-xs text-gray-500 mt-1">ID: {data.node_id}</div>
-      {data.input_params && Object.keys(data.input_params).length > 0 && (
-        <div className="text-xs text-gray-600 mt-1">
-          {Object.keys(data.input_params).length} params
-        </div>
-      )}
+    </div>
+  );
+};
+
+const MCPNode = ({ data }: { data: any }) => {
+  return (
+    <div className="px-4 py-2 shadow-md rounded-md bg-indigo-50 border-2 border-indigo-400 min-w-[150px]">
+      <div className="flex items-center gap-2">
+        <Server className="h-4 w-4 text-indigo-600" />
+        <div className="font-bold text-sm">MCP</div>
+      </div>
+      <div className="text-xs text-gray-500 mt-1">{data.mcp_server || 'Server'}</div>
+      <div className="text-xs text-gray-600">{data.tool_name}</div>
+    </div>
+  );
+};
+
+const LLMTriggerNode = ({ data }: { data: any }) => {
+  return (
+    <div className="px-4 py-2 shadow-md rounded-md bg-purple-50 border-2 border-purple-400 min-w-[150px]">
+      <div className="flex items-center gap-2">
+        <Brain className="h-4 w-4 text-purple-600" />
+        <div className="font-bold text-sm">LLM Trigger</div>
+      </div>
+      <div className="text-xs text-gray-500 mt-1">ID: {data.node_id}</div>
+    </div>
+  );
+};
+
+const UserTriggerNode = ({ data }: { data: any }) => {
+  return (
+    <div className="px-4 py-2 shadow-md rounded-md bg-green-50 border-2 border-green-400 min-w-[150px]">
+      <div className="flex items-center gap-2">
+        <MessageSquare className="h-4 w-4 text-green-600" />
+        <div className="font-bold text-sm">User Input</div>
+      </div>
+      <div className="text-xs text-gray-500 mt-1">ID: {data.node_id}</div>
+    </div>
+  );
+};
+
+const ConditionNode = ({ data }: { data: any }) => {
+  return (
+    <div className="px-4 py-2 shadow-md rounded-md bg-yellow-50 border-2 border-yellow-400 min-w-[150px]">
+      <div className="flex items-center gap-2">
+        <GitBranch className="h-4 w-4 text-yellow-600" />
+        <div className="font-bold text-sm">Condition</div>
+      </div>
+      <div className="text-xs text-gray-500 mt-1">
+        {data.branches?.length || 0} branches
+      </div>
     </div>
   );
 };
 
 const nodeTypes = {
   tool: ToolNode,
+  mcp: MCPNode,
+  llm_trigger: LLMTriggerNode,
+  user_trigger: UserTriggerNode,
+  condition: ConditionNode,
 };
 
 export function WorkflowGraph({ workflowNodes, onNodesChange }: WorkflowGraphProps) {
@@ -57,14 +110,9 @@ export function WorkflowGraph({ workflowNodes, onNodesChange }: WorkflowGraphPro
   useEffect(() => {
     const flowNodes: Node[] = workflowNodes.map((wn, index) => ({
       id: wn.node_id,
-      type: 'tool',
+      type: wn.node_type || 'tool',
       position: { x: 250 * (index % 3), y: 100 * Math.floor(index / 3) },
-      data: {
-        node_id: wn.node_id,
-        tool_name: wn.tool_name,
-        input_params: wn.input_params,
-        dependencies: wn.dependencies,
-      },
+      data: wn,
     }));
 
     setNodes(flowNodes);

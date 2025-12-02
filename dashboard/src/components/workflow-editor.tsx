@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Trash2, Save, X, Network } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api, WorkflowDefinition, WorkflowNode } from "@/lib/api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { api, WorkflowDefinition, WorkflowNode, Tool, NodeType } from "@/lib/api";
 import { WorkflowGraph } from "./workflow-graph";
 
 interface WorkflowEditorProps {
@@ -28,6 +35,7 @@ export function WorkflowEditor({ workflow, userId, onSave, onCancel }: WorkflowE
     workflow?.nodes || [
       {
         node_id: "node_1",
+        node_type: "tool",
         tool_name: "",
         input_params: {},
         dependencies: [],
@@ -36,6 +44,20 @@ export function WorkflowEditor({ workflow, userId, onSave, onCancel }: WorkflowE
   );
   const [isSaving, setIsSaving] = useState(false);
   const [viewMode, setViewMode] = useState<"graph" | "list">("graph");
+  const [availableTools, setAvailableTools] = useState<Tool[]>([]);
+
+  // Fetch available tools on mount
+  useEffect(() => {
+    const fetchTools = async () => {
+      try {
+        const tools = await api.getAllTools();
+        setAvailableTools(tools);
+      } catch (error) {
+        console.error("Failed to fetch tools:", error);
+      }
+    };
+    fetchTools();
+  }, []);
 
   const addQueryTemplate = () => {
     setQueryTemplates([...queryTemplates, ""]);
@@ -57,6 +79,7 @@ export function WorkflowEditor({ workflow, userId, onSave, onCancel }: WorkflowE
   const addNode = () => {
     const newNode: WorkflowNode = {
       node_id: `node_${nodes.length + 1}`,
+      node_type: "tool",
       tool_name: "",
       input_params: {},
       dependencies: [],
@@ -78,9 +101,34 @@ export function WorkflowEditor({ workflow, userId, onSave, onCancel }: WorkflowE
   const handleSave = async () => {
     const validTemplates = queryTemplates.filter(t => t.trim());
 
-    if (!name || validTemplates.length === 0 || nodes.some((n) => !n.tool_name)) {
-      alert("Please fill in all required fields (name, at least one trigger query, and tool names)");
+    if (!name || validTemplates.length === 0) {
+      alert("Please fill in all required fields (name and at least one trigger query)");
       return;
+    }
+
+    // Validate nodes based on type
+    for (const node of nodes) {
+      const nodeType = node.node_type || "tool";
+      if (nodeType === "tool" && !node.tool_name) {
+        alert(`Node ${node.node_id}: Tool name is required`);
+        return;
+      }
+      if (nodeType === "mcp" && (!node.tool_name || !node.mcp_server)) {
+        alert(`Node ${node.node_id}: Tool name and MCP server are required`);
+        return;
+      }
+      if (nodeType === "llm_trigger" && !node.llm_prompt) {
+        alert(`Node ${node.node_id}: LLM prompt is required`);
+        return;
+      }
+      if (nodeType === "user_trigger" && !node.user_prompt) {
+        alert(`Node ${node.node_id}: User prompt is required`);
+        return;
+      }
+      if (nodeType === "condition" && (!node.branches || node.branches.length === 0)) {
+        alert(`Node ${node.node_id}: At least one condition branch is required`);
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -231,17 +279,152 @@ export function WorkflowEditor({ workflow, userId, onSave, onCancel }: WorkflowE
                       </div>
 
                       <div>
-                        <Label htmlFor={`tool_name_${index}`}>Tool Name *</Label>
-                        <Input
-                          id={`tool_name_${index}`}
-                          value={node.tool_name}
-                          onChange={(e) =>
-                            updateNode(index, "tool_name", e.target.value)
+                        <Label htmlFor={`node_type_${index}`}>Node Type *</Label>
+                        <Select
+                          value={node.node_type || "tool"}
+                          onValueChange={(value) =>
+                            updateNode(index, "node_type", value as NodeType)
                           }
-                          placeholder="e.g., get_weather"
-                        />
+                        >
+                          <SelectTrigger id={`node_type_${index}`}>
+                            <SelectValue placeholder="Select node type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="tool">Tool Execution</SelectItem>
+                            <SelectItem value="mcp">MCP Server</SelectItem>
+                            <SelectItem value="llm_trigger">LLM Trigger</SelectItem>
+                            <SelectItem value="user_trigger">User Input</SelectItem>
+                            <SelectItem value="condition">Conditional Branch</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
+
+                    {/* Tool-specific fields */}
+                    {(node.node_type === "tool" || !node.node_type) && (
+                      <div>
+                        <Label htmlFor={`tool_name_${index}`}>Tool Name *</Label>
+                        <Select
+                          value={node.tool_name || ""}
+                          onValueChange={(value) =>
+                            updateNode(index, "tool_name", value)
+                          }
+                        >
+                          <SelectTrigger id={`tool_name_${index}`}>
+                            <SelectValue placeholder="Select tool" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableTools.map((tool) => (
+                              <SelectItem key={tool.tool_name} value={tool.tool_name}>
+                                {tool.tool_name}
+                                <span className="text-xs text-gray-500 ml-2">
+                                  - {tool.description}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {/* MCP-specific fields */}
+                    {node.node_type === "mcp" && (
+                      <>
+                        <div>
+                          <Label htmlFor={`mcp_server_${index}`}>MCP Server *</Label>
+                          <Input
+                            id={`mcp_server_${index}`}
+                            value={node.mcp_server || ""}
+                            onChange={(e) =>
+                              updateNode(index, "mcp_server", e.target.value)
+                            }
+                            placeholder="e.g., mcp://localhost:8080"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor={`tool_name_${index}`}>Tool Name *</Label>
+                          <Input
+                            id={`tool_name_${index}`}
+                            value={node.tool_name || ""}
+                            onChange={(e) =>
+                              updateNode(index, "tool_name", e.target.value)
+                            }
+                            placeholder="e.g., get_weather"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* LLM Trigger fields */}
+                    {node.node_type === "llm_trigger" && (
+                      <>
+                        <div>
+                          <Label htmlFor={`llm_prompt_${index}`}>LLM Prompt *</Label>
+                          <Textarea
+                            id={`llm_prompt_${index}`}
+                            value={node.llm_prompt || ""}
+                            onChange={(e) =>
+                              updateNode(index, "llm_prompt", e.target.value)
+                            }
+                            placeholder="Enter prompt for LLM evaluation"
+                            rows={3}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor={`llm_output_variable_${index}`}>
+                            Output Variable (optional)
+                          </Label>
+                          <Input
+                            id={`llm_output_variable_${index}`}
+                            value={node.llm_output_variable || ""}
+                            onChange={(e) =>
+                              updateNode(index, "llm_output_variable", e.target.value)
+                            }
+                            placeholder="e.g., llm_decision"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* User Trigger fields */}
+                    {node.node_type === "user_trigger" && (
+                      <>
+                        <div>
+                          <Label htmlFor={`user_prompt_${index}`}>User Prompt *</Label>
+                          <Textarea
+                            id={`user_prompt_${index}`}
+                            value={node.user_prompt || ""}
+                            onChange={(e) =>
+                              updateNode(index, "user_prompt", e.target.value)
+                            }
+                            placeholder="Enter prompt to show user"
+                            rows={2}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor={`user_input_variable_${index}`}>
+                            Input Variable (optional)
+                          </Label>
+                          <Input
+                            id={`user_input_variable_${index}`}
+                            value={node.user_input_variable || ""}
+                            onChange={(e) =>
+                              updateNode(index, "user_input_variable", e.target.value)
+                            }
+                            placeholder="e.g., user_response"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* Condition fields - placeholder for now */}
+                    {node.node_type === "condition" && (
+                      <div className="p-4 border rounded bg-yellow-50">
+                        <p className="text-sm text-gray-600">
+                          Condition branches can be configured in the Graph View or will be added in a future update.
+                        </p>
+                      </div>
+                    )}
 
                     <div>
                       <Label htmlFor={`input_params_${index}`}>
