@@ -177,6 +177,12 @@ class Ryumem:
                 raise
             return None
 
+    def _put(self, endpoint: str, json: Dict = None) -> Any:
+        url = f"{self.base_url}{endpoint}"
+        response = requests.put(url, json=json, headers=self._get_headers())
+        response.raise_for_status()
+        return response.json()
+
     def _delete(self, endpoint: str) -> Any:
         url = f"{self.base_url}{endpoint}"
         response = requests.delete(url, headers=self._get_headers())
@@ -774,6 +780,233 @@ class Ryumem:
             logger.debug(f"Cached instruction for key: {cache_key[:32]}...")
 
         return response
+
+    # ==================== Session Management Methods ====================
+
+    def link_episode_to_session(
+        self,
+        episode_id: str,
+        session_id: str,
+        user_id: str,
+        query_run: Any
+    ) -> Dict:
+        """
+        Link an existing episode to a session by adding a query run.
+
+        Args:
+            episode_id: Episode ID to link
+            session_id: Session ID
+            user_id: User ID
+            query_run: QueryRun object
+
+        Returns:
+            Success response dict
+        """
+        # Serialize QueryRun if it's an object
+        if hasattr(query_run, 'model_dump'):
+            query_run_dict = query_run.model_dump()
+        elif hasattr(query_run, 'dict'):
+            query_run_dict = query_run.dict()
+        else:
+            query_run_dict = query_run
+
+        payload = {
+            "user_id": user_id,
+            "episode_id": episode_id,
+            "query_run": query_run_dict
+        }
+
+        return self._put(f"/sessions/{session_id}", json=payload)
+
+    def get_session(self, session_id: str) -> Optional[Dict]:
+        """
+        Get session by ID.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Session dict or None if not found
+        """
+        try:
+            return self._get(f"/sessions/{session_id}")
+        except Exception as e:
+            logger.debug(f"Session {session_id} not found: {e}")
+            return None
+
+    def update_session(
+        self,
+        session_id: str,
+        user_id: str,
+        status: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+        session_variables: Optional[Dict[str, Any]] = None,
+        current_node: Optional[str] = None
+    ) -> Dict:
+        """
+        Update session state (status, workflow, variables, current node).
+
+        Args:
+            session_id: Session ID
+            user_id: User ID
+            status: Session status (optional)
+            workflow_id: Workflow ID (optional)
+            session_variables: Session variables dict (optional)
+            current_node: Currently executing node (optional)
+
+        Returns:
+            Success response dict
+        """
+        payload = {"user_id": user_id}
+
+        if status is not None:
+            payload["status"] = status
+        if workflow_id is not None:
+            payload["workflow_id"] = workflow_id
+        if session_variables is not None:
+            payload["session_variables"] = session_variables
+        if current_node is not None:
+            payload["current_node"] = current_node
+
+        return self._put(f"/sessions/{session_id}", json=payload)
+
+    def get_active_sessions(self, user_id: Optional[str] = None) -> List[Dict]:
+        """Get all active sessions."""
+        params = {"user_id": user_id} if user_id else {}
+        return self._get("/sessions/active", params=params)
+
+    # ==================== Workflow Methods ====================
+
+    def search_workflows(
+        self, query: str, user_id: str, threshold: float = 0.7
+    ) -> List[Dict]:
+        """
+        Search for similar workflows in vector DB.
+
+        Args:
+            query: Query to search for
+            user_id: User ID
+            threshold: Similarity threshold (default: 0.7)
+
+        Returns:
+            List of similar workflows
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        return self._post(
+            "/workflows/search",
+            json={"query": query, "user_id": user_id, "threshold": threshold},
+        )
+
+    def create_workflow(self, workflow: Dict) -> Dict:
+        """
+        Save a new workflow to server.
+
+        Args:
+            workflow: Workflow definition dictionary
+
+        Returns:
+            Dict with workflow_id
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        return self._post("/workflows", json=workflow)
+
+    def get_workflow(self, workflow_id: str) -> Optional[Dict]:
+        """
+        Get specific workflow by ID.
+
+        Args:
+            workflow_id: Workflow ID
+
+        Returns:
+            Workflow definition or None
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        return self._get(f"/workflows/{workflow_id}")
+
+    def list_workflows(
+        self, user_id: Optional[str] = None, limit: int = 100
+    ) -> List[Dict]:
+        """
+        List all workflows.
+
+        Args:
+            user_id: Filter by user ID (optional)
+            limit: Maximum number of workflows
+
+        Returns:
+            List of workflows
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        params = {"limit": limit}
+        if user_id:
+            params["user_id"] = user_id
+        return self._get("/workflows", params=params)
+
+    def mark_workflow_success(self, workflow_id: str, session_id: str) -> Dict:
+        """
+        Mark workflow execution as successful.
+
+        Args:
+            workflow_id: Workflow ID
+            session_id: Session ID
+
+        Returns:
+            Updated workflow
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        return self._post(
+            f"/workflows/{workflow_id}/mark_success", json={"session_id": session_id}
+        )
+
+    def mark_workflow_failure(
+        self, workflow_id: str, session_id: str, error: str
+    ) -> Dict:
+        """
+        Mark workflow execution as failed.
+
+        Args:
+            workflow_id: Workflow ID
+            session_id: Session ID
+            error: Error message
+
+        Returns:
+            Updated workflow
+
+        Raises:
+            ValueError: If workflow mode is not enabled
+        """
+        if not self.config.workflow.workflow_mode_enabled:
+            raise ValueError("Workflow mode not enabled")
+
+        return self._post(
+            f"/workflows/{workflow_id}/mark_failure",
+            json={"session_id": session_id, "error": error},
+        )
 
     # ==================== Embedding & LLM Methods ====================
 

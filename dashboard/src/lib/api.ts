@@ -526,6 +526,52 @@ class RyumemAPI {
       method: 'DELETE',
     });
   }
+
+  // ========================= Workflow Methods =========================
+
+  async listWorkflows(userId?: string, limit: number = 100): Promise<WorkflowDefinition[]> {
+    const params = new URLSearchParams();
+    if (userId) params.append('user_id', userId);
+    params.append('limit', limit.toString());
+    return this.request(`/workflows?${params.toString()}`);
+  }
+
+  async getWorkflow(workflowId: string): Promise<WorkflowDefinition> {
+    return this.request(`/workflows/${workflowId}`);
+  }
+
+  async createWorkflow(workflow: Omit<WorkflowDefinition, 'workflow_id' | 'created_at' | 'updated_at' | 'success_count' | 'failure_count'>): Promise<{ workflow_id: string }> {
+    return this.request('/workflows', {
+      method: 'POST',
+      body: JSON.stringify(workflow),
+    });
+  }
+
+  async updateWorkflow(workflowId: string, workflow: Omit<WorkflowDefinition, 'workflow_id' | 'created_at' | 'updated_at' | 'success_count' | 'failure_count'>): Promise<{ workflow_id: string }> {
+    return this.request(`/workflows/${workflowId}`, {
+      method: 'PUT',
+      body: JSON.stringify(workflow),
+    });
+  }
+
+  async searchWorkflows(query: string, userId: string, threshold: number = 0.7): Promise<WorkflowDefinition[]> {
+    return this.request('/workflows/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, user_id: userId, threshold }),
+    });
+  }
+
+  async deleteWorkflow(workflowId: string): Promise<{ message: string; workflow_id: string }> {
+    return this.request(`/workflows/${workflowId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteEpisode(episodeUuid: string): Promise<{ message: string; uuid: string }> {
+    return this.request(`/episodes/${episodeUuid}`, {
+      method: 'DELETE',
+    });
+  }
 }
 
 export interface ConfigValue {
@@ -660,6 +706,73 @@ export async function getFullApiKey(): Promise<AuthApiKeyResponse> {
   }
 
   return response.json();
+}
+
+// ============================================================================
+// Workflow Types
+// ============================================================================
+
+export type NodeType = "tool" | "mcp" | "llm_trigger" | "user_trigger" | "condition";
+
+export interface RetryConfig {
+  enabled: boolean;
+  max_attempts: number;
+  backoff_strategy: "fixed" | "exponential";
+  initial_delay_ms: number;
+  max_delay_ms: number;
+}
+
+export interface ConditionBranch {
+  branch_id: string;
+  condition_expr: string;
+  next_nodes: string[];
+}
+
+export interface WorkflowNode {
+  node_id: string;
+  node_type?: NodeType;
+
+  // Tool/MCP specific
+  tool_name?: string;
+  mcp_server?: string;
+
+  // LLM Trigger specific
+  llm_prompt?: string;
+  llm_output_variable?: string;
+
+  // User Trigger specific
+  user_prompt?: string;
+  user_input_variable?: string;
+
+  // Condition specific
+  branches?: ConditionBranch[];
+  default_branch?: string;
+
+  // Common fields
+  input_params: Record<string, any>;
+  dependencies: string[];
+  retry_config?: RetryConfig;
+  timeout_ms?: number;
+}
+
+export interface Tool {
+  tool_name: string;
+  description: string;
+  mentions?: number;
+  created_at?: string;
+}
+
+export interface WorkflowDefinition {
+  workflow_id: string;
+  name: string;
+  description: string;
+  query_templates: string[];
+  nodes: WorkflowNode[];
+  created_at: string;
+  updated_at: string;
+  success_count: number;
+  failure_count: number;
+  user_id?: string;
 }
 
 export const api = new RyumemAPI();
