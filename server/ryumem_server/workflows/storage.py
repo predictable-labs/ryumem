@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple
 
 from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.utils.embeddings import EmbeddingClient
-from ryumem_server.workflows.models import WorkflowDefinition
+from ryumem.core.workflow_models import WorkflowDefinition
 
 logger = logging.getLogger(__name__)
 

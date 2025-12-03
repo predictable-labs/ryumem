@@ -35,7 +35,7 @@ from ryumem_server.core.config_service import ConfigService
 from ryumem_server.sessions.manager import SessionManager
 from ryumem_server.sessions.models import SessionRun, SessionStatus
 from ryumem_server.workflows.storage import WorkflowStorage
-from ryumem_server.workflows.models import WorkflowDefinition
+from ryumem.core.workflow_models import WorkflowDefinition
 
 # Load environment variables
 load_dotenv()

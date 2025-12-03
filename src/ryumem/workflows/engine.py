@@ -10,7 +10,7 @@ from collections import defaultdict, deque
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
-from ryumem.workflows.models import (
+from ryumem.core.workflow_models import (
     WorkflowDefinition,
     WorkflowNode,
     WorkflowExecutionStatus,
