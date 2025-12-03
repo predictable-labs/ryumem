@@ -17,6 +17,7 @@ interface WorkflowListProps {
 export function WorkflowList({ userId, onCreateClick, onEditClick, refreshKey }: WorkflowListProps) {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadWorkflows();
@@ -31,6 +32,23 @@ export function WorkflowList({ userId, onCreateClick, onEditClick, refreshKey }:
       console.error("Failed to load workflows:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDelete = async (workflowId: string, workflowName: string) => {
+    if (!confirm(`Are you sure you want to delete "${workflowName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingId(workflowId);
+    try {
+      await api.deleteWorkflow(workflowId);
+      setWorkflows(workflows.filter(w => w.workflow_id !== workflowId));
+    } catch (error) {
+      console.error("Failed to delete workflow:", error);
+      alert("Failed to delete workflow. Please try again.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -79,6 +97,14 @@ export function WorkflowList({ userId, onCreateClick, onEditClick, refreshKey }:
                       onClick={() => onEditClick(workflow)}
                     >
                       <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDelete(workflow.workflow_id, workflow.name)}
+                      disabled={deletingId === workflow.workflow_id}
+                    >
+                      <Trash2 className="h-4 w-4 text-red-600" />
                     </Button>
                   </div>
                 </div>

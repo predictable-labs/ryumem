@@ -2473,6 +2473,27 @@ async def mark_workflow_failure(
     return updated_workflow.model_dump() if updated_workflow else {}
 
 
+@app.delete("/workflows/{workflow_id}")
+async def delete_workflow(
+    workflow_id: str,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Delete a workflow by ID."""
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    try:
+        success = workflow_storage.delete_workflow(workflow_id)
+        if success:
+            return {"message": "Workflow deleted successfully", "workflow_id": workflow_id}
+        else:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+    except Exception as e:
+        logger.error(f"Error deleting workflow {workflow_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting workflow: {str(e)}")
+
+
 @app.delete("/database/reset")
 async def reset_database(
     ryumem: Ryumem = Depends(get_write_ryumem),

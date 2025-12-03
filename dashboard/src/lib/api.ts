@@ -528,6 +528,18 @@ class RyumemAPI {
       body: JSON.stringify({ query, user_id: userId, threshold }),
     });
   }
+
+  async deleteWorkflow(workflowId: string): Promise<{ message: string; workflow_id: string }> {
+    return this.request(`/workflows/${workflowId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async deleteEpisode(episodeUuid: string): Promise<{ message: string; uuid: string }> {
+    return this.request(`/episodes/${episodeUuid}`, {
+      method: 'DELETE',
+    });
+  }
 }
 
 export interface ConfigValue {

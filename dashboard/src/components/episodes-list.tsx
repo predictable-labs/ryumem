@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { api, type EpisodeInfo } from "@/lib/api";
-import { Search, Calendar, ArrowUpDown, Loader2, Plus, Clock, Wrench, CheckCircle2, XCircle } from "lucide-react";
+import { Search, Calendar, ArrowUpDown, Loader2, Plus, Clock, Wrench, CheckCircle2, XCircle, Trash2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
 interface EpisodesListProps {
@@ -24,6 +24,7 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const { toast } = useToast();
   const observerTarget = useRef<HTMLDivElement>(null);
@@ -100,6 +101,32 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
 
   const toggleSortOrder = () => {
     setSortOrder(prev => prev === "desc" ? "asc" : "desc");
+  };
+
+  const handleDelete = async (episodeUuid: string, episodeName: string) => {
+    if (!confirm(`Are you sure you want to delete "${episodeName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingId(episodeUuid);
+    try {
+      await api.deleteEpisode(episodeUuid);
+      setEpisodes(episodes.filter(e => e.uuid !== episodeUuid));
+      setTotal(prev => prev - 1);
+      toast({
+        title: "Success",
+        description: "Episode deleted successfully",
+      });
+    } catch (error) {
+      console.error("Failed to delete episode:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete episode",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -284,13 +311,22 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-2 shrink-0">
+                  <div className="flex gap-2 shrink-0 items-start">
                     <Badge className={getKindColor(episode.kind)}>
                       {episode.kind || 'query'}
                     </Badge>
                     <Badge className={getSourceColor(episode.source)}>
                       {episode.source}
                     </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(episode.uuid, episode.name || "Untitled Episode")}
+                      disabled={deletingId === episode.uuid}
+                      className="h-6 w-6 p-0"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
