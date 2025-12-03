@@ -6,7 +6,7 @@ Provides DAG-based tool execution with session variable management.
 
 from ryumem.workflows.engine import WorkflowEngine
 from ryumem.workflows.manager import WorkflowManager
-from ryumem.workflows.models import (
+from ryumem.core.workflow_models import (
     WorkflowDefinition,
     WorkflowNode,
     WorkflowExecutionStatus,

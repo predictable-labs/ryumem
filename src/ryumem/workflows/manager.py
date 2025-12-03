@@ -8,7 +8,7 @@ Workflow generation happens in the user's google_adk flow, not here.
 import logging
 from typing import Any, List, Optional
 
-from ryumem.workflows.models import WorkflowDefinition
+from ryumem.core.workflow_models import WorkflowDefinition
 from ryumem.workflows.engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)

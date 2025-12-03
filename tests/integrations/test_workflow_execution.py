@@ -14,7 +14,7 @@ from datetime import datetime
 
 from ryumem.main import Ryumem
 from ryumem.workflows.engine import WorkflowEngine
-from ryumem.workflows.models import WorkflowDefinition, WorkflowNode
+from ryumem.core.workflow_models import WorkflowDefinition, WorkflowNode
 
 
 @pytest.fixture(scope="function")
