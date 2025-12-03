@@ -68,7 +68,7 @@ class SessionManager:
         )
 
         # Save to DB
-        self.db.add_episode(episode)
+        self.db.save_episode(episode)
         logger.info(f"Created new episode for session {session_id}")
 
         return episode
