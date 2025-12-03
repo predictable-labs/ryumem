@@ -532,7 +532,7 @@ class RyugraphDB:
                         uuid=row['uuid'],
                         name=row['name'],
                         content=row['content'],
-                        content_embedding=row.get('content_embedding'),
+                        content_embedding=clean_value(row.get('content_embedding')),
                         source=EpisodeType(row['source']),
                         source_description=row['source_description'],
                         created_at=row['created_at'],
