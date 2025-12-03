@@ -145,6 +145,12 @@ class Ryumem:
         response.raise_for_status()
         return response.json()
 
+    def _put(self, endpoint: str, json: Dict = None) -> Any:
+        url = f"{self.base_url}{endpoint}"
+        response = requests.put(url, json=json, headers=self._get_headers())
+        response.raise_for_status()
+        return response.json()
+
     def _delete(self, endpoint: str) -> Any:
         url = f"{self.base_url}{endpoint}"
         response = requests.delete(url, headers=self._get_headers())
