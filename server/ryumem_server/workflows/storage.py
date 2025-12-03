@@ -207,20 +207,16 @@ class WorkflowStorage:
         """
         user_filter = "AND e.user_id = $user_id" if user_id else ""
 
-        # Hybrid search on Episode nodes with kind='workflow_trigger'
-        # Use weighted combination instead of RRF since rank() OVER is not supported
+        # Semantic search on Episode nodes with kind='workflow_trigger'
+        # BM25 not available in Ryugraph, using semantic search only
         search_query = f"""
         MATCH (e:Episode {{kind: 'workflow_trigger'}})
         WHERE array_cosine_similarity(e.content_embedding, $embedding) >= $threshold
         {user_filter}
         WITH e,
-             bm25(e.content, $query) AS bm25_score,
-             array_cosine_similarity(e.content_embedding, $embedding) AS semantic_score
-        WITH e,
-             (bm25_score * 0.5 + semantic_score * 0.5) AS combined_score
-        WHERE combined_score >= $threshold
-        RETURN e.metadata, combined_score
-        ORDER BY combined_score DESC
+             array_cosine_similarity(e.content_embedding, $embedding) AS similarity_score
+        RETURN e.metadata, similarity_score
+        ORDER BY similarity_score DESC
         LIMIT $limit
         """
 
@@ -243,7 +239,7 @@ class WorkflowStorage:
             if not workflow_id:
                 continue
 
-            score = row["combined_score"]
+            score = row["similarity_score"]
             if workflow_id not in workflow_scores or score > workflow_scores[workflow_id]:
                 workflow_scores[workflow_id] = score
 
