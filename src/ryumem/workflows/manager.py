@@ -129,3 +129,84 @@ class WorkflowManager:
         """
         workflow_dicts = self.ryumem.list_workflows(user_id=user_id, limit=limit)
         return [WorkflowDefinition(**w) for w in workflow_dicts]
+
+    def execute_workflow(
+        self,
+        workflow_id: str,
+        session_id: str,
+        user_id: str,
+        initial_variables: dict[str, Any],
+        tool_registry: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
+        """
+        Execute a workflow client-side.
+
+        Args:
+            workflow_id: Workflow ID to execute
+            session_id: Session ID for tracking execution
+            user_id: User ID for session tracking
+            initial_variables: Initial variables for workflow context
+            tool_registry: Optional dictionary mapping tool names to callable functions
+
+        Returns:
+            Execution result with status and node outputs
+
+        Raises:
+            ValueError: If workflow not found
+        """
+        # Get workflow definition
+        workflow = self.get_workflow(workflow_id)
+        if not workflow:
+            raise ValueError(f"Workflow {workflow_id} not found")
+
+        # Build execution plan
+        execution_plan = self.engine.build_execution_plan(workflow.nodes)
+        logger.info(f"Built execution plan with {len(execution_plan)} waves for workflow {workflow_id}")
+
+        # Execute workflow
+        node_results = []
+        context = initial_variables.copy()
+
+        for wave_num, wave in enumerate(execution_plan, 1):
+            logger.info(f"Executing wave {wave_num}/{len(execution_plan)}: {[n.node_id for n in wave]}")
+
+            for node in wave:
+                # TODO: Implement actual tool execution using tool_registry
+                # For now, simulate execution
+                result = {
+                    "node_id": node.node_id,
+                    "node_type": node.node_type,
+                    "status": "completed",
+                    "output": f"Simulated output for {node.node_id}",
+                    "duration_ms": 100
+                }
+
+                # Store result in context for downstream nodes
+                context[node.node_id] = result["output"]
+                node_results.append(result)
+
+                # Store result in session
+                self.engine.store_node_result(
+                    node_id=node.node_id,
+                    result=result,
+                    session_id=session_id,
+                    user_id=user_id
+                )
+
+        # Mark workflow as complete
+        self.engine.mark_workflow_complete(
+            workflow_id=workflow_id,
+            session_id=session_id,
+            user_id=user_id,
+            success=True
+        )
+
+        logger.info(f"Workflow {workflow_id} completed successfully with {len(node_results)} nodes")
+
+        return {
+            "workflow_id": workflow_id,
+            "session_id": session_id,
+            "status": "completed",
+            "node_results": node_results,
+            "final_context": context
+        }

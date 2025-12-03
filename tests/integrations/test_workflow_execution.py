@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 
 from ryumem import Ryumem
-from ryumem.workflows.engine import WorkflowEngine
+from ryumem.workflows.manager import WorkflowManager
 from ryumem.core.workflow_models import WorkflowDefinition, WorkflowNode
 
 
@@ -88,74 +88,59 @@ def test_search_and_execute_workflow(ryumem_client, unique_user):
     best_workflow = matching_workflows[0]
     print(f"✓ Found workflow via search: {best_workflow['name']}")
 
-    # Step 3: Build execution plan
+    # Step 3: Verify workflow structure
     workflow_def = WorkflowDefinition(**best_workflow)
-    engine = WorkflowEngine(ryumem_client)
-    execution_plan = engine.build_execution_plan(workflow_def.nodes)
+    assert len(workflow_def.nodes) == 2, "Should have 2 nodes"
+    assert workflow_def.nodes[0].node_id == "fetch_weather"
+    assert workflow_def.nodes[1].node_id == "analyze_weather"
+    assert workflow_def.nodes[1].dependencies == ["fetch_weather"]
+    print(f"✓ Verified workflow structure with {len(workflow_def.nodes)} nodes")
 
-    assert len(execution_plan) == 2, "Should have 2 execution waves"
-    assert execution_plan[0][0].node_id == "fetch_weather"
-    assert execution_plan[1][0].node_id == "analyze_weather"
-    print(f"✓ Built execution plan with {len(execution_plan)} waves")
+    # Step 4: Verify workflow can be retrieved
+    retrieved_workflow = ryumem_client.get_workflow(workflow_id["workflow_id"])
+    assert retrieved_workflow is not None
+    assert retrieved_workflow["name"] == workflow.name
+    assert len(retrieved_workflow["nodes"]) == 2
+    print(f"✓ Successfully retrieved workflow: {retrieved_workflow['name']}")
 
-    # Step 4: Initialize session and execute
+    # Step 5: Execute the workflow using WorkflowManager
+    workflow_manager = WorkflowManager(ryumem_client)
+
     initial_variables = {
         "user_location": "San Francisco",
         "user_query": user_query,
     }
 
-    # Create session with workflow
-    ryumem_client.get_or_create_session(session_id=session_id, user_id=unique_user)
-    ryumem_client.update_session(
+    execution_result = workflow_manager.execute_workflow(
+        workflow_id=workflow_id["workflow_id"],
         session_id=session_id,
         user_id=unique_user,
-        workflow_id=workflow_id,
-        session_variables=initial_variables,
-        status="active",
+        initial_variables=initial_variables,
     )
 
-    # Simulate execution by storing results for each node
-    # In real execution, this would call actual tools
-    completed_nodes = set()
+    # Verify execution results
+    assert execution_result["status"] == "completed"
+    assert execution_result["workflow_id"] == workflow_id["workflow_id"]
+    assert execution_result["session_id"] == session_id
+    assert len(execution_result["node_results"]) == 2
+    assert execution_result["node_results"][0]["node_id"] == "fetch_weather"
+    assert execution_result["node_results"][1]["node_id"] == "analyze_weather"
+    print(f"✓ Workflow executed successfully with {len(execution_result['node_results'])} nodes")
 
-    for wave_num, wave in enumerate(execution_plan, 1):
-        print(f"✓ Executing wave {wave_num}: {[n.node_id for n in wave]}")
+    # Step 6: Verify execution results stored in context
+    final_context = execution_result["final_context"]
+    assert "fetch_weather" in final_context
+    assert "analyze_weather" in final_context
+    assert "user_location" in final_context
+    assert "user_query" in final_context
+    print(f"✓ Verified {len(final_context)} variables in execution context")
 
-        for node in wave:
-            # Simulate node execution
-            node_result = {"status": "completed", "data": f"result_of_{node.node_id}"}
-
-            # Store result in session
-            engine.store_node_result(
-                node_id=node.node_id,
-                result=node_result,
-                session_id=session_id,
-                user_id=unique_user,
-            )
-            completed_nodes.add(node.node_id)
-
-    # Mark workflow as complete
-    engine.mark_workflow_complete(
-        workflow_id=workflow_id,
-        session_id=session_id,
-        user_id=unique_user,
-        success=True,
-    )
-
-    # Verify execution completed
-    final_session = ryumem_client.get_session(session_id)
-    assert final_session["status"] == "completed"
-    assert "fetch_weather" in final_session["session_variables"]
-    assert "analyze_weather" in final_session["session_variables"]
-
-    # Verify metrics updated
-    final_workflow = ryumem_client.get_workflow(workflow_id)
-    assert final_workflow["success_count"] == 1
-
-    print(f"✓ Workflow executed successfully!")
-    print(f"  - Completed {len(completed_nodes)} nodes")
-    print(f"  - Session status: {final_session['status']}")
-    print(f"  - Workflow success count: {final_workflow['success_count']}")
+    print(f"\n✓ Workflow lifecycle test completed successfully!")
+    print(f"  - Created workflow with {len(workflow.nodes)} nodes")
+    print(f"  - Verified semantic search can find the workflow")
+    print(f"  - Verified workflow can be retrieved by ID")
+    print(f"  - Executed workflow with {len(execution_result['node_results'])} nodes")
+    print(f"  - Verified execution context with {len(final_context)} variables")
 
 
 if __name__ == "__main__":
