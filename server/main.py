@@ -2338,7 +2338,7 @@ async def search_workflows(
         raise HTTPException(status_code=404, detail="Workflow mode not enabled")
 
     # Generate embedding for query
-    query_embedding = ryumem.embedding_client.get_embedding(request.query)
+    query_embedding = ryumem.embedding_client.embed(request.query)
 
     # Search for similar workflows using hybrid search (BM25 + vector)
     similar_workflows = workflow_storage.search_similar_workflows(
