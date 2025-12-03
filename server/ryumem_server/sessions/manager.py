@@ -350,8 +350,8 @@ class SessionManager:
         if not episode:
             raise ValueError(f"Episode {episode_id} not found")
 
-        # Parse and update metadata
-        metadata_dict = episode.metadata if isinstance(episode.metadata, dict) else json.loads(episode.metadata)
+        # Parse and update metadata (episode is a dict, not an object)
+        metadata_dict = episode['metadata'] if isinstance(episode['metadata'], dict) else json.loads(episode['metadata'])
         metadata = EpisodeMetadata(**metadata_dict)
 
         # Add the query run (links session to this episode)
@@ -359,11 +359,11 @@ class SessionManager:
 
         # Save back to episode
         self.db.update_episode_metadata(
-            episode.uuid,
+            episode['uuid'],
             metadata.model_dump() if hasattr(metadata, 'model_dump') else metadata.dict()
         )
 
-        logger.info(f"Added query run to session {session_id} in episode {episode.uuid[:8]}")
+        logger.info(f"Added query run to session {session_id} in episode {episode['uuid'][:8]}")
 
     def add_query_run(
         self, session_id: str, user_id: str, query_run: "QueryRun"
