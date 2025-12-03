@@ -931,7 +931,7 @@ async def delete_episode(
         MATCH (e:Episode {uuid: $uuid})
         DETACH DELETE e
         """
-        ryumem.db.query(query, {"uuid": episode_uuid})
+        ryumem.db.execute(query, {"uuid": episode_uuid})
         return {"message": "Episode deleted successfully", "uuid": episode_uuid}
     except Exception as e:
         logger.error(f"Error deleting episode {episode_uuid}: {e}", exc_info=True)

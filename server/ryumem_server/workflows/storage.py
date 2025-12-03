@@ -47,19 +47,24 @@ class WorkflowStorage:
         # Serialize nodes to JSON
         nodes_json = json.dumps([node.model_dump() for node in workflow.nodes])
 
-        # Insert workflow node (stores the workflow definition)
+        # Use MERGE to create or update workflow node
         workflow_query = """
-        CREATE (w:Workflow {
-            uuid: $uuid,
-            name: $name,
-            description: $description,
-            nodes_json: $nodes_json,
-            success_count: $success_count,
-            failure_count: $failure_count,
-            created_at: $created_at,
-            updated_at: $updated_at,
-            user_id: $user_id
-        })
+        MERGE (w:Workflow {uuid: $uuid})
+        ON CREATE SET
+            w.name = $name,
+            w.description = $description,
+            w.nodes_json = $nodes_json,
+            w.success_count = $success_count,
+            w.failure_count = $failure_count,
+            w.created_at = $created_at,
+            w.updated_at = $updated_at,
+            w.user_id = $user_id
+        ON MATCH SET
+            w.name = $name,
+            w.description = $description,
+            w.nodes_json = $nodes_json,
+            w.updated_at = $updated_at,
+            w.user_id = $user_id
         """
 
         self.db.execute(
@@ -76,6 +81,14 @@ class WorkflowStorage:
                 "user_id": workflow.user_id,
             },
         )
+
+        # Delete old Episode trigger nodes for this workflow (if updating)
+        delete_query = """
+        MATCH (e:Episode {kind: 'workflow_trigger'})
+        WHERE e.metadata CONTAINS $workflow_id
+        DELETE e
+        """
+        self.db.execute(delete_query, {"workflow_id": workflow.workflow_id})
 
         # Create an Episode node for each query template (for vector + BM25 search)
         for query_template in workflow.query_templates:
