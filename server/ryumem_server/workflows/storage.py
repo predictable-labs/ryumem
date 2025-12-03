@@ -30,6 +30,53 @@ class WorkflowStorage:
         self.db = db
         self.embedding_client = embedding_client
 
+    @staticmethod
+    def _sanitize_user_id(user_id) -> Optional[str]:
+        """
+        Convert NaN user_id values from database to None.
+
+        Database null values sometimes become float NaN in results.
+        """
+        if isinstance(user_id, float) and user_id != user_id:  # Check for NaN
+            return None
+        return user_id
+
+    def _build_workflow_from_row(self, row: dict, workflow_id: str) -> WorkflowDefinition:
+        """
+        Build a WorkflowDefinition from a database row.
+
+        Args:
+            row: Database row containing workflow data
+            workflow_id: UUID of the workflow
+
+        Returns:
+            WorkflowDefinition object
+        """
+        nodes = json.loads(row["w.nodes_json"])
+
+        # Get query templates from Episode nodes
+        query_templates_query = """
+        MATCH (e:Episode {kind: 'workflow_trigger'})
+        WHERE e.metadata CONTAINS $workflow_id
+        RETURN e.content
+        """
+
+        template_results = self.db.execute(query_templates_query, {"workflow_id": workflow_id})
+        query_templates = [r["e.content"] for r in template_results]
+
+        return WorkflowDefinition(
+            workflow_id=workflow_id,
+            name=row["w.name"],
+            description=row["w.description"],
+            query_templates=query_templates,
+            nodes=nodes,
+            success_count=row["w.success_count"],
+            failure_count=row["w.failure_count"],
+            created_at=row["w.created_at"],
+            updated_at=row["w.updated_at"],
+            user_id=self._sanitize_user_id(row["w.user_id"]),
+        )
+
     def save_workflow(self, workflow: WorkflowDefinition) -> str:
         """
         Save a workflow to the database.
@@ -163,30 +210,7 @@ class WorkflowStorage:
             return None
 
         row = workflow_results[0]
-        nodes = json.loads(row["w.nodes_json"])
-
-        # Get query templates from Episode nodes
-        query_templates_query = """
-        MATCH (e:Episode {kind: 'workflow_trigger'})
-        WHERE e.metadata CONTAINS $workflow_id
-        RETURN e.content
-        """
-
-        template_results = self.db.execute(query_templates_query, {"workflow_id": workflow_id})
-        query_templates = [r["e.content"] for r in template_results]
-
-        return WorkflowDefinition(
-            workflow_id=row["w.uuid"],
-            name=row["w.name"],
-            description=row["w.description"],
-            query_templates=query_templates,
-            nodes=nodes,
-            success_count=row["w.success_count"],
-            failure_count=row["w.failure_count"],
-            created_at=row["w.created_at"],
-            updated_at=row["w.updated_at"],
-            user_id=row["w.user_id"],
-        )
+        return self._build_workflow_from_row(row, workflow_id)
 
     def search_similar_workflows(
         self, query: str, query_embedding: List[float], threshold: float = 0.7, limit: int = 5,
@@ -327,30 +351,7 @@ class WorkflowStorage:
         workflows = []
         for row in results:
             workflow_id = row["w.uuid"]
-            nodes = json.loads(row["w.nodes_json"])
-
-            # Get query templates from Episode nodes
-            query_templates_query = """
-            MATCH (e:Episode {kind: 'workflow_trigger'})
-            WHERE e.metadata CONTAINS $workflow_id
-            RETURN e.content
-            """
-
-            template_results = self.db.execute(query_templates_query, {"workflow_id": workflow_id})
-            query_templates = [r["e.content"] for r in template_results]
-
-            workflow = WorkflowDefinition(
-                workflow_id=workflow_id,
-                name=row["w.name"],
-                description=row["w.description"],
-                query_templates=query_templates,
-                nodes=nodes,
-                success_count=row["w.success_count"],
-                failure_count=row["w.failure_count"],
-                created_at=row["w.created_at"],
-                updated_at=row["w.updated_at"],
-                user_id=row["w.user_id"],
-            )
+            workflow = self._build_workflow_from_row(row, workflow_id)
             workflows.append(workflow)
 
         return workflows
