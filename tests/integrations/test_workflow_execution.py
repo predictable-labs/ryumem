@@ -70,7 +70,7 @@ def test_search_and_execute_workflow(ryumem_client, unique_user):
         failure_count=0,
     )
 
-    workflow_id = ryumem_client.create_workflow(workflow.model_dump())
+    workflow_id = ryumem_client.create_workflow(workflow.model_dump(mode='json'))
     assert workflow_id is not None
     print(f"\n✓ Created workflow: {workflow.name}")
 
