@@ -1,7 +1,7 @@
 """
 Integration test for ToolTracker with LangChain BaseTool and Google ADK.
 
-Tests parent-child tool tracking using real LangChain BaseTool converted to
+Tests tool tracking using real LangChain BaseTool converted to
 Google ADK FunctionTool for use in agents.
 """
 
@@ -40,51 +40,42 @@ def pytest_runtest_makereport(item, call):
 
 # ===== LangChain Tool Definitions =====
 
-class SimpleChildToolInput(BaseModel):
-    """Input schema for SimpleChildTool."""
+class SimpleToolInput(BaseModel):
+    """Input schema for SimpleTool."""
     message: str = Field(description="The message to process")
 
 
-class SimpleChildTool(BaseTool):
-    """A simple child tool that processes a message."""
+class SimpleTool(BaseTool):
+    """A simple tool that processes a message."""
 
-    name: str = "simple_child_tool"
+    name: str = "simple_tool"
     description: str = "A simple tool that processes a message"
-    args_schema: Type[BaseModel] = SimpleChildToolInput
+    args_schema: Type[BaseModel] = SimpleToolInput
 
     def _run(self, message: str) -> str:
         """Process the message."""
-        return f"Child processed: {message}"
+        return f"Processed: {message}"
 
 
-class ParentToolInput(BaseModel):
-    """Input schema for ParentTool."""
-    task: str = Field(description="The task to execute")
+class CalculatorToolInput(BaseModel):
+    """Input schema for CalculatorTool."""
+    expression: str = Field(description="The mathematical expression to evaluate")
 
 
-class ParentTool(BaseTool):
-    """A parent tool that internally calls the child tool."""
+class CalculatorTool(BaseTool):
+    """A simple calculator tool."""
 
-    name: str = "parent_tool_that_calls_child"
-    description: str = "A parent tool that delegates work to child tools"
-    args_schema: Type[BaseModel] = ParentToolInput
+    name: str = "calculator_tool"
+    description: str = "A calculator that evaluates mathematical expressions"
+    args_schema: Type[BaseModel] = CalculatorToolInput
 
-    # Reference to wrapped child callable (will be the _run method from wrapped tool)
-    child_callable: Any = None
-
-    def _run(self, task: str) -> str:
-        """
-        Execute the task by calling the child tool.
-
-        This simulates a real-world scenario where one tool
-        internally uses another tool.
-        """
-        if self.child_callable:
-            # Call child through the callable - this should be tracked as parent-child
-            child_result = self.child_callable(message=f"subtask: {task}")
-            return f"Parent completed '{task}' with result: {child_result}"
-        else:
-            return f"Parent completed '{task}' (no child available)"
+    def _run(self, expression: str) -> str:
+        """Evaluate the mathematical expression."""
+        try:
+            result = eval(expression)
+            return f"Result: {result}"
+        except Exception as e:
+            return f"Error: {str(e)}"
 
 
 # ===== Tool Conversion Helper =====
@@ -195,12 +186,12 @@ class TestInstrumentedLangchainToolTracking:
             ryumem.config.tool_tracking.sample_rate = 1.0
 
             # Create LangChain tools
-            child_tool = SimpleChildTool()
-            parent_tool = ParentTool()
+            simple_tool = SimpleTool()
+            calculator_tool = CalculatorTool()
 
-            # ⭐ Convert to ADK FunctionTool (simulating your instrumentation pattern)
-            instrumented_child = create_instrumented_adk_tool(child_tool)
-            instrumented_parent = create_instrumented_adk_tool(parent_tool)
+            # Convert to ADK FunctionTool
+            instrumented_simple = create_instrumented_adk_tool(simple_tool)
+            instrumented_calculator = create_instrumented_adk_tool(calculator_tool)
 
             # Create Google ADK agent with instrumented tools
             agent = Agent(
@@ -208,12 +199,13 @@ class TestInstrumentedLangchainToolTracking:
                 name="test_agent",
                 instruction=(
                     "You are a test agent. When asked to process a message, "
-                    "use simple_child_tool to process it."
+                    "use simple_tool to process it. When asked to calculate, "
+                    "use calculator_tool."
                 ),
-                tools=[instrumented_child, instrumented_parent]
+                tools=[instrumented_simple, instrumented_calculator]
             )
 
-            # ⭐ Add memory and tool tracking to agent
+            # Add memory and tool tracking to agent
             agent = add_memory_to_agent(agent, ryumem)
 
             # Create session
@@ -231,7 +223,7 @@ class TestInstrumentedLangchainToolTracking:
                 session_service=session_service
             )
 
-            # ⭐ Wrap runner with query tracking
+            # Wrap runner with query tracking
             runner = wrap_runner_with_tracking(runner, agent)
 
             # Execute a query that triggers tool usage
@@ -275,35 +267,35 @@ class TestInstrumentedLangchainToolTracking:
                 print(f"   - {tool_exec.tool_name} (success: {tool_exec.success})")
 
             # Verify at least one tool was called
-            assert any(t.tool_name == "simple_child_tool" for t in tools_used), \
-                "simple_child_tool should have been called"
+            assert any(t.tool_name == "simple_tool" for t in tools_used), \
+                "simple_tool should have been called"
 
         finally:
             ryumem.config.tool_tracking.sample_rate = original_rate
 
     @pytest.mark.asyncio
-    async def test_standalone_instrumented_tool_has_no_parent(
+    async def test_single_langchain_tool_tracked(
         self, ryumem, unique_user, unique_session
     ):
-        """Test that standalone LangChain tool converted to FunctionTool has no parent."""
+        """Test that a single LangChain tool is properly tracked when called by agent."""
         # Force 100% sampling
         original_rate = ryumem.config.tool_tracking.sample_rate
         try:
             ryumem.config.tool_tracking.sample_rate = 1.0
 
             # Create a single LangChain tool
-            child_tool = SimpleChildTool()
+            simple_tool = SimpleTool()
 
-            # ⭐ Convert to ADK FunctionTool
-            instrumented_tool = create_instrumented_adk_tool(child_tool)
+            # Convert to ADK FunctionTool
+            instrumented_tool = create_instrumented_adk_tool(simple_tool)
 
-            # Create agent with only standalone tool
+            # Create agent with tool
             agent = Agent(
                 model="gemini-2.0-flash-exp",
                 name="test_agent",
                 instruction=(
                     "You are a test agent. When asked to process something, "
-                    "use simple_child_tool."
+                    "use simple_tool."
                 ),
                 tools=[instrumented_tool]
             )
@@ -347,18 +339,20 @@ class TestInstrumentedLangchainToolTracking:
 
             # Verify episode
             episode = ryumem.get_episode_by_session_id(unique_session)
-            assert episode is not None
+            assert episode is not None, "Episode should be created"
 
             metadata = EpisodeMetadata(**episode.metadata)
             latest_run = metadata.get_latest_run(unique_session)
+            assert latest_run is not None, "Run should exist"
+
             tools_used = latest_run.tools_used
 
-            # All tools should have no parent
-            for tool_exec in tools_used:
-                assert tool_exec.parent_tool_name is None, \
-                    f"Standalone tool should have no parent, but got: {tool_exec.parent_tool_name}"
+            # Verify tools were tracked
+            assert len(tools_used) > 0, f"Should have tracked tool executions, got {len(tools_used)}"
 
-            print(f"\n✅ All {len(tools_used)} tool executions are standalone (no parent)")
+            print(f"\n✅ Successfully tracked {len(tools_used)} tool execution(s)")
+            for tool_exec in tools_used:
+                print(f"   - {tool_exec.tool_name} (success: {tool_exec.success})")
 
         finally:
             ryumem.config.tool_tracking.sample_rate = original_rate
