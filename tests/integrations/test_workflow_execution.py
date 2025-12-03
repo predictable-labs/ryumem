@@ -12,30 +12,24 @@ import os
 import uuid
 from datetime import datetime
 
-from ryumem.main import Ryumem
+from ryumem import Ryumem
 from ryumem.workflows.engine import WorkflowEngine
 from ryumem.core.workflow_models import WorkflowDefinition, WorkflowNode
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def ryumem_client():
-    """Create a fresh Ryumem client for the test."""
-    db_path = f"./test_workflow_exec_{uuid.uuid4().hex[:8]}.db"
-
-    ryumem = Ryumem(
-        db_path=db_path,
-        embedding_model="sentence-transformers/all-MiniLM-L6-v2",
-        workflow_mode_enabled=True,
-    )
-
-    yield ryumem
-
-    # Cleanup
-    if os.path.exists(db_path):
-        os.remove(db_path)
+    """Create Ryumem client for testing."""
+    return Ryumem()
 
 
-def test_search_and_execute_workflow(ryumem_client):
+@pytest.fixture
+def unique_user():
+    """Generate unique user ID for test isolation."""
+    return f"test_user_{uuid.uuid4().hex[:8]}"
+
+
+def test_search_and_execute_workflow(ryumem_client, unique_user):
     """
     Integration test: Search for workflow by query and execute it.
 
@@ -82,12 +76,11 @@ def test_search_and_execute_workflow(ryumem_client):
 
     # Step 2: User asks a question - search for matching workflow
     user_query = "How's the weather today?"
-    user_id = "test_user_123"
     session_id = f"session_{uuid.uuid4().hex[:8]}"
 
     matching_workflows = ryumem_client.search_workflows(
         query=user_query,
-        user_id=user_id,
+        user_id=unique_user,
         threshold=0.5,
     )
 
@@ -112,10 +105,10 @@ def test_search_and_execute_workflow(ryumem_client):
     }
 
     # Create session with workflow
-    ryumem_client.get_or_create_session(session_id=session_id, user_id=user_id)
+    ryumem_client.get_or_create_session(session_id=session_id, user_id=unique_user)
     ryumem_client.update_session(
         session_id=session_id,
-        user_id=user_id,
+        user_id=unique_user,
         workflow_id=workflow_id,
         session_variables=initial_variables,
         status="active",
@@ -137,7 +130,7 @@ def test_search_and_execute_workflow(ryumem_client):
                 node_id=node.node_id,
                 result=node_result,
                 session_id=session_id,
-                user_id=user_id,
+                user_id=unique_user,
             )
             completed_nodes.add(node.node_id)
 
@@ -145,7 +138,7 @@ def test_search_and_execute_workflow(ryumem_client):
     engine.mark_workflow_complete(
         workflow_id=workflow_id,
         session_id=session_id,
-        user_id=user_id,
+        user_id=unique_user,
         success=True,
     )
 
