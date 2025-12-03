@@ -722,14 +722,30 @@ class Ryumem:
 
         return self._put(f"/sessions/{session_id}", json=payload)
 
+    def get_session(self, session_id: str) -> Optional[Dict]:
+        """
+        Get session by ID.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Session dict or None if not found
+        """
+        try:
+            return self._get(f"/sessions/{session_id}")
+        except Exception as e:
+            logger.debug(f"Session {session_id} not found: {e}")
+            return None
+
     def update_session(
         self,
         session_id: str,
         user_id: str,
-        status: str,
-        workflow_id: str,
-        session_variables: Dict[str, Any],
-        current_node: str
+        status: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+        session_variables: Optional[Dict[str, Any]] = None,
+        current_node: Optional[str] = None
     ) -> Dict:
         """
         Update session state (status, workflow, variables, current node).
@@ -737,21 +753,24 @@ class Ryumem:
         Args:
             session_id: Session ID
             user_id: User ID
-            status: Session status
-            workflow_id: Workflow ID
-            session_variables: Session variables dict
-            current_node: Currently executing node
+            status: Session status (optional)
+            workflow_id: Workflow ID (optional)
+            session_variables: Session variables dict (optional)
+            current_node: Currently executing node (optional)
 
         Returns:
             Success response dict
         """
-        payload = {
-            "user_id": user_id,
-            "status": status,
-            "workflow_id": workflow_id,
-            "session_variables": session_variables,
-            "current_node": current_node
-        }
+        payload = {"user_id": user_id}
+
+        if status is not None:
+            payload["status"] = status
+        if workflow_id is not None:
+            payload["workflow_id"] = workflow_id
+        if session_variables is not None:
+            payload["session_variables"] = session_variables
+        if current_node is not None:
+            payload["current_node"] = current_node
 
         return self._put(f"/sessions/{session_id}", json=payload)
 
