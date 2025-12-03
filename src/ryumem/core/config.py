@@ -341,6 +341,10 @@ class WorkflowConfig(BaseSettings):
         default=False,
         description="Enable workflow mode (DAG-based tool orchestration)"
     )
+    auto_execute_workflows: bool = Field(
+        default=True,
+        description="Automatically execute matching workflows on chat queries"
+    )
     similarity_threshold: float = Field(
         default=0.7,
         description="Similarity threshold for workflow retrieval",

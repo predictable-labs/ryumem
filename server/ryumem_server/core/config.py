@@ -357,8 +357,23 @@ class WorkflowConfig(BaseSettings):
     """Workflow configuration"""
 
     workflow_mode_enabled: bool = Field(
-        default=True,
+        default=False,
         description="Enable workflow features"
+    )
+    auto_execute_workflows: bool = Field(
+        default=True,
+        description="Automatically execute matching workflows on chat queries"
+    )
+    similarity_threshold: float = Field(
+        default=0.7,
+        description="Minimum similarity score for workflow matching (0.0-1.0)",
+        ge=0.0,
+        le=1.0
+    )
+
+    model_config = SettingsConfigDict(
+        env_prefix="RYUMEM_WORKFLOW_",
+        env_nested_delimiter="__"
     )
 
 

@@ -1489,8 +1489,18 @@ class RyugraphDB:
 
     def close(self) -> None:
         """Close the database connection"""
-        # Ryugraph/Kuzu connections don't need explicit closing
-        logger.info("RyugraphDB connection closed")
+        try:
+            # Close connection first
+            if hasattr(self, 'conn') and not self.conn.is_closed():
+                self.conn.close()
+
+            # Then close database
+            if hasattr(self, 'db') and not self.db.is_closed():
+                self.db.close()
+
+            logger.info("RyugraphDB connection closed")
+        except Exception as e:
+            logger.error(f"Error closing RyugraphDB: {e}", exc_info=True)
 
     def reset(self) -> None:
         """

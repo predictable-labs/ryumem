@@ -138,17 +138,27 @@ async def lifespan(app: FastAPI):
     
     # Shutdown: Clean up resources
     logger.info("Shutting down Ryumem Server...")
+
     # Close all open Ryumem instances
     for customer_id, instance in _ryumem_cache.items():
         try:
-            instance.db.close() # Assuming Ryumem has a way to close DB or we rely on GC
-            # Actually Ryumem.close() might be better if it exists, let's check lib.py
-            # lib.py doesn't seem to have a close() method on Ryumem class based on previous view_file
-            # But RyugraphDB might.
-            pass 
+            instance.close()  # Properly close the Ryumem instance
+            logger.info(f"Closed Ryumem instance for customer {customer_id}")
         except Exception as e:
             logger.error(f"Error closing instance for {customer_id}: {e}")
     _ryumem_cache.clear()
+
+    # Clear session managers (they share DB connections with Ryumem instances)
+    _session_managers.clear()
+
+    # Close AuthManager database
+    if _auth_manager:
+        try:
+            _auth_manager.db.close()
+            logger.info("Closed AuthManager database")
+        except Exception as e:
+            logger.error(f"Error closing AuthManager: {e}")
+
     logger.info("Shutdown complete")
 
 
@@ -1889,8 +1899,16 @@ async def get_augmented_queries(
 
             # Flatten all runs from all sessions
             runs = []
-            for session_runs in episode_metadata.sessions.values():
-                runs.extend(session_runs)
+            for session_data in episode_metadata.sessions.values():
+                session_runs = session_data.get("runs", [])
+                # Convert run dicts to QueryRun objects
+                for run_data in session_runs:
+                    try:
+                        run = QueryRun(**run_data) if isinstance(run_data, dict) else run_data
+                        runs.append(run)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse QueryRun: {e}")
+                        continue
 
             # If only_augmented is True, filter runs that have augmented queries
             if only_augmented:

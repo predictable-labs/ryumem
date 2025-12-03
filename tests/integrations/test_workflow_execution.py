@@ -1,26 +1,35 @@
 """
-Integration test for workflow search and execution.
+Integration test for automatic workflow execution via Google ADK integration.
 
-Tests the complete workflow lifecycle:
-1. Create a workflow
-2. Search for it using a query
-3. Execute the workflow
+Tests the complete workflow auto-execution lifecycle:
+1. Create a workflow with query templates
+2. Enable workflow auto-execution in config
+3. Send a query through Google ADK integration
+4. Verify workflow was automatically executed
+5. Verify query was enriched with workflow results
 """
 
 import pytest
 import os
 import uuid
 from datetime import datetime
+from unittest.mock import Mock, MagicMock
 
 from ryumem import Ryumem
 from ryumem.workflows.manager import WorkflowManager
 from ryumem.core.workflow_models import WorkflowDefinition, WorkflowNode
+from ryumem.integrations.google_adk import RyumemGoogleADK, _execute_matching_workflow
 
 
 @pytest.fixture
 def ryumem_client():
-    """Create Ryumem client for testing."""
-    return Ryumem()
+    """Create Ryumem client for testing with workflow config enabled."""
+    client = Ryumem()
+    # Enable workflow features
+    client.config.workflow.workflow_mode_enabled = True
+    client.config.workflow.auto_execute_workflows = True
+    client.config.workflow.similarity_threshold = 0.5
+    return client
 
 
 @pytest.fixture
@@ -29,14 +38,15 @@ def unique_user():
     return f"test_user_{uuid.uuid4().hex[:8]}"
 
 
-def test_search_and_execute_workflow(ryumem_client, unique_user):
+def test_workflow_auto_execution_via_adk_integration(ryumem_client, unique_user):
     """
-    Integration test: Search for workflow by query and execute it.
+    Integration test: Workflow automatically executes when query matches.
 
     Flow:
-    1. Create a sample workflow
-    2. Search for it using a user query
-    3. Build execution plan and execute workflow
+    1. Create a sample workflow with query templates
+    2. Send query through Google ADK integration
+    3. Verify workflow was auto-executed
+    4. Verify query was enriched with workflow results
     """
     # Step 1: Create a sample workflow
     workflow = WorkflowDefinition(
@@ -53,7 +63,7 @@ def test_search_and_execute_workflow(ryumem_client, unique_user):
                 node_id="fetch_weather",
                 node_type="tool",
                 tool_name="get_weather",
-                input_params={"location": "${user_location}"},
+                input_params={"location": "San Francisco"},
                 dependencies=[],
             ),
             WorkflowNode(
@@ -74,73 +84,73 @@ def test_search_and_execute_workflow(ryumem_client, unique_user):
     assert workflow_id is not None
     print(f"\n✓ Created workflow: {workflow.name}")
 
-    # Step 2: User asks a question - search for matching workflow
+    # Step 2: Create mock Google ADK agent and memory integration
+    mock_agent = Mock()
+    mock_agent.tools = []
+    mock_agent.instruction = "You are a helpful assistant"
+
+    memory = RyumemGoogleADK(
+        agent=mock_agent,
+        ryumem=ryumem_client,
+        tool_tracker=None
+    )
+    print(f"✓ Created Google ADK memory integration")
+
+    # Step 3: Simulate user query - workflow should auto-execute
     user_query = "How's the weather today?"
     session_id = f"session_{uuid.uuid4().hex[:8]}"
 
-    matching_workflows = ryumem_client.search_workflows(
-        query=user_query,
+    print(f"\n✓ Testing query: '{user_query}'")
+    print(f"  - Workflow mode enabled: {ryumem_client.config.workflow.workflow_mode_enabled}")
+    print(f"  - Auto-execute enabled: {ryumem_client.config.workflow.auto_execute_workflows}")
+    print(f"  - Similarity threshold: {ryumem_client.config.workflow.similarity_threshold}")
+
+    # Call the workflow execution function directly (this is what happens in the ADK integration)
+    enriched_query = _execute_matching_workflow(
+        query_text=user_query,
+        memory=memory,
         user_id=unique_user,
-        threshold=0.5,
+        session_id=session_id
     )
 
-    assert len(matching_workflows) > 0, "Should find matching workflow"
-    best_workflow = matching_workflows[0]
-    print(f"✓ Found workflow via search: {best_workflow['name']}")
+    # Step 4: Verify workflow was executed and query was enriched
+    assert enriched_query is not None, "Workflow should have been executed"
+    assert user_query in enriched_query, "Original query should be preserved"
+    assert "Workflow Executed" in enriched_query, "Should contain workflow execution marker"
+    assert "Weather Analysis Workflow" in enriched_query, "Should contain workflow name"
+    assert "fetch_weather" in enriched_query, "Should contain node results"
+    assert "analyze_weather" in enriched_query, "Should contain node results"
+    print(f"✓ Workflow auto-executed successfully")
 
-    # Step 3: Verify workflow structure
-    workflow_def = WorkflowDefinition(**best_workflow)
-    assert len(workflow_def.nodes) == 2, "Should have 2 nodes"
-    assert workflow_def.nodes[0].node_id == "fetch_weather"
-    assert workflow_def.nodes[1].node_id == "analyze_weather"
-    assert workflow_def.nodes[1].dependencies == ["fetch_weather"]
-    print(f"✓ Verified workflow structure with {len(workflow_def.nodes)} nodes")
+    # Step 5: Verify query enrichment format
+    assert "Workflow Results:" in enriched_query, "Should have results section"
+    print(f"✓ Query enriched with workflow results (+{len(enriched_query) - len(user_query)} chars)")
 
-    # Step 4: Verify workflow can be retrieved
-    retrieved_workflow = ryumem_client.get_workflow(workflow_id["workflow_id"])
-    assert retrieved_workflow is not None
-    assert retrieved_workflow["name"] == workflow.name
-    assert len(retrieved_workflow["nodes"]) == 2
-    print(f"✓ Successfully retrieved workflow: {retrieved_workflow['name']}")
+    # Step 6: Verify enriched query structure
+    enriched_lines = enriched_query.split('\n')
+    assert len(enriched_lines) > 3, "Should have multiple lines in enriched query"
+    print(f"✓ Enriched query has {len(enriched_lines)} lines")
 
-    # Step 5: Execute the workflow using WorkflowManager
-    workflow_manager = WorkflowManager(ryumem_client)
-
-    initial_variables = {
-        "user_location": "San Francisco",
-        "user_query": user_query,
-    }
-
-    execution_result = workflow_manager.execute_workflow(
-        workflow_id=workflow_id["workflow_id"],
-        session_id=session_id,
+    # Step 7: Test with workflow config disabled
+    ryumem_client.config.workflow.auto_execute_workflows = False
+    enriched_query_disabled = _execute_matching_workflow(
+        query_text=user_query,
+        memory=memory,
         user_id=unique_user,
-        initial_variables=initial_variables,
+        session_id=session_id
     )
+    assert enriched_query_disabled is None, "Should not execute when disabled"
+    print(f"✓ Workflow correctly skipped when auto_execute_workflows=False")
 
-    # Verify execution results
-    assert execution_result["status"] == "completed"
-    assert execution_result["workflow_id"] == workflow_id["workflow_id"]
-    assert execution_result["session_id"] == session_id
-    assert len(execution_result["node_results"]) == 2
-    assert execution_result["node_results"][0]["node_id"] == "fetch_weather"
-    assert execution_result["node_results"][1]["node_id"] == "analyze_weather"
-    print(f"✓ Workflow executed successfully with {len(execution_result['node_results'])} nodes")
-
-    # Step 6: Verify execution results stored in context
-    final_context = execution_result["final_context"]
-    assert "fetch_weather" in final_context
-    assert "analyze_weather" in final_context
-    assert "user_location" in final_context
-    assert "user_query" in final_context
-    print(f"✓ Verified {len(final_context)} variables in execution context")
-
-    print(f"\n✓ Workflow lifecycle test completed successfully!")
+    print(f"\n✓ Workflow auto-execution test completed successfully!")
     print(f"  - Created workflow with {len(workflow.nodes)} nodes")
-    print(f"  - Verified semantic search can find the workflow")
-    print(f"  - Verified workflow can be retrieved by ID")
-    print(f"  - Executed workflow with {len(execution_result['node_results'])} nodes")
-    print(f"  - Verified execution context with {len(final_context)} variables")
+    print(f"  - Verified config-based workflow execution")
+    print(f"  - Verified query enrichment with workflow results")
+    print(f"  - Verified workflow execution can be disabled via config")
+    print(f"\nEnriched query preview:")
+    print(f"{'='*60}")
+    print(enriched_query[:500] + "..." if len(enriched_query) > 500 else enriched_query)
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":

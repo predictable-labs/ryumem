@@ -693,6 +693,111 @@ def _extract_query_text(new_message) -> Optional[str]:
     return query_text if query_text else None
 
 
+def _execute_matching_workflow(
+    query_text: str,
+    memory: RyumemGoogleADK,
+    user_id: str,
+    session_id: str,
+) -> Optional[str]:
+    """
+    Search for and execute a matching workflow if auto_execute is enabled.
+
+    Args:
+        query_text: The incoming user query
+        memory: RyumemGoogleADK instance with access to Ryumem
+        user_id: User identifier
+        session_id: Session identifier
+
+    Returns:
+        Enriched query text with workflow results, or None if no workflow executed
+    """
+    try:
+        # Check if workflow features are enabled
+        if not memory.ryumem.config.workflow.workflow_mode_enabled:
+            logger.debug("Workflow mode is disabled")
+            return None
+
+        if not memory.ryumem.config.workflow.auto_execute_workflows:
+            logger.debug("Workflow auto-execution is disabled")
+            return None
+
+        from ryumem.workflows.manager import WorkflowManager
+
+        logger.info(f"Searching for workflows matching query: {query_text[:50]}...")
+
+        # Search for matching workflows
+        threshold = memory.ryumem.config.workflow.similarity_threshold
+        matching_workflows = memory.ryumem.search_workflows(
+            query=query_text,
+            user_id=user_id,
+            threshold=threshold
+        )
+
+        if not matching_workflows:
+            logger.info(f"No workflows found above threshold {threshold}")
+            return None
+
+        # Execute top matching workflow
+        top_workflow = matching_workflows[0]
+        logger.info(f"Executing workflow: {top_workflow.name} (ID: {top_workflow.workflow_id})")
+
+        # Create workflow manager and execute
+        manager = WorkflowManager(memory.ryumem)
+        result = manager.execute_workflow(
+            workflow_id=top_workflow.workflow_id,
+            initial_variables={
+                "user_query": query_text,
+                "user_id": user_id,
+                "session_id": session_id,
+            },
+            user_id=user_id,
+            session_id=session_id
+        )
+
+        # Check execution status
+        status = result.get("status", "unknown")
+        if status != "completed":
+            logger.warning(f"Workflow execution status: {status}, error: {result.get('error')}")
+            return None
+
+        logger.info(f"Workflow '{top_workflow.name}' executed successfully")
+
+        # Format workflow results
+        workflow_context_parts = [
+            f"[Workflow Executed: {top_workflow.name}]",
+            ""
+        ]
+
+        # Add node results
+        node_results = result.get("node_results", {})
+        if node_results:
+            workflow_context_parts.append("Workflow Results:")
+            for node_id, output in node_results.items():
+                workflow_context_parts.append(f"  - {node_id}: {output}")
+            workflow_context_parts.append("")
+
+        # Add final context variables (excluding inputs)
+        final_context = result.get("final_context", {})
+        if final_context:
+            workflow_context_parts.append("Context Variables:")
+            for key, value in final_context.items():
+                if key not in ["user_query", "user_id", "session_id"]:
+                    workflow_context_parts.append(f"  - {key}: {value}")
+            workflow_context_parts.append("")
+
+        workflow_context = "\n".join(workflow_context_parts)
+
+        # Enrich query with workflow results
+        enriched_query = f"{query_text}\n\n{workflow_context}"
+        logger.info(f"Query enriched with workflow results (+{len(workflow_context)} chars)")
+
+        return enriched_query
+
+    except Exception as e:
+        logger.error(f"Workflow execution failed: {e}", exc_info=True)
+        return None
+
+
 def _insert_run_information_in_episode(
     query_episode_id: str,
     run_id: str,
@@ -787,6 +892,21 @@ def _prepare_query_and_episode(
 
     original_query_text = query_text
     augmented_message = new_message
+
+    # Execute matching workflow if enabled
+    if (memory.ryumem.config.workflow.workflow_mode_enabled and
+        memory.ryumem.config.workflow.auto_execute_workflows):
+        workflow_enriched_query = _execute_matching_workflow(
+            query_text=query_text,
+            memory=memory,
+            user_id=user_id,
+            session_id=session_id
+        )
+
+        # Update query_text with workflow results if execution succeeded
+        if workflow_enriched_query:
+            query_text = workflow_enriched_query
+            logger.info("Query enriched with workflow execution results")
 
     # Augment query with historical context if enabled
     augment_enabled = memory.ryumem.config.tool_tracking.augment_queries
