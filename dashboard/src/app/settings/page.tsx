@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-type Category = 'api_keys' | 'llm' | 'embedding' | 'entity_extraction' | 'search' | 'tool_tracking';
+type Category = 'api_keys' | 'llm' | 'embedding' | 'entity_extraction' | 'search' | 'tool_tracking' | 'workflow';
 
 interface SettingsState {
   [key: string]: any;
@@ -270,6 +270,7 @@ export default function SettingsPage() {
     { id: 'search', label: 'Search' },
     { id: 'entity_extraction', label: 'Entity Extraction' },
     { id: 'tool_tracking', label: 'Tool Tracking' },
+    { id: 'workflow', label: 'Workflow' },
   ];
 
   const hasChanges = Object.keys(changedFields).length > 0;
