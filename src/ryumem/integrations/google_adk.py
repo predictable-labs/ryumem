@@ -427,9 +427,13 @@ def add_memory_to_agent(
         try:
             tool_tracker = ToolTracker(ryumem=ryumem_instance)
 
-            # Wrap agent tools BEFORE adding memory tools
-            tool_tracker.wrap_agent_tools(agent)
-            logger.info(f"Tool tracking enabled for agent: {agent.name if hasattr(agent, 'name') else 'unnamed'}")
+            # Only wrap tools if not already wrapped (check if instruction was already enhanced)
+            current_instruction = agent.instruction or ""
+            already_enhanced = DEFAULT_TOOL_BLOCK in current_instruction
+
+            if not already_enhanced and hasattr(agent, 'tools') and agent.tools:
+                tool_tracker.wrap_agent_tools(agent)
+                logger.info(f"Tool tracking enabled for agent: {agent.name if hasattr(agent, 'name') else 'unnamed'}")
 
         except Exception as e:
             logger.error(f"Failed to initialize tool tracking: {e}")
@@ -447,6 +451,14 @@ def add_memory_to_agent(
     if not hasattr(agent, 'tools'):
         agent.tools = []
         logger.warning("Agent doesn't have 'tools' attribute, creating new list")
+
+    # Remove existing memory tools to prevent duplicates
+    # Get tool names from the new memory instance
+    new_memory_tool_names = {getattr(tool, '__name__', None) for tool in memory.tools}
+    agent.tools = [
+        tool for tool in agent.tools
+        if getattr(tool, '__name__', None) not in new_memory_tool_names
+    ]
 
     # Collect existing tools before adding memory tools
     existing_tools = list(agent.tools) if hasattr(agent, 'tools') else []
@@ -484,10 +496,11 @@ def add_memory_to_agent(
         if base_instruction:
             instruction_parts.append(base_instruction)
 
-        if ryumem_instance.config.agent.memory_enabled:
+        # Only add blocks if they're not already present
+        if ryumem_instance.config.agent.memory_enabled and DEFAULT_MEMORY_BLOCK not in base_instruction:
             instruction_parts.append(DEFAULT_MEMORY_BLOCK)
 
-        if ryumem_instance.config.tool_tracking.track_tools:
+        if ryumem_instance.config.tool_tracking.track_tools and DEFAULT_TOOL_BLOCK not in base_instruction:
             instruction_parts.append(DEFAULT_TOOL_BLOCK)
 
         enhanced_instruction = "\n\n".join(instruction_parts)

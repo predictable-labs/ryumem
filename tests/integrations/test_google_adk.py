@@ -1138,3 +1138,110 @@ class TestAugmentationRealIntegration:
         # Should NOT include older sessions in last_session section
         assert augmented.count("Session ID:") == 1, \
             "Should only include one session in last_session details"
+
+
+class TestMultipleMemoryAddition:
+    """Test that add_memory_to_agent handles multiple calls correctly."""
+
+    @pytest.fixture
+    def agent(self):
+        """Fresh agent for each test."""
+        return SimpleAgent()
+
+    def test_multiple_add_calls_with_same_instance_are_idempotent(self, ryumem, agent):
+        """Calling add_memory_to_agent twice with same instance should be idempotent."""
+        # First call
+        result1 = add_memory_to_agent(agent, ryumem)
+        tools_count_after_first = len(agent.tools)
+        instruction_after_first = agent.instruction
+
+        # Second call with same instance
+        result2 = add_memory_to_agent(agent, ryumem)
+        tools_count_after_second = len(agent.tools)
+        instruction_after_second = agent.instruction
+
+        # Assertions
+        assert result1 is agent
+        assert result2 is agent
+        assert tools_count_after_first == tools_count_after_second
+
+        # No duplicate tool names
+        tool_names = [getattr(t, '__name__', 'unknown') for t in agent.tools]
+        assert len(tool_names) == len(set(tool_names))
+
+        # Instruction blocks should only appear once
+        assert instruction_after_second.count("MEMORY USAGE:") <= 1, \
+            "MEMORY USAGE block should only appear once"
+        assert instruction_after_second.count("TOOL SELECTION:") <= 1, \
+            "TOOL SELECTION block should only appear once"
+
+        # Instruction should not change on second call
+        assert instruction_after_first == instruction_after_second, \
+            "Instruction should remain the same on subsequent calls"
+
+    @pytest.mark.asyncio
+    async def test_search_memory_works_after_multiple_add_calls(
+        self, ryumem, agent, unique_user, unique_session
+    ):
+        """search_memory should work after calling add_memory_to_agent multiple times."""
+        # Call twice with same instance
+        add_memory_to_agent(agent, ryumem)
+        add_memory_to_agent(agent, ryumem)
+
+        # Verify memory interface exists
+        assert hasattr(agent, '_ryumem_memory')
+        memory = agent._ryumem_memory
+
+        # Save and search
+        tool_context = SimpleToolContext(user_id=unique_user, session_id=unique_session)
+        save_result = await memory.save_memory(
+            tool_context=tool_context,
+            content="Test memory for multiple add calls",
+            source="text"
+        )
+        assert save_result["status"] == "success"
+
+        search_result = await memory.search_memory(
+            tool_context=tool_context,
+            query="multiple add calls",
+            limit=5
+        )
+        assert search_result["status"] in ["success", "no_memories"]
+
+    def test_multiple_add_calls_with_different_instances_replaces_tools(self, agent):
+        """Calling add_memory_to_agent with different Ryumem instances should replace tools."""
+        ryumem1 = Ryumem()
+        ryumem2 = Ryumem()
+
+        # First call
+        add_memory_to_agent(agent, ryumem1)
+        tools_count_after_first = len(agent.tools)
+        instruction_after_first = agent.instruction
+        first_memory = agent._ryumem_memory
+
+        # Second call with different instance
+        add_memory_to_agent(agent, ryumem2)
+        tools_count_after_second = len(agent.tools)
+        instruction_after_second = agent.instruction
+        second_memory = agent._ryumem_memory
+
+        # Tool count should be same (replaced, not duplicated)
+        assert tools_count_after_first == tools_count_after_second
+
+        # Memory instance should be replaced
+        assert first_memory is not second_memory
+        assert second_memory.ryumem is ryumem2
+
+        # No duplicate tool names
+        tool_names = [getattr(t, '__name__', 'unknown') for t in agent.tools]
+        assert len(tool_names) == len(set(tool_names))
+
+        # Instruction blocks should only appear once even with different instances
+        assert instruction_after_second.count("MEMORY USAGE:") <= 1, \
+            "MEMORY USAGE block should only appear once"
+        assert instruction_after_second.count("TOOL SELECTION:") <= 1, \
+            "TOOL SELECTION block should only appear once"
+
+        # Instruction should not change when replacing with different instance
+        assert instruction_after_first == instruction_after_second, \
+            "Instruction should remain the same when replacing Ryumem instance"
