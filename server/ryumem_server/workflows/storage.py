@@ -217,26 +217,26 @@ class WorkflowStorage:
         user_id: Optional[str] = None
     ) -> List[Tuple[WorkflowDefinition, float]]:
         """
-        Search for workflows similar to a query using hybrid search (BM25 + vector).
+        Search for workflows similar to a query using semantic search.
+
+        Workflows are global and not filtered by user_id.
 
         Args:
-            query: Query text for BM25 search
+            query: Query text
             query_embedding: Embedding vector for semantic search
-            threshold: Minimum RRF score (0-1)
+            threshold: Minimum similarity score (0-1)
             limit: Maximum number of results
-            user_id: Optional user ID filter
+            user_id: Deprecated, kept for API compatibility but not used
 
         Returns:
-            List of (WorkflowDefinition, rrf_score) tuples
+            List of (WorkflowDefinition, similarity_score) tuples
         """
-        user_filter = "AND e.user_id = $user_id" if user_id else ""
-
         # Semantic search on Episode nodes with kind='workflow_trigger'
         # BM25 not available in Ryugraph, using semantic search only
-        search_query = f"""
-        MATCH (e:Episode {{kind: 'workflow_trigger'}})
+        # Workflows are global - no user filtering
+        search_query = """
+        MATCH (e:Episode {kind: 'workflow_trigger'})
         WHERE array_cosine_similarity(e.content_embedding, $embedding) >= $threshold
-        {user_filter}
         WITH e,
              array_cosine_similarity(e.content_embedding, $embedding) AS similarity_score
         RETURN e.metadata, similarity_score
@@ -250,8 +250,6 @@ class WorkflowStorage:
             "threshold": threshold,
             "limit": limit * 3,  # Get more to handle multiple templates per workflow
         }
-        if user_id:
-            params["user_id"] = user_id
 
         results = self.db.execute(search_query, params)
 
