@@ -630,13 +630,15 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
                 duration_ms = int((time.time() - start_time) * 1000)
 
-                # Extract user_id and session_id from tool_context.session
-                if not hasattr(tool_context, 'session') or not tool_context.session:
-                    raise ValueError(f"tool_context.session is required but was None for tool '{tool_name}'")
+                # Extract user_id and session_id from tool_context (with override support)
+                if not hasattr(self, '_memory_ref') or not self._memory_ref:
+                    raise ValueError(
+                        f"ToolTracker requires _memory_ref to be set for tool '{tool_name}'. "
+                        f"Use add_memory_to_agent() instead of directly instantiating ToolTracker."
+                    )
 
-                session = tool_context.session
-                user_id = getattr(session, 'user_id', None)
-                session_id = getattr(session, 'id', None)
+                # Use memory's helper to get user_id with override support
+                user_id, session_id = self._memory_ref._get_user_id_from_context(tool_context)
 
                 if not user_id:
                     raise ValueError(f"tool_context.session.user_id is required but was None for tool '{tool_name}'")

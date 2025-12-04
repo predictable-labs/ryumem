@@ -113,8 +113,72 @@ class RyumemGoogleADK:
         self.agent = agent
         self.ryumem = ryumem
         self.tool_tracker = tool_tracker
+        # Store per-session user_id overrides
+        self._session_user_overrides: Dict[str, str] = {}
 
         logger.info(f"Initialized RyumemGoogleADK extract_entities: {ryumem.config.entity_extraction.enabled}")
+
+    def set_session_user_override(self, session_id: str, user_id_override: str) -> None:
+        """
+        Override the user_id for a specific session.
+
+        All subsequent tool calls in this session will use the override user_id
+        instead of the one from tool_context.session.user_id.
+
+        Args:
+            session_id: The session ID to override
+            user_id_override: The user_id to use for this session
+        """
+        self._session_user_overrides[session_id] = user_id_override
+        logger.info(f"Set user_id override for session {session_id[:8]}: {user_id_override}")
+
+    def clear_session_user_override(self, session_id: str) -> None:
+        """
+        Clear the user_id override for a session.
+
+        Args:
+            session_id: The session ID to clear override for
+        """
+        if session_id in self._session_user_overrides:
+            del self._session_user_overrides[session_id]
+            logger.info(f"Cleared user_id override for session {session_id[:8]}")
+
+    def get_session_user_override(self, session_id: str) -> Optional[str]:
+        """
+        Get the user_id override for a session, if any.
+
+        Args:
+            session_id: The session ID to check
+
+        Returns:
+            The override user_id, or None if no override is set
+        """
+        return self._session_user_overrides.get(session_id)
+
+    def _get_user_id_from_context(self, tool_context: ToolContext) -> tuple[Optional[str], Optional[str]]:
+        """
+        Extract user_id and session_id from tool context, applying any overrides.
+
+        Args:
+            tool_context: Google ADK tool context containing session info
+
+        Returns:
+            Tuple of (user_id, session_id)
+        """
+        if not hasattr(tool_context, 'session') or not tool_context.session:
+            return None, None
+
+        session = tool_context.session
+        session_id = getattr(session, 'id', None)
+
+        # Check for session-specific user_id override
+        if session_id and session_id in self._session_user_overrides:
+            user_id = self._session_user_overrides[session_id]
+            logger.debug(f"Using user_id override for session {session_id[:8]}: {user_id}")
+        else:
+            user_id = getattr(session, 'user_id', None)
+
+        return user_id, session_id
 
     async def search_memory(self, tool_context: ToolContext, query: str, limit: int = 5) -> Dict[str, Any]:
         """
@@ -128,16 +192,8 @@ class RyumemGoogleADK:
         Returns:
             Dict with status and memories or no_memories indicator
         """
-        # Extract session info from tool_context
-        if not hasattr(tool_context, 'session') or not tool_context.session:
-            return {
-                "status": "error",
-                "message": "Session context is required but was not provided"
-            }
-
-        session = tool_context.session
-        user_id = getattr(session, 'user_id', None)
-        session_id = getattr(session, 'id', None)
+        # Extract session info from tool_context (with override support)
+        user_id, session_id = self._get_user_id_from_context(tool_context)
 
         if not user_id or not session_id:
             return {
@@ -237,16 +293,8 @@ class RyumemGoogleADK:
         Returns:
             Dict with status and episode_id
         """
-        # Extract session info from tool_context
-        if not hasattr(tool_context, 'session') or not tool_context.session:
-            return {
-                "status": "error",
-                "message": "Session context is required but was not provided"
-            }
-
-        session = tool_context.session
-        user_id = getattr(session, 'user_id', None)
-        session_id = getattr(session, 'id', None)
+        # Extract session info from tool_context (with override support)
+        user_id, session_id = self._get_user_id_from_context(tool_context)
 
         if not user_id or not session_id:
             return {
@@ -296,16 +344,8 @@ class RyumemGoogleADK:
         Returns:
             Dict with entity information and related facts
         """
-        # Extract session info from tool_context
-        if not hasattr(tool_context, 'session') or not tool_context.session:
-            return {
-                "status": "error",
-                "message": "Session context is required but was not provided"
-            }
-
-        session = tool_context.session
-        user_id = getattr(session, 'user_id', None)
-        session_id = getattr(session, 'id', None)
+        # Extract session info from tool_context (with override support)
+        user_id, session_id = self._get_user_id_from_context(tool_context)
 
         if not user_id or not session_id:
             return {
@@ -446,6 +486,10 @@ def add_memory_to_agent(
         ryumem=ryumem_instance,
         tool_tracker=tool_tracker
     )
+
+    # Store memory reference in tool_tracker for override support
+    if tool_tracker:
+        tool_tracker._memory_ref = memory
 
     # 5. Auto-inject tools into agent
     if not hasattr(agent, 'tools'):
