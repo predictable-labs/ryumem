@@ -7,6 +7,8 @@ export interface Message {
   executionTime?: number;
   usedMemory?: boolean;
   similarQueries?: string[];
+  generatedWorkflow?: Workflow;
+  appliedWorkflow?: Workflow;
 }
 
 export interface ToolCall {
@@ -40,4 +42,30 @@ export interface PerformanceMetric {
   usedMemory: boolean;
   timeSaved: number;
   timestamp: Date;
+}
+
+export interface WorkflowTool {
+  name: string;
+  enabled: boolean;
+  category: "exploratory" | "core";
+  order: number;
+  description: string;
+}
+
+export interface Workflow {
+  id: string;
+  name: string;
+  queryPattern: string;
+  tools: WorkflowTool[];
+  createdFrom: string[];
+  timestamp: Date;
+  isCustom: boolean;
+  matchCount: number;
+  avgExecutionTime?: number;
+}
+
+export interface WorkflowMatch {
+  workflow: Workflow;
+  similarity: number;
+  reason: string;
 }

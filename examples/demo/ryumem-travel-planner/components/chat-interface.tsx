@@ -5,16 +5,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Send, Loader2, Zap, Clock, PlayCircle, RotateCcw } from "lucide-react";
-import { Message, ToolCall, PerformanceMetric } from "@/lib/types";
+import { Send, Loader2, Zap, Clock, PlayCircle, RotateCcw, Settings, Sparkles } from "lucide-react";
+import { Message, ToolCall, PerformanceMetric, Workflow } from "@/lib/types";
 import {
   executeTravelWorkflow,
   MockMemoryStore,
   calculateTotalExecutionTime,
+  generateWorkflowFromExecution,
 } from "@/lib/mock-workflow";
 import { ToolCallCard } from "./tool-call-card";
 import { MemoryPanel } from "./memory-panel";
 import { PerformancePanel } from "./performance-panel";
+import { WorkflowPanel } from "./workflow-panel";
 
 // Preset prompts for demo
 const PRESET_PROMPTS = [
@@ -40,6 +42,7 @@ export function ChatInterface() {
   const [currentToolCalls, setCurrentToolCalls] = useState<ToolCall[]>([]);
   const [currentExecutionTime, setCurrentExecutionTime] = useState<number>(0);
   const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetric[]>([]);
+  const [currentWorkflow, setCurrentWorkflow] = useState<Workflow | undefined>();
   const memoryStore = useRef(new MockMemoryStore());
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -60,6 +63,7 @@ export function ChatInterface() {
       },
     ]);
     setPerformanceMetrics([]);
+    setCurrentWorkflow(undefined);
     memoryStore.current = new MockMemoryStore();
   };
 
@@ -84,6 +88,13 @@ export function ChatInterface() {
     const similarMemories = memoryStore.current.findSimilar(query, 0.4);
     const useMemory = similarMemories.length > 0;
     const similarQueries = similarMemories.map((m) => m.query);
+
+    // Find matching workflow
+    const matchedWorkflow = memoryStore.current.findMatchingWorkflow(query, 0.6);
+    if (matchedWorkflow) {
+      setCurrentWorkflow(matchedWorkflow);
+      memoryStore.current.incrementWorkflowMatchCount(matchedWorkflow.id);
+    }
 
     // Calculate expected time
     const baseTime = calculateTotalExecutionTime(false);
@@ -114,7 +125,8 @@ export function ChatInterface() {
       query,
       onToolStart,
       onToolComplete,
-      useMemory
+      useMemory,
+      matchedWorkflow
     );
 
     clearInterval(executionInterval);
@@ -122,6 +134,13 @@ export function ChatInterface() {
 
     // Add to memory
     memoryStore.current.addMemory(query, response, totalExecutionTime);
+
+    // Generate workflow if not using an existing one
+    let generatedWorkflow: Workflow | undefined;
+    if (!matchedWorkflow) {
+      generatedWorkflow = generateWorkflowFromExecution(query, toolCalls, userMessage.id);
+      memoryStore.current.addWorkflow(generatedWorkflow);
+    }
 
     // Track performance metric
     const metric: PerformanceMetric = {
@@ -146,6 +165,8 @@ export function ChatInterface() {
       executionTime: totalExecutionTime,
       usedMemory: useMemory,
       similarQueries: similarQueries,
+      generatedWorkflow: generatedWorkflow,
+      appliedWorkflow: matchedWorkflow,
     };
 
     setMessages((prev) => [...prev, assistantMessage]);
@@ -199,6 +220,24 @@ export function ChatInterface() {
                       : "bg-card border"
                   }`}
                 >
+                  {/* Applied Workflow Indicator */}
+                  {message.role === "assistant" && message.appliedWorkflow && (
+                    <div className="mb-2 flex items-center gap-2 text-xs bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 px-2 py-1 rounded border border-purple-200 dark:border-purple-800">
+                      <Settings className="h-3 w-3" />
+                      <span className="font-semibold">Custom Workflow Applied</span>
+                      <span>• {message.appliedWorkflow.tools.filter(t => t.enabled).length}/10 tools</span>
+                    </div>
+                  )}
+
+                  {/* Generated Workflow Indicator */}
+                  {message.role === "assistant" && message.generatedWorkflow && !message.appliedWorkflow && (
+                    <div className="mb-2 flex items-center gap-2 text-xs bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
+                      <Sparkles className="h-3 w-3" />
+                      <span className="font-semibold">Workflow Generated</span>
+                      <span>• View in sidebar to edit</span>
+                    </div>
+                  )}
+
                   {/* Memory indicator for assistant messages */}
                   {message.role === "assistant" && message.usedMemory && (
                     <div className="mb-2 flex items-center gap-2 text-xs bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-1 rounded border border-green-200 dark:border-green-800">
@@ -306,6 +345,15 @@ export function ChatInterface() {
             Performance Metrics
           </h2>
           <PerformancePanel metrics={performanceMetrics} />
+        </div>
+
+        {/* Workflow Panel */}
+        <div className="border-b" style={{ height: '300px' }}>
+          <WorkflowPanel
+            memoryStore={memoryStore.current}
+            currentWorkflow={currentWorkflow}
+            onWorkflowUpdate={(workflow) => console.log("Workflow updated:", workflow)}
+          />
         </div>
 
         {/* Memory Panel */}

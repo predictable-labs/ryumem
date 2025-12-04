@@ -6,9 +6,16 @@ An interactive web demo showcasing Ryumem's **memory-assisted performance optimi
 
 ### 🚀 Performance Optimization
 - **First Query**: Full tool execution (~5.5 seconds)
-- **Similar Queries**: Memory-assisted execution (~1 second)
-- **Up to 82% faster** response times with intelligent tool selection
+- **Similar Queries**: Memory-assisted execution (~1.3 seconds)
+- **Up to 76-77% faster** response times with intelligent tool selection
 - Real-time performance metrics and visualization
+
+### 🔄 Workflow Management
+- Auto-generated workflows after each query execution
+- Editable workflows with tool enable/disable controls
+- Workflow matching for similar queries
+- Visual workflow indicators in chat messages
+- Custom workflow persistence and reuse
 
 ### 🧠 Memory Tracking
 - Automatic detection of similar queries
@@ -80,10 +87,12 @@ The demo provides **6 preset query buttons**. Click any query to execute it and 
 ### How to Use
 1. Click any query button to execute it
 2. The first query will take ~5.5 seconds (full execution with 10 tools)
-3. Click a similar query (e.g., another Mumbai to Bangalore trip)
-4. Watch it complete in ~1 second with only 4 core tools (82% faster!)
-5. Observe the performance metrics update in real-time
-6. Click **"Reset Demo"** in the top-right to start fresh
+3. A workflow is automatically generated and shown in the Workflows panel
+4. Click on the Settings icon in the workflow to edit it (enable/disable exploratory tools)
+5. Click a similar query (e.g., another Mumbai to Bangalore trip)
+6. Watch it complete in ~1.3 seconds with optimized execution (76-77% faster!)
+7. Observe the performance metrics update in real-time
+8. Click **"Reset Demo"** in the top-right to start fresh
 
 ## How It Works
 
@@ -99,7 +108,7 @@ When you ask a similar query, Ryumem:
 
 ### Performance Comparison
 
-| Tool | First Query | Similar Query | Improvement |
+| Tool | First Query | With Workflow | Improvement |
 |------|-------------|---------------|-------------|
 | **Exploratory Tools** | | | |
 | validate_destination | 400ms | Skipped | 100% ↓ |
@@ -109,11 +118,11 @@ When you ask a similar query, Ryumem:
 | check_hotel_availability | 650ms | Skipped | 100% ↓ |
 | get_local_attractions | 550ms | Skipped | 100% ↓ |
 | **Core Tools** | | | |
-| search_flights | 800ms | 300ms | 62% ↓ |
-| estimate_budget | 600ms | 250ms | 58% ↓ |
-| create_itinerary | 700ms | 270ms | 61% ↓ |
-| finalize_trip | 500ms | 180ms | 64% ↓ |
-| **Total** | **~5.5s** | **~1.0s** | **82% ↓** |
+| search_flights | 800ms | 400ms | 50% ↓ |
+| estimate_budget | 600ms | 350ms | 42% ↓ |
+| create_itinerary | 700ms | 350ms | 50% ↓ |
+| finalize_trip | 500ms | 200ms | 60% ↓ |
+| **Total** | **~5.5s** | **~1.3s** | **76-77% ↓** |
 
 ## Project Structure
 
@@ -127,7 +136,8 @@ When you ask a similar query, Ryumem:
 │   ├── tool-call-card.tsx      # Collapsible tool execution display
 │   ├── memory-panel.tsx        # Memory visualization
 │   ├── performance-panel.tsx   # Performance metrics dashboard
-│   └── ui/                     # shadcn components
+│   ├── workflow-panel.tsx      # Workflow management UI
+│   └── ui/                     # shadcn components (Switch, Badge, etc.)
 ├── lib/
 │   ├── types.ts                # TypeScript types
 │   ├── mock-workflow.ts        # Mock tool execution with timing logic
@@ -145,6 +155,8 @@ The demo uses **6 clickable query buttons** arranged in a 2-column grid:
 
 ### Visual Indicators
 The demo uses color-coded badges to show query performance:
+- 🟣 **Purple Badge**: Custom workflow applied
+- 🟡 **Amber Badge**: Workflow generated
 - 🟢 **Green Badge**: Memory-assisted query (fast)
 - 🔵 **Blue Badge**: First-time query (baseline)
 - 🟡 **Yellow Badge**: Similar queries found
@@ -163,11 +175,12 @@ The actual Ryumem library provides these capabilities with real backend integrat
 
 ## Key Takeaways
 
-1. **Intelligent Tool Selection**: System uses 10 tools initially, then only 4 relevant tools for similar queries
-2. **Dramatic Speed Improvements**: Similar queries execute 82% faster
-3. **Cumulative Savings**: Time savings add up across many queries
-4. **Smart Caching**: System learns from query patterns and optimizes tool execution
-5. **Real-time Insights**: Performance metrics update live
+1. **Workflow Management**: Auto-generated workflows can be customized and reused for similar queries
+2. **Intelligent Tool Selection**: System uses 10 tools initially, then only 4 relevant tools with custom workflows
+3. **Dramatic Speed Improvements**: Similar queries execute 76-77% faster with optimized workflows
+4. **Cumulative Savings**: Time savings add up across many queries
+5. **Smart Caching**: System learns from query patterns and optimizes tool execution
+6. **Real-time Insights**: Performance metrics and workflow indicators update live
 
 ## Learn More
 
@@ -177,4 +190,4 @@ The actual Ryumem library provides these capabilities with real backend integrat
 
 ---
 
-**Note**: This demo simulates Ryumem's core value proposition - showing how memory-assisted execution dramatically improves response times through intelligent tool selection and optimized execution. The system learns which tools are necessary for similar queries, skipping exploratory work and focusing on core operations. In a production environment, these optimizations would apply to real API calls, database queries, and computational tasks.
+**Note**: This demo simulates Ryumem's core value proposition - showing how memory-assisted execution and workflow management dramatically improves response times through intelligent tool selection and optimized execution. The system learns which tools are necessary for similar queries, skipping exploratory work and focusing on core operations. Users can customize workflows to further optimize performance based on their specific needs. In a production environment, these optimizations would apply to real API calls, database queries, and computational tasks.

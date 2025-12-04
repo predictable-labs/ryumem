@@ -1,4 +1,4 @@
-import { Message, ToolCall, MemoryEntry, PerformanceMetric } from "./types";
+import { Message, ToolCall, MemoryEntry, PerformanceMetric, Workflow, WorkflowTool } from "./types";
 
 // Simulate tool execution delays
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -17,18 +17,18 @@ const BASE_DELAYS = {
   finalize_trip: 500,
 };
 
-// Optimized delays when using memory (50-80% faster)
+// Optimized delays when using memory (76-77% faster)
 const OPTIMIZED_DELAYS = {
   validate_destination: 0, // Skipped
   check_weather: 0, // Skipped
   get_exchange_rates: 0, // Skipped
   calculate_travel_time: 0, // Skipped
-  search_flights: 300,
+  search_flights: 400,
   check_hotel_availability: 0, // Skipped
-  estimate_budget: 250,
+  estimate_budget: 350,
   get_local_attractions: 0, // Skipped
-  create_itinerary: 270,
-  finalize_trip: 180,
+  create_itinerary: 350,
+  finalize_trip: 200,
 };
 
 // Mock flight prices
@@ -305,7 +305,8 @@ export async function executeTravelWorkflow(
   userInput: string,
   onToolStart: (toolCall: ToolCall) => void,
   onToolComplete: (toolCall: ToolCall) => void,
-  useMemory: boolean = false
+  useMemory: boolean = false,
+  workflow?: Workflow
 ): Promise<string> {
   const tripDetails = parseTripRequest(userInput);
 
@@ -315,11 +316,20 @@ export async function executeTravelWorkflow(
 
   const { origin, destination, nights } = tripDetails;
 
+  // Helper to check if a tool should run based on workflow
+  const shouldRunTool = (toolName: string): boolean => {
+    if (workflow) {
+      const tool = workflow.tools.find(t => t.name === toolName);
+      return tool ? tool.enabled : true;
+    }
+    return !useMemory || ['search_flights', 'estimate_budget', 'create_itinerary', 'finalize_trip'].includes(toolName);
+  };
+
   try {
     let toolResults: any = {};
 
-    // Step 1: Validate Destination (SKIP if using memory)
-    if (!useMemory) {
+    // Step 1: Validate Destination (SKIP if using memory or disabled in workflow)
+    if (shouldRunTool('validate_destination')) {
       const validateTool: ToolCall = {
         id: `tool-${Date.now()}-1`,
         name: "validate_destination",
@@ -328,14 +338,14 @@ export async function executeTravelWorkflow(
         timestamp: new Date(),
       };
       onToolStart(validateTool);
-      toolResults.validate = await validateDestination(destination, useMemory);
+      toolResults.validate = await validateDestination(destination, false);
       validateTool.status = "completed";
       validateTool.output = toolResults.validate;
       onToolComplete(validateTool);
     }
 
-    // Step 2: Check Weather (SKIP if using memory)
-    if (!useMemory) {
+    // Step 2: Check Weather (SKIP if using memory or disabled in workflow)
+    if (shouldRunTool('check_weather')) {
       const weatherTool: ToolCall = {
         id: `tool-${Date.now()}-2`,
         name: "check_weather",
@@ -344,14 +354,14 @@ export async function executeTravelWorkflow(
         timestamp: new Date(),
       };
       onToolStart(weatherTool);
-      toolResults.weather = await checkWeather(destination, useMemory);
+      toolResults.weather = await checkWeather(destination, false);
       weatherTool.status = "completed";
       weatherTool.output = toolResults.weather;
       onToolComplete(weatherTool);
     }
 
-    // Step 3: Get Exchange Rates (SKIP if using memory)
-    if (!useMemory) {
+    // Step 3: Get Exchange Rates (SKIP if using memory or disabled in workflow)
+    if (shouldRunTool('get_exchange_rates')) {
       const exchangeTool: ToolCall = {
         id: `tool-${Date.now()}-3`,
         name: "get_exchange_rates",
@@ -360,14 +370,14 @@ export async function executeTravelWorkflow(
         timestamp: new Date(),
       };
       onToolStart(exchangeTool);
-      toolResults.exchange = await getExchangeRates(useMemory);
+      toolResults.exchange = await getExchangeRates(false);
       exchangeTool.status = "completed";
       exchangeTool.output = toolResults.exchange;
       onToolComplete(exchangeTool);
     }
 
-    // Step 4: Calculate Travel Time (SKIP if using memory)
-    if (!useMemory) {
+    // Step 4: Calculate Travel Time (SKIP if using memory or disabled in workflow)
+    if (shouldRunTool('calculate_travel_time')) {
       const travelTimeTool: ToolCall = {
         id: `tool-${Date.now()}-4`,
         name: "calculate_travel_time",
@@ -376,7 +386,7 @@ export async function executeTravelWorkflow(
         timestamp: new Date(),
       };
       onToolStart(travelTimeTool);
-      toolResults.travelTime = await calculateTravelTime(origin, destination, useMemory);
+      toolResults.travelTime = await calculateTravelTime(origin, destination, false);
       travelTimeTool.status = "completed";
       travelTimeTool.output = toolResults.travelTime;
       onToolComplete(travelTimeTool);
@@ -391,13 +401,13 @@ export async function executeTravelWorkflow(
       timestamp: new Date(),
     };
     onToolStart(flightTool);
-    const flightData = await searchFlights(origin, destination, useMemory);
+    const flightData = await searchFlights(origin, destination, useMemory || !!workflow);
     flightTool.status = "completed";
     flightTool.output = flightData;
     onToolComplete(flightTool);
 
-    // Step 6: Check Hotel Availability (SKIP if using memory)
-    if (!useMemory) {
+    // Step 6: Check Hotel Availability (SKIP if using memory or disabled in workflow)
+    if (shouldRunTool('check_hotel_availability')) {
       const hotelTool: ToolCall = {
         id: `tool-${Date.now()}-6`,
         name: "check_hotel_availability",
@@ -406,7 +416,7 @@ export async function executeTravelWorkflow(
         timestamp: new Date(),
       };
       onToolStart(hotelTool);
-      toolResults.hotel = await checkHotelAvailability(destination, nights, useMemory);
+      toolResults.hotel = await checkHotelAvailability(destination, nights, false);
       hotelTool.status = "completed";
       hotelTool.output = toolResults.hotel;
       onToolComplete(hotelTool);
@@ -421,13 +431,13 @@ export async function executeTravelWorkflow(
       timestamp: new Date(),
     };
     onToolStart(budgetTool);
-    const budgetData = await estimateBudget(flightData.flight_price, nights, useMemory);
+    const budgetData = await estimateBudget(flightData.flight_price, nights, useMemory || !!workflow);
     budgetTool.status = "completed";
     budgetTool.output = budgetData;
     onToolComplete(budgetTool);
 
-    // Step 8: Get Local Attractions (SKIP if using memory)
-    if (!useMemory) {
+    // Step 8: Get Local Attractions (SKIP if using memory or disabled in workflow)
+    if (shouldRunTool('get_local_attractions')) {
       const attractionsTool: ToolCall = {
         id: `tool-${Date.now()}-8`,
         name: "get_local_attractions",
@@ -436,7 +446,7 @@ export async function executeTravelWorkflow(
         timestamp: new Date(),
       };
       onToolStart(attractionsTool);
-      toolResults.attractions = await getLocalAttractions(destination, useMemory);
+      toolResults.attractions = await getLocalAttractions(destination, false);
       attractionsTool.status = "completed";
       attractionsTool.output = toolResults.attractions;
       onToolComplete(attractionsTool);
@@ -454,7 +464,7 @@ export async function executeTravelWorkflow(
     const itineraryData = await createItinerary(
       destination,
       budgetData.total_budget,
-      useMemory
+      useMemory || !!workflow
     );
     itineraryTool.status = "completed";
     itineraryTool.output = itineraryData;
@@ -490,7 +500,7 @@ export async function executeTravelWorkflow(
       itinerary_spot_1: itineraryData.itinerary[0],
       itinerary_spot_2: itineraryData.itinerary[1],
       itinerary_spot_3: itineraryData.itinerary[2],
-    }, useMemory);
+    }, useMemory || !!workflow);
     finalizeTool.status = "completed";
     finalizeTool.output = { summary };
     onToolComplete(finalizeTool);
@@ -510,10 +520,102 @@ export function calculateTotalExecutionTime(useMemory: boolean): number {
   return Object.values(BASE_DELAYS).reduce((sum, delay) => sum + delay, 0);
 }
 
+// Generate workflow from executed tool calls
+export function generateWorkflowFromExecution(
+  query: string,
+  toolCalls: ToolCall[],
+  queryId: string
+): Workflow {
+  const allTools: WorkflowTool[] = [
+    {
+      name: "validate_destination",
+      enabled: true,
+      category: "exploratory",
+      order: 1,
+      description: "Validate the destination city"
+    },
+    {
+      name: "check_weather",
+      enabled: true,
+      category: "exploratory",
+      order: 2,
+      description: "Check weather conditions"
+    },
+    {
+      name: "get_exchange_rates",
+      enabled: true,
+      category: "exploratory",
+      order: 3,
+      description: "Get currency exchange rates"
+    },
+    {
+      name: "calculate_travel_time",
+      enabled: true,
+      category: "exploratory",
+      order: 4,
+      description: "Calculate travel duration"
+    },
+    {
+      name: "search_flights",
+      enabled: true,
+      category: "core",
+      order: 5,
+      description: "Search available flights"
+    },
+    {
+      name: "check_hotel_availability",
+      enabled: true,
+      category: "exploratory",
+      order: 6,
+      description: "Check hotel availability"
+    },
+    {
+      name: "estimate_budget",
+      enabled: true,
+      category: "core",
+      order: 7,
+      description: "Estimate total trip budget"
+    },
+    {
+      name: "get_local_attractions",
+      enabled: true,
+      category: "exploratory",
+      order: 8,
+      description: "Get local attractions list"
+    },
+    {
+      name: "create_itinerary",
+      enabled: true,
+      category: "core",
+      order: 9,
+      description: "Create trip itinerary"
+    },
+    {
+      name: "finalize_trip",
+      enabled: true,
+      category: "core",
+      order: 10,
+      description: "Finalize trip details"
+    }
+  ];
+
+  return {
+    id: `workflow-${Date.now()}`,
+    name: `Workflow for "${query.substring(0, 30)}${query.length > 30 ? '...' : ''}"`,
+    queryPattern: query,
+    tools: allTools,
+    createdFrom: [queryId],
+    timestamp: new Date(),
+    isCustom: false,
+    matchCount: 0
+  };
+}
+
 // Mock memory storage with similarity search
 export class MockMemoryStore {
   private memories: MemoryEntry[] = [];
   private performanceMetrics: PerformanceMetric[] = [];
+  private workflows: Workflow[] = [];
 
   addMemory(query: string, context: string, executionTime: number): void {
     this.memories.push({
@@ -566,5 +668,47 @@ export class MockMemoryStore {
     return this.performanceMetrics
       .filter(m => m.usedMemory)
       .reduce((sum, m) => sum + m.timeSaved, 0);
+  }
+
+  // Workflow management methods
+  addWorkflow(workflow: Workflow): void {
+    this.workflows.push(workflow);
+  }
+
+  getAllWorkflows(): Workflow[] {
+    return [...this.workflows].reverse().slice(0, 5); // Return max 5 most recent
+  }
+
+  findMatchingWorkflow(query: string, threshold: number = 0.6): Workflow | undefined {
+    const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+
+    let bestMatch: { workflow: Workflow; similarity: number } | undefined;
+
+    for (const workflow of this.workflows) {
+      const patternWords = workflow.queryPattern.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      const commonWords = queryWords.filter(word => patternWords.includes(word));
+      const similarity = commonWords.length / Math.max(queryWords.length, patternWords.length);
+
+      if (similarity >= threshold && (!bestMatch || similarity > bestMatch.similarity)) {
+        bestMatch = { workflow, similarity };
+      }
+    }
+
+    return bestMatch?.workflow;
+  }
+
+  updateWorkflow(workflowId: string, updatedTools: WorkflowTool[]): void {
+    const workflowIndex = this.workflows.findIndex(w => w.id === workflowId);
+    if (workflowIndex !== -1) {
+      this.workflows[workflowIndex].tools = updatedTools;
+      this.workflows[workflowIndex].isCustom = true;
+    }
+  }
+
+  incrementWorkflowMatchCount(workflowId: string): void {
+    const workflow = this.workflows.find(w => w.id === workflowId);
+    if (workflow) {
+      workflow.matchCount++;
+    }
   }
 }
