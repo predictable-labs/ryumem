@@ -1,4 +1,4 @@
-import { Message, ToolCall, MemoryEntry, PerformanceMetric, Workflow, WorkflowTool } from "./types";
+import { Message, ToolCall, MemoryEntry, PerformanceMetric, Workflow, WorkflowTool, WorkflowNode, WorkflowEdge } from "./types";
 
 // Simulate tool execution delays
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -305,8 +305,7 @@ export async function executeTravelWorkflow(
   userInput: string,
   onToolStart: (toolCall: ToolCall) => void,
   onToolComplete: (toolCall: ToolCall) => void,
-  useMemory: boolean = false,
-  workflow?: Workflow
+  useMemory: boolean = false
 ): Promise<string> {
   const tripDetails = parseTripRequest(userInput);
 
@@ -316,19 +315,15 @@ export async function executeTravelWorkflow(
 
   const { origin, destination, nights } = tripDetails;
 
-  // Helper to check if a tool should run based on workflow
+  // Helper to check if a tool should run based on memory
   const shouldRunTool = (toolName: string): boolean => {
-    if (workflow) {
-      const tool = workflow.tools.find(t => t.name === toolName);
-      return tool ? tool.enabled : true;
-    }
     return !useMemory || ['search_flights', 'estimate_budget', 'create_itinerary', 'finalize_trip'].includes(toolName);
   };
 
   try {
     let toolResults: any = {};
 
-    // Step 1: Validate Destination (SKIP if using memory or disabled in workflow)
+    // Step 1: Validate Destination (SKIP if using memory)
     if (shouldRunTool('validate_destination')) {
       const validateTool: ToolCall = {
         id: `tool-${Date.now()}-1`,
@@ -344,7 +339,7 @@ export async function executeTravelWorkflow(
       onToolComplete(validateTool);
     }
 
-    // Step 2: Check Weather (SKIP if using memory or disabled in workflow)
+    // Step 2: Check Weather (SKIP if using memory)
     if (shouldRunTool('check_weather')) {
       const weatherTool: ToolCall = {
         id: `tool-${Date.now()}-2`,
@@ -360,7 +355,7 @@ export async function executeTravelWorkflow(
       onToolComplete(weatherTool);
     }
 
-    // Step 3: Get Exchange Rates (SKIP if using memory or disabled in workflow)
+    // Step 3: Get Exchange Rates (SKIP if using memory)
     if (shouldRunTool('get_exchange_rates')) {
       const exchangeTool: ToolCall = {
         id: `tool-${Date.now()}-3`,
@@ -376,7 +371,7 @@ export async function executeTravelWorkflow(
       onToolComplete(exchangeTool);
     }
 
-    // Step 4: Calculate Travel Time (SKIP if using memory or disabled in workflow)
+    // Step 4: Calculate Travel Time (SKIP if using memory)
     if (shouldRunTool('calculate_travel_time')) {
       const travelTimeTool: ToolCall = {
         id: `tool-${Date.now()}-4`,
@@ -401,12 +396,12 @@ export async function executeTravelWorkflow(
       timestamp: new Date(),
     };
     onToolStart(flightTool);
-    const flightData = await searchFlights(origin, destination, useMemory || !!workflow);
+    const flightData = await searchFlights(origin, destination, useMemory);
     flightTool.status = "completed";
     flightTool.output = flightData;
     onToolComplete(flightTool);
 
-    // Step 6: Check Hotel Availability (SKIP if using memory or disabled in workflow)
+    // Step 6: Check Hotel Availability (SKIP if using memory)
     if (shouldRunTool('check_hotel_availability')) {
       const hotelTool: ToolCall = {
         id: `tool-${Date.now()}-6`,
@@ -431,12 +426,12 @@ export async function executeTravelWorkflow(
       timestamp: new Date(),
     };
     onToolStart(budgetTool);
-    const budgetData = await estimateBudget(flightData.flight_price, nights, useMemory || !!workflow);
+    const budgetData = await estimateBudget(flightData.flight_price, nights, useMemory);
     budgetTool.status = "completed";
     budgetTool.output = budgetData;
     onToolComplete(budgetTool);
 
-    // Step 8: Get Local Attractions (SKIP if using memory or disabled in workflow)
+    // Step 8: Get Local Attractions (SKIP if using memory)
     if (shouldRunTool('get_local_attractions')) {
       const attractionsTool: ToolCall = {
         id: `tool-${Date.now()}-8`,
@@ -464,7 +459,7 @@ export async function executeTravelWorkflow(
     const itineraryData = await createItinerary(
       destination,
       budgetData.total_budget,
-      useMemory || !!workflow
+      useMemory
     );
     itineraryTool.status = "completed";
     itineraryTool.output = itineraryData;
@@ -500,7 +495,7 @@ export async function executeTravelWorkflow(
       itinerary_spot_1: itineraryData.itinerary[0],
       itinerary_spot_2: itineraryData.itinerary[1],
       itinerary_spot_3: itineraryData.itinerary[2],
-    }, useMemory || !!workflow);
+    }, useMemory);
     finalizeTool.status = "completed";
     finalizeTool.output = { summary };
     onToolComplete(finalizeTool);
@@ -526,77 +521,187 @@ export function generateWorkflowFromExecution(
   toolCalls: ToolCall[],
   queryId: string
 ): Workflow {
+  // Determine which tools were actually executed
+  const executedToolNames = new Set(toolCalls.map(tc => tc.name));
+
+  // Define all tools with enabled state based on actual execution
   const allTools: WorkflowTool[] = [
     {
       name: "validate_destination",
-      enabled: true,
+      enabled: executedToolNames.has("validate_destination"),
       category: "exploratory",
       order: 1,
       description: "Validate the destination city"
     },
     {
       name: "check_weather",
-      enabled: true,
+      enabled: executedToolNames.has("check_weather"),
       category: "exploratory",
       order: 2,
       description: "Check weather conditions"
     },
     {
       name: "get_exchange_rates",
-      enabled: true,
+      enabled: executedToolNames.has("get_exchange_rates"),
       category: "exploratory",
       order: 3,
       description: "Get currency exchange rates"
     },
     {
       name: "calculate_travel_time",
-      enabled: true,
+      enabled: executedToolNames.has("calculate_travel_time"),
       category: "exploratory",
       order: 4,
       description: "Calculate travel duration"
     },
     {
       name: "search_flights",
-      enabled: true,
+      enabled: true, // Core tool - always enabled
       category: "core",
       order: 5,
       description: "Search available flights"
     },
     {
       name: "check_hotel_availability",
-      enabled: true,
+      enabled: executedToolNames.has("check_hotel_availability"),
       category: "exploratory",
       order: 6,
       description: "Check hotel availability"
     },
     {
       name: "estimate_budget",
-      enabled: true,
+      enabled: true, // Core tool - always enabled
       category: "core",
       order: 7,
       description: "Estimate total trip budget"
     },
     {
       name: "get_local_attractions",
-      enabled: true,
+      enabled: executedToolNames.has("get_local_attractions"),
       category: "exploratory",
       order: 8,
       description: "Get local attractions list"
     },
     {
       name: "create_itinerary",
-      enabled: true,
+      enabled: true, // Core tool - always enabled
       category: "core",
       order: 9,
       description: "Create trip itinerary"
     },
     {
       name: "finalize_trip",
-      enabled: true,
+      enabled: true, // Core tool - always enabled
       category: "core",
       order: 10,
       description: "Finalize trip details"
     }
+  ];
+
+  // Create graph nodes (positioned for visual layout) - match enabled state with tools
+  const nodes: WorkflowNode[] = [
+    {
+      id: "validate_destination",
+      toolName: "validate_destination",
+      enabled: executedToolNames.has("validate_destination"),
+      category: "exploratory",
+      description: "Validate destination",
+      position: { x: 50, y: 50 }
+    },
+    {
+      id: "check_weather",
+      toolName: "check_weather",
+      enabled: executedToolNames.has("check_weather"),
+      category: "exploratory",
+      description: "Check weather",
+      position: { x: 50, y: 150 }
+    },
+    {
+      id: "get_exchange_rates",
+      toolName: "get_exchange_rates",
+      enabled: executedToolNames.has("get_exchange_rates"),
+      category: "exploratory",
+      description: "Get exchange rates",
+      position: { x: 50, y: 250 }
+    },
+    {
+      id: "calculate_travel_time",
+      toolName: "calculate_travel_time",
+      enabled: executedToolNames.has("calculate_travel_time"),
+      category: "exploratory",
+      description: "Calculate travel time",
+      position: { x: 50, y: 350 }
+    },
+    {
+      id: "search_flights",
+      toolName: "search_flights",
+      enabled: true,
+      category: "core",
+      description: "Search flights",
+      position: { x: 300, y: 50 }
+    },
+    {
+      id: "check_hotel_availability",
+      toolName: "check_hotel_availability",
+      enabled: executedToolNames.has("check_hotel_availability"),
+      category: "exploratory",
+      description: "Check hotels",
+      position: { x: 300, y: 200 }
+    },
+    {
+      id: "get_local_attractions",
+      toolName: "get_local_attractions",
+      enabled: executedToolNames.has("get_local_attractions"),
+      category: "exploratory",
+      description: "Get attractions",
+      position: { x: 300, y: 300 }
+    },
+    {
+      id: "estimate_budget",
+      toolName: "estimate_budget",
+      enabled: true,
+      category: "core",
+      description: "Estimate budget",
+      position: { x: 550, y: 100 }
+    },
+    {
+      id: "create_itinerary",
+      toolName: "create_itinerary",
+      enabled: true,
+      category: "core",
+      description: "Create itinerary",
+      position: { x: 800, y: 150 }
+    },
+    {
+      id: "finalize_trip",
+      toolName: "finalize_trip",
+      enabled: true,
+      category: "core",
+      description: "Finalize trip",
+      position: { x: 1050, y: 150 }
+    }
+  ];
+
+  // Create graph edges (showing dependencies and parallel execution)
+  const edges: WorkflowEdge[] = [
+    // Parallel group 1: Initial checks
+    { id: "e1", source: "validate_destination", target: "search_flights", type: "default" },
+    { id: "e2", source: "check_weather", target: "get_local_attractions", type: "parallel" },
+    { id: "e3", source: "get_exchange_rates", target: "estimate_budget", type: "parallel" },
+    { id: "e4", source: "calculate_travel_time", target: "search_flights", type: "parallel" },
+
+    // Search flights feeds into budget
+    { id: "e5", source: "search_flights", target: "estimate_budget", type: "default" },
+
+    // Hotel check can run independently
+    { id: "e6", source: "check_hotel_availability", target: "estimate_budget", type: "parallel" },
+
+    // Budget and attractions feed into itinerary
+    { id: "e7", source: "estimate_budget", target: "create_itinerary", type: "default" },
+    { id: "e8", source: "get_local_attractions", target: "create_itinerary", type: "parallel" },
+
+    // Final step
+    { id: "e9", source: "create_itinerary", target: "finalize_trip", type: "default" }
   ];
 
   return {
@@ -604,6 +709,8 @@ export function generateWorkflowFromExecution(
     name: `Workflow for "${query.substring(0, 30)}${query.length > 30 ? '...' : ''}"`,
     queryPattern: query,
     tools: allTools,
+    nodes: nodes,
+    edges: edges,
     createdFrom: [queryId],
     timestamp: new Date(),
     isCustom: false,
@@ -710,5 +817,11 @@ export class MockMemoryStore {
     if (workflow) {
       workflow.matchCount++;
     }
+  }
+
+  clear(): void {
+    this.memories = [];
+    this.performanceMetrics = [];
+    this.workflows = [];
   }
 }

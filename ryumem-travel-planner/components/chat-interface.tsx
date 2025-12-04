@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Send, Loader2, Zap, Clock, PlayCircle, RotateCcw, Settings, Sparkles } from "lucide-react";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { Message, ToolCall, PerformanceMetric, Workflow } from "@/lib/types";
 import {
   executeTravelWorkflow,
@@ -17,6 +18,7 @@ import { ToolCallCard } from "./tool-call-card";
 import { MemoryPanel } from "./memory-panel";
 import { PerformancePanel } from "./performance-panel";
 import { WorkflowPanel } from "./workflow-panel";
+import { useMemoryStore } from "@/lib/memory-store-context";
 
 // Preset prompts for demo
 const PRESET_PROMPTS = [
@@ -43,7 +45,7 @@ export function ChatInterface() {
   const [currentExecutionTime, setCurrentExecutionTime] = useState<number>(0);
   const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetric[]>([]);
   const [currentWorkflow, setCurrentWorkflow] = useState<Workflow | undefined>();
-  const memoryStore = useRef(new MockMemoryStore());
+  const memoryStore = useMemoryStore();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,7 +66,7 @@ export function ChatInterface() {
     ]);
     setPerformanceMetrics([]);
     setCurrentWorkflow(undefined);
-    memoryStore.current = new MockMemoryStore();
+    memoryStore.clear();
   };
 
   const executeQuery = async (query: string) => {
@@ -85,15 +87,15 @@ export function ChatInterface() {
     setCurrentExecutionTime(0);
 
     // Find similar queries from memory
-    const similarMemories = memoryStore.current.findSimilar(query, 0.4);
+    const similarMemories = memoryStore.findSimilar(query, 0.4);
     const useMemory = similarMemories.length > 0;
     const similarQueries = similarMemories.map((m) => m.query);
 
-    // Find matching workflow
-    const matchedWorkflow = memoryStore.current.findMatchingWorkflow(query, 0.6);
+    // Find matching workflow (for display purposes only - doesn't affect execution)
+    const matchedWorkflow = memoryStore.findMatchingWorkflow(query, 0.6);
     if (matchedWorkflow) {
       setCurrentWorkflow(matchedWorkflow);
-      memoryStore.current.incrementWorkflowMatchCount(matchedWorkflow.id);
+      memoryStore.incrementWorkflowMatchCount(matchedWorkflow.id);
     }
 
     // Calculate expected time
@@ -125,21 +127,20 @@ export function ChatInterface() {
       query,
       onToolStart,
       onToolComplete,
-      useMemory,
-      matchedWorkflow
+      useMemory
     );
 
     clearInterval(executionInterval);
     const totalExecutionTime = Date.now() - startTime;
 
     // Add to memory
-    memoryStore.current.addMemory(query, response, totalExecutionTime);
+    memoryStore.addMemory(query, response, totalExecutionTime);
 
-    // Generate workflow if not using an existing one
+    // Generate workflow if not using an existing one (for display purposes only)
     let generatedWorkflow: Workflow | undefined;
     if (!matchedWorkflow) {
       generatedWorkflow = generateWorkflowFromExecution(query, toolCalls, userMessage.id);
-      memoryStore.current.addWorkflow(generatedWorkflow);
+      memoryStore.addWorkflow(generatedWorkflow);
     }
 
     // Track performance metric
@@ -152,7 +153,7 @@ export function ChatInterface() {
       timestamp: new Date(),
     };
 
-    memoryStore.current.addPerformanceMetric(metric);
+    memoryStore.addPerformanceMetric(metric);
     setPerformanceMetrics((prev) => [...prev, metric]);
 
     // Create assistant message
@@ -176,9 +177,11 @@ export function ChatInterface() {
   };
 
   return (
-    <div className="h-screen flex">
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+    <div className="h-screen">
+      <PanelGroup direction="horizontal">
+        {/* Main Chat Area */}
+        <Panel defaultSize={70} minSize={50}>
+          <div className="h-full flex flex-col">
         {/* Header */}
         <div className="border-b p-4 bg-card">
           <div className="flex items-start justify-between">
@@ -224,7 +227,7 @@ export function ChatInterface() {
                   {message.role === "assistant" && message.appliedWorkflow && (
                     <div className="mb-2 flex items-center gap-2 text-xs bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 px-2 py-1 rounded border border-purple-200 dark:border-purple-800">
                       <Settings className="h-3 w-3" />
-                      <span className="font-semibold">Custom Workflow Applied</span>
+                      <span className="font-semibold">Workflow Matched (Display Only)</span>
                       <span>• {message.appliedWorkflow.tools.filter(t => t.enabled).length}/10 tools</span>
                     </div>
                   )}
@@ -234,7 +237,7 @@ export function ChatInterface() {
                     <div className="mb-2 flex items-center gap-2 text-xs bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
                       <Sparkles className="h-3 w-3" />
                       <span className="font-semibold">Workflow Generated</span>
-                      <span>• View in sidebar to edit</span>
+                      <span>• View in sidebar</span>
                     </div>
                   )}
 
@@ -334,10 +337,15 @@ export function ChatInterface() {
             </div>
           </div>
         </div>
-      </div>
+          </div>
+        </Panel>
 
-      {/* Sidebar */}
-      <div className="w-80 border-l bg-card flex flex-col">
+        {/* Resize Handle */}
+        <PanelResizeHandle className="w-1 bg-border hover:bg-primary transition-colors" />
+
+        {/* Sidebar */}
+        <Panel defaultSize={30} minSize={20} maxSize={50}>
+          <div className="h-full border-l bg-card flex flex-col">
         {/* Performance Panel */}
         <div className="p-4 border-b">
           <h2 className="font-semibold mb-3 flex items-center gap-2">
@@ -350,7 +358,7 @@ export function ChatInterface() {
         {/* Workflow Panel */}
         <div className="border-b" style={{ height: '300px' }}>
           <WorkflowPanel
-            memoryStore={memoryStore.current}
+            memoryStore={memoryStore}
             currentWorkflow={currentWorkflow}
             onWorkflowUpdate={(workflow) => console.log("Workflow updated:", workflow)}
           />
@@ -358,9 +366,11 @@ export function ChatInterface() {
 
         {/* Memory Panel */}
         <div className="flex-1 overflow-hidden">
-          <MemoryPanel memoryStore={memoryStore.current} />
+          <MemoryPanel />
         </div>
-      </div>
+          </div>
+        </Panel>
+      </PanelGroup>
     </div>
   );
 }

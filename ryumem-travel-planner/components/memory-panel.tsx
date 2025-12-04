@@ -5,14 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Brain, Database } from "lucide-react";
-import { MockMemoryStore } from "@/lib/mock-workflow";
+import { useMemoryStore } from "@/lib/memory-store-context";
 import { MemoryEntry } from "@/lib/types";
 
-interface MemoryPanelProps {
-  memoryStore: MockMemoryStore;
-}
-
-export function MemoryPanel({ memoryStore }: MemoryPanelProps) {
+export function MemoryPanel() {
+  const memoryStore = useMemoryStore();
   const [memories, setMemories] = useState<MemoryEntry[]>([]);
 
   // Poll for memory updates

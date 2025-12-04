@@ -52,11 +52,29 @@ export interface WorkflowTool {
   description: string;
 }
 
+export interface WorkflowNode {
+  id: string;
+  toolName: string;
+  enabled: boolean;
+  category: "exploratory" | "core";
+  description: string;
+  position: { x: number; y: number };
+}
+
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+  type: "default" | "parallel";
+}
+
 export interface Workflow {
   id: string;
   name: string;
   queryPattern: string;
   tools: WorkflowTool[];
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
   createdFrom: string[];
   timestamp: Date;
   isCustom: boolean;

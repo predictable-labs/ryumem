@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Settings, Sparkles, Check, X } from "lucide-react";
+import { Settings, Sparkles, Check, X, List, Network } from "lucide-react";
 import { MockMemoryStore } from "@/lib/mock-workflow";
 import { Workflow, WorkflowTool } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { WorkflowGraphView } from "./workflow-graph-view";
 import { cn } from "@/lib/utils";
 
 interface WorkflowPanelProps {
@@ -15,10 +16,14 @@ interface WorkflowPanelProps {
   onWorkflowUpdate: (workflow: Workflow) => void;
 }
 
+type ViewMode = "list" | "graph";
+
 export function WorkflowPanel({ memoryStore, currentWorkflow, onWorkflowUpdate }: WorkflowPanelProps) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(null);
   const [editedTools, setEditedTools] = useState<WorkflowTool[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [selectedWorkflowForGraph, setSelectedWorkflowForGraph] = useState<Workflow | null>(null);
 
   // Poll for workflow updates
   useEffect(() => {
@@ -64,19 +69,50 @@ export function WorkflowPanel({ memoryStore, currentWorkflow, onWorkflowUpdate }
     setEditedTools([]);
   };
 
+  // Auto-select first workflow for graph view when workflows exist
+  useEffect(() => {
+    if (workflows.length > 0 && !selectedWorkflowForGraph) {
+      setSelectedWorkflowForGraph(workflows[0]);
+    }
+  }, [workflows, selectedWorkflowForGraph]);
+
   return (
     <div className="h-full flex flex-col">
-      <div className="p-4 border-b">
-        <h2 className="font-semibold mb-1 flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-purple-600" />
-          Workflows
-        </h2>
+      <div className="p-4 border-b space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-purple-600" />
+            Workflows
+          </h2>
+          <div className="flex items-center gap-1 bg-muted p-1 rounded-md">
+            <Button
+              variant={viewMode === "list" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("list")}
+              className="h-6 px-2"
+            >
+              <List className="h-3 w-3 mr-1" />
+              <span className="text-xs">List</span>
+            </Button>
+            <Button
+              variant={viewMode === "graph" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("graph")}
+              className="h-6 px-2"
+            >
+              <Network className="h-3 w-3 mr-1" />
+              <span className="text-xs">Graph</span>
+            </Button>
+          </div>
+        </div>
         <p className="text-xs text-muted-foreground">
           {workflows.length === 0 ? "No workflows yet" : `${workflows.length} workflow${workflows.length > 1 ? 's' : ''}`}
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      {/* List View */}
+      {viewMode === "list" && (
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {workflows.length === 0 && (
           <div className="text-center py-8">
             <div className="bg-purple-50 dark:bg-purple-950 rounded-lg p-4 mb-3">
@@ -199,7 +235,54 @@ export function WorkflowPanel({ memoryStore, currentWorkflow, onWorkflowUpdate }
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
+
+      {/* Graph View */}
+      {viewMode === "graph" && (
+        <div className="flex-1 flex flex-col">
+          {workflows.length === 0 ? (
+            <div className="text-center py-8 px-4">
+              <div className="bg-purple-50 dark:bg-purple-950 rounded-lg p-4 mb-3">
+                <Network className="h-8 w-8 text-purple-600 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  No workflows to visualize yet
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Execute a query to generate your first workflow graph
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Workflow selector for graph view */}
+              <div className="p-3 border-b bg-muted/30">
+                <select
+                  value={selectedWorkflowForGraph?.id || ""}
+                  onChange={(e) => {
+                    const workflow = workflows.find(w => w.id === e.target.value);
+                    if (workflow) setSelectedWorkflowForGraph(workflow);
+                  }}
+                  className="w-full text-xs bg-background border rounded px-2 py-1"
+                >
+                  {workflows.map((workflow) => (
+                    <option key={workflow.id} value={workflow.id}>
+                      {workflow.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Graph visualization */}
+              <div className="flex-1 relative">
+                {selectedWorkflowForGraph && (
+                  <WorkflowGraphView workflow={selectedWorkflowForGraph} />
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

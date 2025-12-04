@@ -11,11 +11,18 @@ An interactive web demo showcasing Ryumem's **memory-assisted performance optimi
 - Real-time performance metrics and visualization
 
 ### 🔄 Workflow Management
-- Auto-generated workflows after each query execution
+- Auto-generated workflows reflecting actual execution (optimized workflows show disabled exploratory tools)
+- **Two view modes**: Simple list view and interactive graph view
+- **Graph visualization**: See tool dependencies and parallel execution paths
 - Editable workflows with tool enable/disable controls
 - Workflow matching for similar queries
 - Visual workflow indicators in chat messages
 - Custom workflow persistence and reuse
+
+### 🎨 Flexible UI
+- **Resizable sidebar**: Drag to adjust chat/sidebar split (default 70/30)
+- Wider viewport for workflow visualization
+- Smooth resize with minimum/maximum constraints
 
 ### 🧠 Memory Tracking
 - Automatic detection of similar queries
@@ -87,12 +94,17 @@ The demo provides **6 preset query buttons**. Click any query to execute it and 
 ### How to Use
 1. Click any query button to execute it
 2. The first query will take ~5.5 seconds (full execution with 10 tools)
-3. A workflow is automatically generated and shown in the Workflows panel
-4. Click on the Settings icon in the workflow to edit it (enable/disable exploratory tools)
-5. Click a similar query (e.g., another Mumbai to Bangalore trip)
-6. Watch it complete in ~1.3 seconds with optimized execution (76-77% faster!)
-7. Observe the performance metrics update in real-time
-8. Click **"Reset Demo"** in the top-right to start fresh
+3. An **optimized workflow is automatically generated** showing all 10 tools enabled
+4. **Resize the sidebar** by dragging the divider between chat and sidebar for better visibility
+5. **Toggle between List and Graph views** using the buttons in the Workflows panel
+   - **List view**: Traditional list with tool toggles
+   - **Graph view**: Visual DAG showing tool dependencies and parallel execution paths
+6. Click on the Settings icon in the workflow to edit it (enable/disable exploratory tools)
+7. Click a similar query (e.g., another Mumbai to Bangalore trip)
+8. Watch it complete in ~1.3 seconds with optimized execution (76-77% faster!)
+9. The **new workflow shows only 4 enabled tools** (exploratory tools disabled) - reflecting actual execution
+10. Observe the performance metrics update in real-time
+11. Click **"Reset Demo"** in the top-right to start fresh
 
 ## How It Works
 
