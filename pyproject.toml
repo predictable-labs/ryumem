@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ryumem"
-version = "0.1.4"
+version = "0.1.5"
 description = "Bi-temporal knowledge graph memory system using ryugraph"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "ryugraph>=25.9.1",  # Graph database (kuzu renamed)
+    "ryugraph>=25.9.2",  # Graph database (kuzu renamed)
     "openai>=1.0.0",     # OpenAI API client
     "litellm>=1.0.0",    # Unified LLM API for 100+ providers
     "pydantic>=2.0.0",   # Data validation
