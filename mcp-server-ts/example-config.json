@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ryumem": {
+      "command": "node",
+      "args": ["/absolute/path/to/ryumem/mcp-server-ts/build/index.js"],
+      "env": {
+        "RYUMEM_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
