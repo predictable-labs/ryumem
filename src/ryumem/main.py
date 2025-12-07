@@ -130,14 +130,26 @@ class Ryumem:
     def _post(self, endpoint: str, json: Dict = None) -> Any:
         url = f"{self.base_url}{endpoint}"
         response = requests.post(url, json=json, headers=self._get_headers())
-        response.raise_for_status()
-        return response.json()
+        try:
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"API POST request failed for {endpoint}: {e}")
+            if not self.config.tool_tracking.ignore_errors:
+                raise
+            return None
 
     def _get(self, endpoint: str, params: Dict = None) -> Any:
         url = f"{self.base_url}{endpoint}"
         response = requests.get(url, params=params, headers=self._get_headers())
-        response.raise_for_status()
-        return response.json()
+        try:
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"API GET request failed for {endpoint}: {e}")
+            if not self.config.tool_tracking.ignore_errors:
+                raise
+            return None
 
     def _patch(self, endpoint: str, json: Dict = None) -> Any:
         url = f"{self.base_url}{endpoint}"

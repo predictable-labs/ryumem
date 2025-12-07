@@ -37,9 +37,37 @@ class RyugraphDB:
         self.db_path = db_path
         self.embedding_dimensions = embedding_dimensions
 
-        # Create database and connection
-        self.db = ryugraph.Database(db_path, read_only=False)
-        self.conn = ryugraph.Connection(self.db)
+        # Create database and connection with WAL corruption recovery
+        try:
+            self.db = ryugraph.Database(db_path, read_only=False)
+            self.conn = ryugraph.Connection(self.db)
+        except RuntimeError as e:
+            if "Corrupted wal file" in str(e) or "invalid WAL record type" in str(e):
+                logger.warning(f"Detected corrupted WAL file: {e}")
+                logger.warning("Attempting to delete WAL file and retry...")
+
+                # Delete WAL file for this specific database
+                # WAL file is named {db_path}.wal (e.g., admin.db.wal for admin.db)
+                import os
+
+                wal_file = f"{db_path}.wal"
+
+                if os.path.exists(wal_file):
+                    try:
+                        os.remove(wal_file)
+                        logger.info(f"Deleted corrupted WAL file: {wal_file}")
+                    except Exception as del_err:
+                        logger.error(f"Failed to delete {wal_file}: {del_err}")
+                        raise
+                else:
+                    logger.warning(f"WAL file not found at expected location: {wal_file}")
+
+                # Retry opening database
+                self.db = ryugraph.Database(db_path, read_only=False)
+                self.conn = ryugraph.Connection(self.db)
+                logger.info("Successfully opened database after WAL recovery")
+            else:
+                raise
 
         # Initialize schema
         self.create_schema()
@@ -1470,8 +1498,18 @@ class RyugraphDB:
 
     def close(self) -> None:
         """Close the database connection"""
-        # Ryugraph/Kuzu connections don't need explicit closing
-        logger.info("RyugraphDB connection closed")
+        try:
+            # Close connection first
+            if hasattr(self, 'conn') and not self.conn.is_closed:
+                self.conn.close()
+
+            # Then close database
+            if hasattr(self, 'db') and not self.db.is_closed:
+                self.db.close()
+
+            logger.info("RyugraphDB connection closed")
+        except Exception as e:
+            logger.error(f"Error closing RyugraphDB: {e}", exc_info=True)
 
     def reset(self) -> None:
         """
