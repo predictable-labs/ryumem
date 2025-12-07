@@ -154,14 +154,26 @@ class Ryumem:
     def _patch(self, endpoint: str, json: Dict = None) -> Any:
         url = f"{self.base_url}{endpoint}"
         response = requests.patch(url, json=json, headers=self._get_headers())
-        response.raise_for_status()
-        return response.json()
+        try:
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"API PATCH request failed for {endpoint}: {e}")
+            if not self.config.tool_tracking.ignore_errors:
+                raise
+            return None
 
     def _delete(self, endpoint: str) -> Any:
         url = f"{self.base_url}{endpoint}"
         response = requests.delete(url, headers=self._get_headers())
-        response.raise_for_status()
-        return response.json()
+        try:
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"API DELETE request failed for {endpoint}: {e}")
+            if not self.config.tool_tracking.ignore_errors:
+                raise
+            return None
 
     # ==================== Configuration ====================
 
