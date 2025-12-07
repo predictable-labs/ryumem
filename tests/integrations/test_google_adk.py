@@ -1245,3 +1245,81 @@ class TestMultipleMemoryAddition:
         # Instruction should not change when replacing with different instance
         assert instruction_after_first == instruction_after_second, \
             "Instruction should remain the same when replacing Ryumem instance"
+
+
+class TestSessionUserOverride:
+    """Test per-session user_id override functionality."""
+
+    @pytest.mark.asyncio
+    async def test_session_user_override_comprehensive(self, ryumem, agent):
+        """Comprehensive test for per-session user_id override functionality."""
+        memory = RyumemGoogleADK(agent=agent, ryumem=ryumem)
+
+        user_a = f"user_a_{uuid.uuid4().hex[:8]}"
+        user_b = f"user_b_{uuid.uuid4().hex[:8]}"
+        session_a = f"session_a_{uuid.uuid4().hex[:8]}"
+        session_b = f"session_b_{uuid.uuid4().hex[:8]}"
+
+        # 1. User A saves a memory
+        ctx_a = SimpleToolContext(user_id=user_a, session_id=session_a)
+        save_result = await memory.save_memory(
+            tool_context=ctx_a,
+            content="User A's secret information about Python",
+            source="text"
+        )
+        assert save_result["status"] == "success"
+
+        # 2. Verify session_b has no override initially
+        assert memory.get_session_user_override(session_b) is None
+
+        # 3. Set override for session_b to use user_a
+        memory.set_session_user_override(session_b, user_a)
+        assert memory.get_session_user_override(session_b) == user_a
+
+        # 4. Session_b (with user_b as default) searches - should find user_a's memories due to override
+        ctx_b = SimpleToolContext(user_id=user_b, session_id=session_b)
+        search_result = await memory.search_memory(
+            tool_context=ctx_b,
+            query="Python secret information",
+            limit=10
+        )
+        # Should search in user_a's space due to override
+        assert search_result["status"] in ["success", "no_memories"]
+
+        # 5. Save through session_b with override - should save to user_a
+        save_with_override = await memory.save_memory(
+            tool_context=ctx_b,
+            content="Memory saved through session_b but should belong to user_a",
+            source="text"
+        )
+        assert save_with_override["status"] == "success"
+        episode_id = save_with_override["episode_id"]
+
+        # Verify episode belongs to user_a (not user_b)
+        episode = ryumem.get_episode_by_uuid(episode_id)
+        assert episode.user_id == user_a, f"Expected user_id={user_a} but got {episode.user_id}"
+
+        # 6. Test override is session-specific - session_a should not be affected
+        search_from_a = await memory.search_memory(
+            tool_context=ctx_a,
+            query="test",
+            limit=5
+        )
+        # Should still use user_a (no override set for session_a)
+        assert search_from_a["status"] in ["success", "no_memories"]
+
+        # 7. Clear override for session_b
+        memory.clear_session_user_override(session_b)
+        assert memory.get_session_user_override(session_b) is None
+
+        # 8. After clearing, session_b should use its original user_id (user_b)
+        save_after_clear = await memory.save_memory(
+            tool_context=ctx_b,
+            content="Memory after clearing override",
+            source="text"
+        )
+        assert save_after_clear["status"] == "success"
+        episode_after_clear = ryumem.get_episode_by_uuid(save_after_clear["episode_id"])
+        assert episode_after_clear.user_id == user_b, "After clearing override, should use original user_b"
+
+        logger.info("✓ Comprehensive session user_id override test passed")
