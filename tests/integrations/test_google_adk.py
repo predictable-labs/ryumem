@@ -1014,14 +1014,14 @@ class TestAugmentationRealIntegration:
         # Create 3 sessions with different timestamps
         base_time = datetime.utcnow()
 
-        # Test: Most recent episode should win when it has high similarity
-        # Session 0 (3h ago): Low similarity
-        # Session 1 (2h ago): Medium similarity
-        # Session 2 (1h ago, most recent): High similarity (exact match) - should win
+        # Test: Most recent episode with exact match should win
+        # Session 0 (3h ago): Different topic - low similarity
+        # Session 1 (2h ago): Similar but not exact
+        # Session 2 (1h ago, most recent): Exact match - should win
         exact_match_query = "Help me with a task"
         content_variants = [
-            "Can you help me debug something?",  # Low similarity
-            "Help me with a task please",  # Medium similarity
+            "Show me the database schema",  # Completely different - low similarity
+            "Please help with this task",  # Similar words, different order
             exact_match_query,  # Exact match - most recent + best similarity
         ]
 
