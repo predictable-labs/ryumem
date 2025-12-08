@@ -338,7 +338,11 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             # Update parent episode's metadata (append to tools_used array)
             if not session_id:
-                raise ValueError(f"session_id is required for tool tracking but was None for tool '{tool_name}'")
+                error_msg = f"session_id is required for tool tracking but was None for tool '{tool_name}'"
+                logger.error(error_msg)
+                if not self.ryumem.config.tool_tracking.ignore_errors:
+                    raise ValueError(error_msg)
+                return
 
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
