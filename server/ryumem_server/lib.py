@@ -94,14 +94,11 @@ class Ryumem:
             embedding_dimensions=config.embedding.dimensions,
         )
 
-        # Initialize ConfigService and migrate/load configs
+        # Initialize ConfigService and load configs
         from ryumem_server.core.config_service import ConfigService
         self.config_service = ConfigService(self.db)
-        
-        # Migrate from .env if needed (populates DB with defaults/env values)
-        self.config_service.migrate_from_env()
-        
-        # Reload config from database to get any persisted overrides
+
+        # Load config from database (uses Pydantic defaults if DB is empty)
         # This ensures we use the database as the source of truth
         db_config = self.config_service.load_config_from_database()
         
@@ -213,6 +210,8 @@ class Ryumem:
             max_context_episodes=config.entity_extraction.max_context_episodes,
             bm25_index=self.search_engine.bm25_index,
             enable_entity_extraction=config.entity_extraction.enabled,
+            episode_similarity_threshold=config.entity_extraction.episode_similarity_threshold,
+            episode_deduplication_time_window_hours=config.entity_extraction.episode_deduplication_time_window_hours,
         )
 
         # Initialize memory pruner

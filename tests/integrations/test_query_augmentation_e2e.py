@@ -185,27 +185,77 @@ class TestQueryAugmentationE2E:
         assert episode.uuid == episode_id, "Retrieved episode should match created episode"
 
     def test_duplicate_query_deduplication(self, ryumem_client, unique_user, unique_session):
-        """Test that duplicate queries within time window return same episode."""
-        content = "Exact duplicate query test"
+        """Test that duplicate and semantically similar queries are deduplicated.
 
-        # Create first episode
+        Tests both exact duplicates and semantic variations based on real production data.
+        """
+        # Test 1: Exact duplicates
+        content = "Exact duplicate query test"
         episode_id_1 = ryumem_client.add_episode(
             content=content,
             user_id=unique_user,
             session_id=unique_session,
             source="message"
         )
-
-        # Create second episode with same content (within 24h window)
         episode_id_2 = ryumem_client.add_episode(
             content=content,
             user_id=unique_user,
             session_id=unique_session,
             source="message"
         )
+        assert episode_id_1 == episode_id_2, "Exact duplicates should return same ID"
 
-        # Should return same episode ID (deduplication)
-        assert episode_id_1 == episode_id_2, "Duplicate episodes should return same ID (deduplication)"
+        # Test 2: Semantic variants (from production data)
+        # These should be deduplicated: "query cpu usage per container" with minor variations
+        variant_1 = ryumem_client.add_episode(
+            content="query cpu usage per container for last 1 hour",
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        print(f"DEBUG: variant_1 episode_id = {variant_1}")
+        variant_2 = ryumem_client.add_episode(
+            content="query for cpu usage per container for last 1 hour",  # Extra "for"
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        print(f"DEBUG: variant_2 episode_id = {variant_2}")
+        print(f"DEBUG: variant_1 == variant_2? {variant_1 == variant_2}")
+        assert variant_1 == variant_2, f"Semantic variants should be deduplicated. Got {variant_1} vs {variant_2}"
+
+        # Test 3: Log summarization variants (from production data)
+        log_1 = ryumem_client.add_episode(
+            content="Summarize logs for last 15 mins",
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        print(f"DEBUG: log_1 episode_id = {log_1}")
+        log_2 = ryumem_client.add_episode(
+            content="summarize logs for last 15 minutes",  # Case + "minutes" vs "mins"
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        print(f"DEBUG: log_2 episode_id = {log_2}")
+        print(f"DEBUG: log_1 == log_2? {log_1 == log_2}")
+        assert log_1 == log_2, f"Log summary variants should be deduplicated. Got {log_1} vs {log_2}"
+
+        # Test 4: Semantically different should NOT be deduplicated
+        cpu_query = ryumem_client.add_episode(
+            content="query cpu usage per container",
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        memory_query = ryumem_client.add_episode(
+            content="query memory usage per container",
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        assert cpu_query != memory_query, "CPU vs memory queries should NOT be deduplicated"
 
     def test_empty_query_handling(self, ryumem_client, unique_user, unique_session):
         """Test that empty queries are handled gracefully."""

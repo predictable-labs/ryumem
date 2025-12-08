@@ -37,6 +37,8 @@ class EpisodeIngestion:
         max_context_episodes: int = 5,
         bm25_index: Optional["BM25Index"] = None,
         enable_entity_extraction: bool = False,
+        episode_similarity_threshold: float = 0.95,
+        episode_deduplication_time_window_hours: int = 24,
     ):
         """
         Initialize episode ingestion pipeline.
@@ -50,6 +52,8 @@ class EpisodeIngestion:
             max_context_episodes: Maximum number of previous episodes to use as context
             bm25_index: Optional BM25 index for keyword search
             enable_entity_extraction: Whether to enable entity extraction (default: False)
+            episode_similarity_threshold: Threshold for episode deduplication (default: 0.95)
+            episode_deduplication_time_window_hours: Time window for episode deduplication (default: 24)
         """
         self.db = db
         self.llm_client = llm_client
@@ -57,6 +61,8 @@ class EpisodeIngestion:
         self.max_context_episodes = max_context_episodes
         self.bm25_index = bm25_index
         self.enable_entity_extraction = enable_entity_extraction
+        self.episode_similarity_threshold = episode_similarity_threshold
+        self.episode_deduplication_time_window_hours = episode_deduplication_time_window_hours
 
         # Initialize extractors
         self.entity_extractor = EntityExtractor(
@@ -120,11 +126,18 @@ class EpisodeIngestion:
         # Per-request override takes precedence over instance setting
         should_extract_entities = extract_entities if extract_entities is not None else self.enable_entity_extraction
 
-        # Check for duplicate episode FIRST (before expensive LLM calls)
+        start_time = datetime.utcnow()
+
+        # Generate embedding FIRST (needed for semantic duplicate detection)
+        content_embedding = self.embedding_client.embed(content)
+
+        # Check for duplicate episode using semantic similarity
         existing_episode = self.db.find_similar_episode(
             content=content,
+            content_embedding=content_embedding,
             user_id=user_id,
-            time_window_hours=24,
+            time_window_hours=self.episode_deduplication_time_window_hours,
+            similarity_threshold=self.episode_similarity_threshold,
         )
 
         if existing_episode:
@@ -135,7 +148,6 @@ class EpisodeIngestion:
             )
             return existing_episode["uuid"]
 
-        start_time = datetime.utcnow()
         step_start = start_time
 
         # Generate episode UUID
@@ -146,10 +158,6 @@ class EpisodeIngestion:
             name = f"Episode {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
 
         logger.info(f"Starting ingestion for episode {episode_uuid}")
-
-        # Step 1: Create episode node and generate content embedding
-        # Generate embedding for episode content
-        content_embedding = self.embedding_client.embed(content)
 
         # Ensure metadata includes session_id if provided
         episode_metadata = metadata.copy() if metadata else {}

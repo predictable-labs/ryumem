@@ -1,5 +1,7 @@
 """
-Configuration management for Ryumem using pydantic-settings
+Configuration management for Ryumem Server using pydantic-settings
+
+Server config extends client config with server-specific settings (LLM, Embedding, System).
 """
 
 import logging
@@ -7,6 +9,13 @@ from typing import Literal, Optional
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Import shared configs from client (configs that client uses locally)
+from ryumem.core.config import (
+    EntityExtractionConfig,
+    ToolTrackingConfig,
+    AgentConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -174,36 +183,7 @@ class EmbeddingConfig(BaseSettings):
         return self
 
 
-class EntityExtractionConfig(BaseSettings):
-    """Entity extraction configuration"""
-
-    enabled: bool = Field(
-        default=False,
-        description="Whether to enable entity extraction during ingestion (disabled by default to reduce token usage)"
-    )
-    entity_similarity_threshold: float = Field(
-        default=0.65,
-        description="Cosine similarity threshold for entity deduplication (0.0-1.0)",
-        ge=0.0,
-        le=1.0
-    )
-    relationship_similarity_threshold: float = Field(
-        default=0.8,
-        description="Cosine similarity threshold for relationship deduplication (0.0-1.0)",
-        ge=0.0,
-        le=1.0
-    )
-    max_context_episodes: int = Field(
-        default=5,
-        description="Maximum number of previous episodes to use as context for extraction",
-        ge=0
-    )
-
-    model_config = SettingsConfigDict(
-        env_prefix="RYUMEM_ENTITY_",
-        env_nested_delimiter="__"
-    )
-
+# EntityExtractionConfig, AgentConfig, ToolTrackingConfig are imported from client
 
 class SearchConfig(BaseSettings):
     """Search and retrieval configuration"""
@@ -248,23 +228,6 @@ class SearchConfig(BaseSettings):
     )
 
 
-class AgentConfig(BaseSettings):
-    """Agent configuration"""
-    memory_enabled: bool = Field(
-        default=True,
-        description="Whether memory features are enabled for the agent"
-    )
-    enhance_agent_instruction: bool = Field(
-        default=True,
-        description="Whether to enhance agent instructions with memory guidance"
-    )
-
-    model_config = SettingsConfigDict(
-        env_prefix="RYUMEM_AGENT_",
-        env_nested_delimiter="__"
-    )
-
-
 class SystemConfig(BaseSettings):
     """System configuration"""
 
@@ -279,76 +242,6 @@ class SystemConfig(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="RYUMEM_SYSTEM_",
-        env_nested_delimiter="__"
-    )
-
-
-class ToolTrackingConfig(BaseSettings):
-    """Tool tracking configuration for Google ADK integration"""
-
-    track_tools: bool = Field(
-        default=True,
-        description="Enable tool call tracking"
-    )
-    track_queries: bool = Field(
-        default=True,
-        description="Enable query tracking"
-    )
-    augment_queries: bool = Field(
-        default=True,
-        description="Enable query augmentation with similar past queries"
-    )
-    similarity_threshold: float = Field(
-        default=0.3,
-        description="Similarity threshold for query augmentation",
-        ge=0.0,
-        le=1.0
-    )
-    similarity_strategy: str = Field(
-        default="hybrid",
-        description="Search strategy for finding similar queries (semantic, bm25, hybrid, traversal)"
-    )
-    top_k_similar: int = Field(
-        default=5,
-        description="Number of similar queries to include in augmentation",
-        gt=0
-    )
-    sample_rate: float = Field(
-        default=1.0,
-        description="Sample rate for tool tracking (0.0-1.0)",
-        ge=0.0,
-        le=1.0
-    )
-    summarize_outputs: bool = Field(
-        default=False,
-        description="Whether to summarize tool outputs"
-    )
-    max_output_chars: int = Field(
-        default=1000,
-        description="Maximum characters for tool output before truncation/summarization",
-        gt=0
-    )
-    sanitize_pii: bool = Field(
-        default=True,
-        description="Whether to sanitize PII from tool outputs"
-    )
-    enhance_descriptions: bool = Field(
-        default=False,
-        description="Whether to enhance tool descriptions using LLM"
-    )
-    ignore_errors: bool = Field(
-        default=True,
-        description="Whether to ignore errors during tracking"
-    )
-    min_rrf_score: float = Field(
-        default=0.0,
-        description="Minimum RRF score threshold for query augmentation (only applies when using hybrid search strategy)",
-        ge=0.0,
-        le=1.0
-    )
-
-    model_config = SettingsConfigDict(
-        env_prefix="RYUMEM_TOOL_TRACKING_",
         env_nested_delimiter="__"
     )
 

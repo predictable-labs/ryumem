@@ -444,26 +444,31 @@ class RyugraphDB:
     def find_similar_episode(
         self,
         content: str,
+        content_embedding: List[float],
         user_id: str,
         time_window_hours: int = 24,
+        similarity_threshold: float = 0.95,
     ) -> Optional[Dict[str, Any]]:
         """
-        Find an episode with identical or very similar content.
+        Find an episode with identical or very similar content using semantic similarity.
 
-        Uses exact content matching within a time window to detect duplicates.
+        Uses embedding-based cosine similarity within a time window to detect duplicates.
+        This catches semantic duplicates that differ in minor wording, punctuation, or phrasing.
 
         Args:
             content: Episode content to check
+            content_embedding: Embedding vector for the content
             user_id: User ID (required)
             time_window_hours: Look back this many hours for duplicates
+            similarity_threshold: Minimum cosine similarity to consider a duplicate (default: 0.95)
 
         Returns:
             Existing episode dict if found, None otherwise
         """
         from datetime import datetime, timedelta, timezone
 
-        # Check for exact content match first (fast)
-        query = """
+        # First check for exact content match (fast path)
+        exact_query = """
         MATCH (e:Episode)
         WHERE e.content = $content
           AND e.user_id = $user_id
@@ -478,14 +483,26 @@ class RyugraphDB:
 
         time_cutoff = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
 
-        params = {
+        exact_params = {
             "content": content,
             "user_id": user_id,
             "time_cutoff": time_cutoff,
         }
 
-        results = self.execute(query, params)
-        return results[0] if results else None
+        exact_results = self.execute(exact_query, exact_params)
+        if exact_results:
+            return exact_results[0]
+
+        # Use existing search_similar_episodes method with time filter
+        similar_episodes = self.search_similar_episodes(
+            embedding=content_embedding,
+            user_id=user_id,
+            threshold=similarity_threshold,
+            limit=1,
+            time_cutoff=time_cutoff,
+        )
+
+        return similar_episodes[0] if similar_episodes else None
 
     def get_episode_by_session_id(self, session_id: str) -> Optional[EpisodeNode]:
         """
@@ -683,6 +700,7 @@ class RyugraphDB:
         threshold: float = 0.7,
         limit: int = 10,
         kinds: Optional[List[str]] = None,
+        time_cutoff: Optional[Any] = None,
     ) -> List[Dict[str, Any]]:
         """
         Search for episodes similar to the given embedding.
@@ -693,6 +711,7 @@ class RyugraphDB:
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
             kinds: Filter by episode kinds (e.g., ['query'], ['memory'], or None for all)
+            time_cutoff: Optional datetime cutoff - only return episodes created after this time
 
         Returns:
             List of similar episodes with similarity scores
@@ -703,11 +722,17 @@ class RyugraphDB:
             kind_list = "', '".join(kinds)
             kind_filter = f"AND ep.kind IN ['{kind_list}']"
 
+        # Build time filter
+        time_filter = ""
+        if time_cutoff is not None:
+            time_filter = "AND ep.created_at > $time_cutoff"
+
         query = f"""
         MATCH (ep:Episode)
         WHERE ep.content_embedding IS NOT NULL
           AND ep.user_id = $user_id
           {kind_filter}
+          {time_filter}
         WITH ep, array_cosine_similarity(ep.content_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
         WHERE similarity >= $threshold
         RETURN
@@ -723,7 +748,7 @@ class RyugraphDB:
             ep.agent_id AS agent_id,
             ep.metadata AS metadata,
             similarity
-        ORDER BY similarity DESC
+        ORDER BY similarity DESC, ep.created_at DESC
         LIMIT $limit
         """
 
@@ -733,6 +758,9 @@ class RyugraphDB:
             "threshold": threshold,
             "limit": limit,
         }
+
+        if time_cutoff is not None:
+            params["time_cutoff"] = time_cutoff
 
         return self.execute(query, params)
 
