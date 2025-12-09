@@ -186,6 +186,7 @@ class Ryumem:
         self.search_engine = SearchEngine(
             db=self.db,
             embedding_client=self.embedding_client,
+            episode_config=config.episode,
         )
 
         # Try to load existing BM25 index from disk
@@ -210,8 +211,7 @@ class Ryumem:
             max_context_episodes=config.entity_extraction.max_context_episodes,
             bm25_index=self.search_engine.bm25_index,
             enable_entity_extraction=config.entity_extraction.enabled,
-            episode_similarity_threshold=config.entity_extraction.episode_similarity_threshold,
-            episode_deduplication_time_window_hours=config.entity_extraction.episode_deduplication_time_window_hours,
+            episode_config=config.episode,
         )
 
         # Initialize memory pruner
@@ -229,6 +229,8 @@ class Ryumem:
         kind: str = "query",
         metadata: Optional[Dict] = None,
         extract_entities: Optional[bool] = None,
+        enable_embeddings: Optional[bool] = None,
+        deduplication_enabled: Optional[bool] = None,
     ) -> str:
         """
         Add a new episode to the memory system.
@@ -268,6 +270,19 @@ class Ryumem:
         from ryumem_server.core.models import EpisodeKind
         kind_enum = EpisodeKind.from_str(kind)
 
+        # Apply user overrides to episode config if provided
+        episode_config = self.config.episode
+        if enable_embeddings is not None or deduplication_enabled is not None:
+            from ryumem.core.config import EpisodeConfig
+            # Create temporary config with overrides
+            episode_config = EpisodeConfig(
+                enable_embeddings=enable_embeddings if enable_embeddings is not None else self.config.episode.enable_embeddings,
+                deduplication_enabled=deduplication_enabled if deduplication_enabled is not None else self.config.episode.deduplication_enabled,
+                similarity_threshold=self.config.episode.similarity_threshold,
+                bm25_similarity_threshold=self.config.episode.bm25_similarity_threshold,
+                time_window_hours=self.config.episode.time_window_hours,
+            )
+
         episode_id = self.ingestion.ingest(
             content=content,
             user_id=user_id,
@@ -277,6 +292,7 @@ class Ryumem:
             kind=kind_enum,
             metadata=metadata,
             extract_entities=extract_entities,
+            episode_config_override=episode_config,
         )
 
         # Persist BM25 index to disk after ingestion

@@ -19,8 +19,6 @@ class DatabaseConfig(BaseSettings):
         description="Path to ryugraph database directory"
     )
 
-    model_config = SettingsConfigDict(env_prefix="RYUMEM_")
-
 
 class EntityExtractionConfig(BaseSettings):
     """Entity extraction and episode deduplication configuration"""
@@ -47,22 +45,36 @@ class EntityExtractionConfig(BaseSettings):
         ge=0
     )
 
-    # Episode deduplication settings
-    episode_similarity_threshold: float = Field(
+
+class EpisodeConfig(BaseSettings):
+    """Episode ingestion and deduplication configuration"""
+
+    enable_embeddings: bool = Field(
+        default=True,
+        description="Whether to generate embeddings for episodes (if False, uses BM25 for search/dedup)"
+    )
+
+    # Deduplication settings
+    deduplication_enabled: bool = Field(
+        default=True,
+        description="Whether to enable episode deduplication"
+    )
+    similarity_threshold: float = Field(
         default=0.95,
-        description="Cosine similarity threshold for episode deduplication (0.0-1.0)",
+        description="Cosine similarity threshold for semantic episode deduplication (0.0-1.0)",
         ge=0.0,
         le=1.0
     )
-    episode_deduplication_time_window_hours: int = Field(
+    bm25_similarity_threshold: float = Field(
+        default=0.7,
+        description="BM25 score threshold for keyword-based episode deduplication (0.0-1.0)",
+        ge=0.0,
+        le=1.0
+    )
+    time_window_hours: int = Field(
         default=24,
         description="Time window in hours to check for duplicate episodes",
         gt=0
-    )
-
-    model_config = SettingsConfigDict(
-        env_prefix="RYUMEM_ENTITY_",
-        env_nested_delimiter="__"
     )
 
 
@@ -75,11 +87,6 @@ class AgentConfig(BaseSettings):
     enhance_agent_instruction: bool = Field(
         default=True,
         description="Whether to enhance agent instructions with memory guidance"
-    )
-
-    model_config = SettingsConfigDict(
-        env_prefix="RYUMEM_AGENT_",
-        env_nested_delimiter="__"
     )
 
 
@@ -147,37 +154,18 @@ class ToolTrackingConfig(BaseSettings):
         le=1.0
     )
 
-    model_config = SettingsConfigDict(
-        env_prefix="RYUMEM_TOOL_TRACKING_",
-        env_nested_delimiter="__"
-    )
-
 
 class RyumemConfig(BaseSettings):
     """
     Main configuration for Ryumem client instance.
-    Uses pydantic-settings for automatic environment variable loading.
-
-    Environment variables use the RYUMEM_ prefix. Each nested config has its own prefix.
-    Examples:
-        RYUMEM_DB_PATH=./data/memory.db
-        RYUMEM_ENTITY_ENABLED=false
-        RYUMEM_SEARCH_DEFAULT_LIMIT=10
-
-    Note: Use single underscore between prefix and field name.
-    Double underscores (__) are only for further nesting within a config section.
+    Config is fetched from the server.
     """
 
-    # Nested configuration sections (configs used by client locally)
+    # Nested configuration sections
     entity_extraction: EntityExtractionConfig = Field(default_factory=EntityExtractionConfig)
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
-
-    model_config = SettingsConfigDict(
-        env_nested_delimiter="__",
-        case_sensitive=False,
-        extra="ignore"
-    )
+    episode: EpisodeConfig = Field(default_factory=EpisodeConfig)
 
     def to_dict(self) -> dict:
         """Convert config to dictionary"""

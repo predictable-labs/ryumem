@@ -13,6 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Import shared configs from client (configs that client uses locally)
 from ryumem.core.config import (
     EntityExtractionConfig,
+    EpisodeConfig,
     ToolTrackingConfig,
     AgentConfig,
 )
@@ -269,6 +270,7 @@ class RyumemConfig(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     entity_extraction: EntityExtractionConfig = Field(default_factory=EntityExtractionConfig)
+    episode: EpisodeConfig = Field(default_factory=EpisodeConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)

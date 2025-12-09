@@ -47,6 +47,7 @@ class SearchEngine:
         db: RyugraphDB,
         embedding_client: EmbeddingClient,
         bm25_index: Optional[BM25Index] = None,
+        episode_config: Optional[Any] = None,
     ):
         """
         Initialize search engine.
@@ -55,9 +56,13 @@ class SearchEngine:
             db: Ryugraph database instance
             embedding_client: Embedding client for semantic search
             bm25_index: Optional BM25 index (created if not provided)
+            episode_config: Episode configuration for embeddings settings
         """
+        from ryumem.core.config import EpisodeConfig
+
         self.db = db
         self.embedding_client = embedding_client
+        self.episode_config = episode_config if episode_config is not None else EpisodeConfig()
         self.bm25_index = bm25_index or BM25Index()
 
         logger.info("Initialized SearchEngine")
@@ -77,14 +82,22 @@ class SearchEngine:
             f"query='{config.query[:50]}...', limit={config.limit}"
         )
 
+        # Auto-fallback to BM25 if semantic/hybrid requested but embeddings disabled
+        strategy = config.strategy
+        if strategy in ["semantic", "hybrid"] and not self.episode_config.enable_embeddings:
+            logger.warning(
+                f"Episode embeddings disabled, falling back to BM25 for query: {config.query[:50]}"
+            )
+            strategy = "bm25"
+
         # Run base search strategy
-        if config.strategy == "semantic":
+        if strategy == "semantic":
             results = self._semantic_search(config)
-        elif config.strategy == "traversal":
+        elif strategy == "traversal":
             results = self._traversal_search(config)
-        elif config.strategy == "bm25":
+        elif strategy == "bm25":
             results = self._bm25_search(config)
-        elif config.strategy == "hybrid":
+        elif strategy == "hybrid":
             results = self._hybrid_search(config)
         else:
             raise ValueError(f"Unknown search strategy: {config.strategy}")

@@ -9,6 +9,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from ryumem.core.config import EpisodeConfig
 from ryumem_server.core.config import (
     AgentConfig,
     DatabaseConfig,
@@ -174,8 +175,14 @@ class ConfigService:
             entity_similarity_threshold=get_value("entity_extraction.entity_similarity_threshold", 0.65),
             relationship_similarity_threshold=get_value("entity_extraction.relationship_similarity_threshold", 0.8),
             max_context_episodes=get_value("entity_extraction.max_context_episodes", 5),
-            episode_similarity_threshold=get_value("entity_extraction.episode_similarity_threshold", 0.95),
-            episode_deduplication_time_window_hours=get_value("entity_extraction.episode_deduplication_time_window_hours", 24),
+        )
+
+        episode_config = EpisodeConfig(
+            enable_embeddings=get_value("episode.enable_embeddings", True),
+            deduplication_enabled=get_value("episode.deduplication_enabled", True),
+            similarity_threshold=get_value("episode.similarity_threshold", 0.95),
+            bm25_similarity_threshold=get_value("episode.bm25_similarity_threshold", 0.7),
+            time_window_hours=get_value("episode.time_window_hours", 24),
         )
 
         search_config = SearchConfig(
@@ -217,6 +224,7 @@ class ConfigService:
             llm=llm_config,
             embedding=embedding_config,
             entity_extraction=entity_extraction_config,
+            episode=episode_config,
             search=search_config,
             tool_tracking=tool_tracking_config,
             agent=agent_config,

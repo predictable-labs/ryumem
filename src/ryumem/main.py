@@ -336,6 +336,8 @@ class Ryumem:
         kind: str = "query",
         metadata: Optional[Dict] = None,
         extract_entities: Optional[bool] = None,
+        enable_embeddings: Optional[bool] = None,
+        deduplication_enabled: Optional[bool] = None,
     ) -> str:
         """Add a new episode."""
         # Apply config default if not provided
@@ -349,7 +351,9 @@ class Ryumem:
             "source": source,
             "kind": kind,
             "metadata": metadata,
-            "extract_entities": extract_entities
+            "extract_entities": extract_entities,
+            "enable_embeddings": enable_embeddings,
+            "deduplication_enabled": deduplication_enabled,
         }
         response = self._post("/episodes", json=payload)
 

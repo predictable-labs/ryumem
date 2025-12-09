@@ -441,6 +441,44 @@ class RyugraphDB:
 
         return self.execute(query, params)
 
+    def _find_exact_episode_match(
+        self,
+        content: str,
+        user_id: str,
+        time_cutoff: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """Helper to check for exact content match."""
+        exact_results = self.execute(
+            """
+            MATCH (e:Episode)
+            WHERE e.content = $content AND e.user_id = $user_id AND e.created_at > $time_cutoff
+            RETURN e.uuid AS uuid, e.content AS content, e.created_at AS created_at, e.user_id AS user_id
+            ORDER BY e.created_at DESC LIMIT 1
+            """,
+            {"content": content, "user_id": user_id, "time_cutoff": time_cutoff}
+        )
+        return exact_results[0] if exact_results else None
+
+    def _filter_episodes_by_time_cutoff(
+        self,
+        episode_uuids: List[str],
+        time_cutoff: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """Helper to filter episode UUIDs by time cutoff, returns most recent."""
+        if not episode_uuids:
+            return None
+
+        results = self.execute(
+            """
+            MATCH (e:Episode)
+            WHERE e.uuid IN $uuids AND e.created_at > $time_cutoff
+            RETURN e.uuid AS uuid, e.content AS content, e.created_at AS created_at, e.user_id AS user_id
+            ORDER BY e.created_at DESC LIMIT 1
+            """,
+            {"uuids": episode_uuids, "time_cutoff": time_cutoff}
+        )
+        return results[0] if results else None
+
     def find_similar_episode(
         self,
         content: str,
@@ -467,31 +505,12 @@ class RyugraphDB:
         """
         from datetime import datetime, timedelta, timezone
 
-        # First check for exact content match (fast path)
-        exact_query = """
-        MATCH (e:Episode)
-        WHERE e.content = $content
-          AND e.user_id = $user_id
-          AND e.created_at > $time_cutoff
-        RETURN
-            e.uuid AS uuid,
-            e.content AS content,
-            e.created_at AS created_at
-        ORDER BY e.created_at DESC
-        LIMIT 1
-        """
-
         time_cutoff = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
 
-        exact_params = {
-            "content": content,
-            "user_id": user_id,
-            "time_cutoff": time_cutoff,
-        }
-
-        exact_results = self.execute(exact_query, exact_params)
-        if exact_results:
-            return exact_results[0]
+        # Check exact match first
+        exact_match = self._find_exact_episode_match(content, user_id, time_cutoff)
+        if exact_match:
+            return exact_match
 
         # Use existing search_similar_episodes method with time filter
         similar_episodes = self.search_similar_episodes(
@@ -503,6 +522,42 @@ class RyugraphDB:
         )
 
         return similar_episodes[0] if similar_episodes else None
+
+    def find_similar_episode_bm25(
+        self,
+        content: str,
+        user_id: str,
+        bm25_index: Optional[Any],
+        time_window_hours: int = 24,
+        similarity_threshold: float = 0.7,
+    ) -> Optional[Dict[str, Any]]:
+        """Find similar episode using BM25 keyword search (for when embeddings are disabled)."""
+        from datetime import datetime, timedelta, timezone
+
+        time_cutoff = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
+
+        # Check exact match first (reuse helper)
+        exact_match = self._find_exact_episode_match(content, user_id, time_cutoff)
+        if exact_match:
+            return exact_match
+
+        # BM25 fuzzy search
+        if not bm25_index:
+            return None
+
+        results = bm25_index.search_episodes(
+            query=content, top_k=10, min_score=similarity_threshold
+        )
+
+        if not results:
+            return None
+
+        # Get candidate UUIDs from BM25 results
+        candidate_uuids = [uuid for uuid, score in results]
+
+        # TODO: BM25 search doesn't filter by user_id - need to add user_id filtering to BM25Index
+        # Use helper to filter by time_cutoff (handles datetime comparison in DB)
+        return self._filter_episodes_by_time_cutoff(candidate_uuids, time_cutoff)
 
     def get_episode_by_session_id(self, session_id: str) -> Optional[EpisodeNode]:
         """
