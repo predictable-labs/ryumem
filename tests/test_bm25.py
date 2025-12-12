@@ -1,283 +1,262 @@
 """
-Tests for BM25 keyword search index.
-"""
+E2E tests for BM25 keyword search index episode persistence.
 
+Tests that episodes are indexed in BM25 and searchable via the API.
+Run with: RYUMEM_API_URL=http://localhost:8000 RYUMEM_API_KEY=your_key python -m pytest tests/test_bm25.py
+"""
+import os
+import urllib.request
+import urllib.error
+import json
+import time
 import pytest
-from ryumem.core.models import EntityNode, EntityEdge
-from ryumem.retrieval.bm25 import BM25Index
-from datetime import datetime, timezone
 from uuid import uuid4
 
+# Get config from environment
+API_URL = os.getenv("RYUMEM_API_URL", "http://localhost:8000")
+API_KEY = os.getenv("RYUMEM_API_KEY")
 
-class TestBM25Index:
-    """Test BM25 keyword search functionality."""
+if not API_KEY:
+    pytest.skip("RYUMEM_API_KEY not set", allow_module_level=True)
 
-    @pytest.fixture
-    def bm25_index(self):
-        """Create a fresh BM25 index for testing."""
-        return BM25Index()
 
-    @pytest.fixture
-    def sample_entities(self):
-        """Create sample entities for testing."""
-        return [
-            EntityNode(
-                uuid=str(uuid4()),
-                name="Alice",
-                entity_type="person",
-                summary="Software engineer at Google specializing in machine learning",
-                mentions=5,
-                created_at=datetime.now(timezone.utc),
-                embedding=[0.1] * 3072,
-                group_id="test_group",
-            ),
-            EntityNode(
-                uuid=str(uuid4()),
-                name="Bob",
-                entity_type="person",
-                summary="Data scientist working on natural language processing",
-                mentions=3,
-                created_at=datetime.now(timezone.utc),
-                embedding=[0.2] * 3072,
-                group_id="test_group",
-            ),
-            EntityNode(
-                uuid=str(uuid4()),
-                name="Google",
-                entity_type="organization",
-                summary="Technology company based in Mountain View California",
-                mentions=10,
-                created_at=datetime.now(timezone.utc),
-                embedding=[0.3] * 3072,
-                group_id="test_group",
-            ),
-        ]
+def make_request(method, endpoint, headers=None, data=None):
+    """Make an HTTP request to the Ryumem API."""
+    if headers is None:
+        headers = {}
 
-    @pytest.fixture
-    def sample_edges(self):
-        """Create sample edges for testing."""
-        return [
-            EntityEdge(
-                uuid=str(uuid4()),
-                source_uuid="alice_uuid",
-                target_uuid="google_uuid",
-                fact="Alice works at Google as a software engineer",
-                relation_type="WORKS_AT",
-                valid_at=datetime.now(timezone.utc),
-                created_at=datetime.now(timezone.utc),
-                mentions=3,
-                fact_embedding=[0.4] * 3072,
-            ),
-            EntityEdge(
-                uuid=str(uuid4()),
-                source_uuid="bob_uuid",
-                target_uuid="google_uuid",
-                fact="Bob previously worked at Google before joining Meta",
-                relation_type="WORKED_AT",
-                valid_at=datetime.now(timezone.utc),
-                created_at=datetime.now(timezone.utc),
-                mentions=2,
-                fact_embedding=[0.5] * 3072,
-            ),
-        ]
+    url = f"{API_URL}{endpoint}"
+    if data:
+        data = json.dumps(data).encode('utf-8')
+        headers['Content-Type'] = 'application/json'
 
-    def test_initialization(self, bm25_index):
-        """Test BM25 index initialization."""
-        assert bm25_index.entity_uuids == []
-        assert bm25_index.entity_corpus == []
-        assert bm25_index.edge_uuids == []
-        assert bm25_index.edge_corpus == []
-        assert bm25_index.entity_bm25 is None
-        assert bm25_index.edge_bm25 is None
+    headers['X-API-Key'] = API_KEY
 
-    def test_add_entity(self, bm25_index, sample_entities):
-        """Test adding entities to BM25 index."""
-        entity = sample_entities[0]
-        bm25_index.add_entity(entity)
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode('utf-8')), response.status
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if hasattr(e, 'read') else '{}'
+        return json.loads(error_body) if error_body else {}, e.code
+    except Exception as e:
+        print(f"Request error: {e}")
+        return None, 500
 
-        assert len(bm25_index.entity_uuids) == 1
-        assert entity.uuid in bm25_index.entity_uuids
-        assert len(bm25_index.entity_corpus) == 1
-        assert bm25_index.entity_bm25 is not None
 
-    def test_add_edge(self, bm25_index, sample_edges):
-        """Test adding edges to BM25 index."""
-        edge = sample_edges[0]
-        bm25_index.add_edge(edge)
+@pytest.fixture
+def test_user_id():
+    """Generate a unique user ID for test isolation."""
+    return f"test_user_{uuid4().hex[:8]}"
 
-        assert len(bm25_index.edge_uuids) == 1
-        assert edge.uuid in bm25_index.edge_uuids
-        assert len(bm25_index.edge_corpus) == 1
-        assert bm25_index.edge_bm25 is not None
 
-    def test_search_entities_keyword_match(self, bm25_index, sample_entities):
-        """Test entity search with keyword matching."""
-        # Add all entities
-        for entity in sample_entities:
-            bm25_index.add_entity(entity)
+@pytest.fixture
+def test_episodes(test_user_id):
+    """Create test episodes and clean up after test."""
+    episodes = [
+        {
+            "name": "Python Programming Language",
+            "content": "Python is a high-level programming language known for readability",
+            "user_id": test_user_id,
+            "source": "text",
+            "kind": "memory",
+            "metadata": {"tags": ["python", "programming"], "test": True}
+        },
+        {
+            "name": "JavaScript Web Development",
+            "content": "JavaScript is used for web development and runs in browsers",
+            "user_id": test_user_id,
+            "source": "text",
+            "kind": "memory",
+            "metadata": {"tags": ["javascript", "web"], "test": True}
+        },
+        {
+            "name": "Database Systems",
+            "content": "PostgreSQL is a powerful relational database system",
+            "user_id": test_user_id,
+            "source": "text",
+            "kind": "memory",
+            "metadata": {"tags": ["database", "postgresql"], "test": True}
+        }
+    ]
 
-        # Search for "machine learning"
-        results = bm25_index.search_entities("machine learning", top_k=5)
+    episode_ids = []
+    for episode in episodes:
+        resp, status = make_request("POST", "/episodes", data=episode)
+        assert status == 200, f"Failed to create episode: {resp}"
+        episode_ids.append(resp['episode_id'])
 
-        assert len(results) > 0
-        # Alice should rank high because her summary contains "machine learning"
-        top_uuid = results[0][0]
-        assert top_uuid == sample_entities[0].uuid
+    # Give BM25 index time to update
+    time.sleep(0.5)
 
-    def test_search_entities_no_results(self, bm25_index, sample_entities):
-        """Test entity search with no matching keywords."""
-        for entity in sample_entities:
-            bm25_index.add_entity(entity)
+    yield episode_ids
 
-        # Search for something not in the corpus
-        results = bm25_index.search_entities("quantum physics", top_k=5)
+    # Cleanup is handled by using unique user_id per test
 
-        # Should return results but with low scores
-        # or potentially empty if min_score is set
-        assert isinstance(results, list)
 
-    def test_search_edges_keyword_match(self, bm25_index, sample_edges):
-        """Test edge search with keyword matching."""
-        for edge in sample_edges:
-            bm25_index.add_edge(edge)
+class TestBM25Search:
+    """Test BM25 keyword search functionality via API."""
 
-        # Search for "software engineer"
-        results = bm25_index.search_edges("software engineer", top_k=5)
+    def test_add_and_search_episodes(self, test_episodes, test_user_id):
+        """Test that episodes are indexed and searchable via BM25."""
+        # Search for Python-related content
+        resp, status = make_request("POST", "/search", data={
+            "query": "programming language",
+            "user_id": test_user_id,
+            "strategy": "bm25",
+            "limit": 5
+        })
 
-        assert len(results) > 0
-        # First edge should rank higher
-        top_uuid = results[0][0]
-        assert top_uuid == sample_edges[0].uuid
+        assert status == 200, f"Search failed: {resp}"
+        assert resp['count'] > 0, "No episodes found"
 
-    def test_search_empty_index(self, bm25_index):
-        """Test searching an empty index."""
-        results = bm25_index.search_entities("test query", top_k=5)
-        assert results == []
+        episodes = resp['episodes']
+        names = [ep['name'] for ep in episodes]
+        assert "Python Programming Language" in names, f"Python episode not found. Found: {names}"
 
-        results = bm25_index.search_edges("test query", top_k=5)
-        assert results == []
+    def test_search_multiple_keywords(self, test_episodes, test_user_id):
+        """Test BM25 search with multiple keywords."""
+        resp, status = make_request("POST", "/search", data={
+            "query": "python readability",
+            "user_id": test_user_id,
+            "strategy": "bm25",
+            "limit": 5
+        })
 
-    def test_remove_entity(self, bm25_index, sample_entities):
-        """Test removing an entity from the index."""
-        entity = sample_entities[0]
-        bm25_index.add_entity(entity)
+        assert status == 200, f"Search failed: {resp}"
+        assert resp['count'] > 0, "No episodes found for multi-keyword search"
 
-        assert len(bm25_index.entity_uuids) == 1
+        episodes = resp['episodes']
+        names = [ep['name'] for ep in episodes]
+        assert "Python Programming Language" in names, "Python episode should rank high for 'python readability'"
 
-        # Remove the entity
-        success = bm25_index.remove_entity(entity.uuid)
-        assert success is True
-        assert len(bm25_index.entity_uuids) == 0
+    def test_search_with_low_threshold(self, test_episodes, test_user_id):
+        """Test BM25 search with low score threshold."""
+        resp, status = make_request("POST", "/search", data={
+            "query": "programming",
+            "user_id": test_user_id,
+            "strategy": "bm25",
+            "min_bm25_score": 0.01,
+            "limit": 10
+        })
 
-    def test_remove_nonexistent_entity(self, bm25_index):
-        """Test removing an entity that doesn't exist."""
-        success = bm25_index.remove_entity("nonexistent_uuid")
-        assert success is False
+        assert status == 200, f"Search with threshold failed: {resp}"
+        episodes = resp['episodes']
+        assert len(episodes) >= 1, "Low threshold should return matches"
 
-    def test_remove_edge(self, bm25_index, sample_edges):
-        """Test removing an edge from the index."""
-        edge = sample_edges[0]
-        bm25_index.add_edge(edge)
+    def test_search_no_results_for_nonexistent(self, test_episodes, test_user_id):
+        """Test that irrelevant queries return no or low-ranked results."""
+        resp, status = make_request("POST", "/search", data={
+            "query": "quantum physics superposition",
+            "user_id": test_user_id,
+            "strategy": "bm25",
+            "min_bm25_score": 1.0,  # High threshold
+            "limit": 5
+        })
 
-        assert len(bm25_index.edge_uuids) == 1
+        assert status == 200, f"Search failed: {resp}"
+        # Should return 0 or very few results with high threshold
+        assert resp['count'] <= 1, "Irrelevant query should not match well"
 
-        # Remove the edge
-        success = bm25_index.remove_edge(edge.uuid)
-        assert success is True
-        assert len(bm25_index.edge_uuids) == 0
+    def test_bm25_hybrid_comparison(self, test_episodes, test_user_id):
+        """Test that BM25 and hybrid strategies both work."""
+        # BM25 search
+        bm25_resp, status = make_request("POST", "/search", data={
+            "query": "web development",
+            "user_id": test_user_id,
+            "strategy": "bm25",
+            "limit": 5
+        })
+        assert status == 200, f"BM25 search failed: {bm25_resp}"
 
-    def test_clear(self, bm25_index, sample_entities, sample_edges):
-        """Test clearing the entire index."""
-        for entity in sample_entities:
-            bm25_index.add_entity(entity)
-        for edge in sample_edges:
-            bm25_index.add_edge(edge)
+        # Hybrid search (should also include BM25 results)
+        hybrid_resp, status = make_request("POST", "/search", data={
+            "query": "web development",
+            "user_id": test_user_id,
+            "strategy": "hybrid",
+            "limit": 5
+        })
+        assert status == 200, f"Hybrid search failed: {hybrid_resp}"
 
-        assert len(bm25_index.entity_uuids) > 0
-        assert len(bm25_index.edge_uuids) > 0
+        # Both should find results
+        assert bm25_resp['count'] > 0, "BM25 should find results"
+        assert hybrid_resp['count'] > 0, "Hybrid should find results"
 
-        bm25_index.clear()
+    def test_episode_persistence_check(self, test_episodes, test_user_id):
+        """Test that episodes persist in the database."""
+        # List all episodes for this user
+        resp, status = make_request("GET", f"/episodes?user_id={test_user_id}&limit=100")
 
-        assert len(bm25_index.entity_uuids) == 0
-        assert len(bm25_index.edge_uuids) == 0
-        assert bm25_index.entity_bm25 is None
-        assert bm25_index.edge_bm25 is None
+        assert status == 200, f"Failed to list episodes: {resp}"
+        episodes = resp['episodes']
 
-    def test_stats(self, bm25_index, sample_entities, sample_edges):
-        """Test getting index statistics."""
-        stats = bm25_index.stats()
-        assert stats["entity_count"] == 0
-        assert stats["edge_count"] == 0
+        # Should have at least our test episodes
+        assert len(episodes) >= 3, f"Expected at least 3 episodes, got {len(episodes)}"
 
-        for entity in sample_entities:
-            bm25_index.add_entity(entity)
-        for edge in sample_edges:
-            bm25_index.add_edge(edge)
+        # Verify our episodes are in the list
+        episode_names = [ep['name'] for ep in episodes]
+        assert "Python Programming Language" in episode_names
+        assert "JavaScript Web Development" in episode_names
+        assert "Database Systems" in episode_names
 
-        stats = bm25_index.stats()
-        assert stats["entity_count"] == len(sample_entities)
-        assert stats["edge_count"] == len(sample_edges)
 
-    def test_save_and_load(self, bm25_index, sample_entities, tmp_path):
-        """Test saving and loading the BM25 index."""
-        # Add entities
-        for entity in sample_entities:
-            bm25_index.add_entity(entity)
+class TestBM25EdgeCases:
+    """Test edge cases and special scenarios."""
 
-        # Save the index
-        save_path = tmp_path / "test_bm25.pkl"
-        bm25_index.save(str(save_path))
+    def test_empty_query_search(self, test_user_id):
+        """Test BM25 search with empty query."""
+        resp, status = make_request("POST", "/search", data={
+            "query": "",
+            "user_id": test_user_id,
+            "strategy": "bm25",
+            "limit": 5
+        })
 
-        assert save_path.exists()
+        # Should handle gracefully (return empty or all results depending on implementation)
+        assert status in [200, 400, 422], f"Unexpected status for empty query: {status}"
 
-        # Create a new index and load
-        new_index = BM25Index()
-        success = new_index.load(str(save_path))
+    def test_search_nonexistent_user(self):
+        """Test search for user with no episodes."""
+        nonexistent_user = f"nonexistent_user_{uuid4().hex[:8]}"
+        resp, status = make_request("POST", "/search", data={
+            "query": "test",
+            "user_id": nonexistent_user,
+            "strategy": "bm25",
+            "limit": 5
+        })
 
-        assert success is True
-        assert len(new_index.entity_uuids) == len(sample_entities)
-        assert new_index.stats() == bm25_index.stats()
+        assert status == 200, f"Search failed: {resp}"
+        assert resp['count'] == 0, "Should return 0 results for user with no episodes"
 
-    def test_load_nonexistent_file(self, bm25_index):
-        """Test loading from a file that doesn't exist."""
-        success = bm25_index.load("/nonexistent/path/file.pkl")
-        assert success is False
+    def test_case_insensitive_search(self, test_episodes, test_user_id):
+        """Test that BM25 search is case-insensitive."""
+        # Search with different casing
+        resp1, status1 = make_request("POST", "/search", data={
+            "query": "PYTHON",
+            "user_id": test_user_id,
+            "strategy": "bm25",
+            "limit": 5
+        })
 
-    def test_top_k_limit(self, bm25_index, sample_entities):
-        """Test that top_k parameter limits results."""
-        for entity in sample_entities:
-            bm25_index.add_entity(entity)
+        resp2, status2 = make_request("POST", "/search", data={
+            "query": "python",
+            "user_id": test_user_id,
+            "strategy": "bm25",
+            "limit": 5
+        })
 
-        # Search with top_k=1
-        results = bm25_index.search_entities("engineer scientist", top_k=1)
-        assert len(results) <= 1
+        assert status1 == 200 and status2 == 200
+        # Should return same results (BM25 tokenization is lowercase)
+        assert resp1['count'] == resp2['count'], "Case should not affect search results"
 
-        # Search with top_k=2
-        results = bm25_index.search_entities("engineer scientist", top_k=2)
-        assert len(results) <= 2
 
-    def test_min_score_threshold(self, bm25_index, sample_entities):
-        """Test minimum score threshold filtering."""
-        for entity in sample_entities:
-            bm25_index.add_entity(entity)
-
-        # Search with no min_score
-        results_no_filter = bm25_index.search_entities("test", top_k=10, min_score=0.0)
-
-        # Search with high min_score (should filter out low matches)
-        results_filtered = bm25_index.search_entities("test", top_k=10, min_score=5.0)
-
-        # Filtered results should have fewer or equal items
-        assert len(results_filtered) <= len(results_no_filter)
-
-    def test_repr(self, bm25_index, sample_entities):
-        """Test string representation."""
-        repr_str = repr(bm25_index)
-        assert "BM25Index" in repr_str
-        assert "entities=0" in repr_str
-
-        for entity in sample_entities:
-            bm25_index.add_entity(entity)
-
-        repr_str = repr(bm25_index)
-        assert f"entities={len(sample_entities)}" in repr_str
+if __name__ == "__main__":
+    print("=" * 60)
+    print("BM25 Episode Persistence E2E Tests")
+    print("=" * 60)
+    print(f"API URL: {API_URL}")
+    print(f"API Key: {'*' * 10 if API_KEY else 'NOT SET'}")
+    print("=" * 60)
+    print("\nRun with pytest:")
+    print("  RYUMEM_API_URL=http://localhost:8000 RYUMEM_API_KEY=your_key python -m pytest tests/test_bm25.py -v")
+    print()

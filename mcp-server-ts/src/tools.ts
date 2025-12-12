@@ -56,6 +56,19 @@ export const TOOLS = [
           },
           description: 'Filter by episode kinds',
         },
+        tags: {
+          type: 'array',
+          items: {
+            type: 'string',
+          },
+          description: 'Filter episodes by tags',
+        },
+        tag_match_mode: {
+          type: 'string',
+          enum: ['any', 'all'],
+          description: 'Tag match mode: "any" (at least one tag matches) or "all" (all tags must match)',
+          default: 'any',
+        },
       },
       required: ['query', 'user_id'],
     },

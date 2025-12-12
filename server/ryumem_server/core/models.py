@@ -270,6 +270,15 @@ class SearchConfig(BaseModel):
         ge=0.0,
         le=20.0
     )
+    # Tag filtering
+    tags: list[str] | None = Field(
+        default=None,
+        description='Filter episodes by metadata tags'
+    )
+    tag_match_mode: str = Field(
+        default='any',
+        description='Tag matching: "any" (at least one tag matches) or "all" (all tags must match)'
+    )
 
 
 class SearchResult(BaseModel):

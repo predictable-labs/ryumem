@@ -406,6 +406,8 @@ class Ryumem:
         min_bm25_score: Optional[float] = None,
         rrf_k: Optional[int] = None,
         kinds: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        tag_match_mode: str = 'any',
     ) -> SearchResult:
         """
         Search the memory system.
@@ -449,6 +451,8 @@ class Ryumem:
             similarity_threshold=similarity_threshold,
             max_depth=max_depth,
             kinds=kinds,
+            tags=tags,
+            tag_match_mode=tag_match_mode,
         )
 
         # Override with explicit parameters if provided

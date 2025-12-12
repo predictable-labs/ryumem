@@ -17,6 +17,8 @@ export interface SearchMemoryParams {
   similarity_threshold?: number;
   max_depth?: number;
   kinds?: ('query' | 'memory')[];
+  tags?: string[];
+  tag_match_mode?: 'any' | 'all';
 }
 
 export interface AddEpisodeParams {

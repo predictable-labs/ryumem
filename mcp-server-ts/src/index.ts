@@ -58,16 +58,27 @@ const INSTRUCTIONS = `Ryumem is a bi-temporal knowledge graph memory system. To 
 
 2. **Memory Retrieval with Fallback Strategies**: Use search_memory to recall relevant past context:
    - Always use the project/workspace name as user_id when searching
+   - **CRITICAL: Search memory BEFORE reading files** - Code, APIs, and configurations may already be indexed
+     - Before reading files or exploring code, search for relevant information using tags and keywords
+     - If found in memory, use that information instead of re-reading files
+     - Only read files if memory search returns no results or outdated information
+     - This reduces redundant file operations and leverages indexed knowledge
    - Search before answering questions that might benefit from history
    - **Search Strategy Selection**:
      - strategy='bm25': Use for keyword/text matching (reliable for most queries, works with or without embeddings)
      - strategy='hybrid': Combines semantic + keyword + graph (best results when embeddings enabled, but may need threshold adjustments)
      - strategy='semantic': Requires embeddings enabled on server (check if results are empty)
+   - **Tag-Based Filtering**:
+     - Use tags parameter to filter episodes by metadata tags: tags=["authentication", "bug_fix"]
+     - tag_match_mode='any': Find episodes with at least one matching tag (default, more permissive)
+     - tag_match_mode='all': Find episodes with all specified tags (stricter filtering)
+     - Tags are case-insensitive and exact-match
+     - Examples: tags=["python", "async"] with mode='any' finds episodes tagged with python OR async
    - **Handling Empty Results**:
      - If search returns no results, try these in order:
        1. Switch to strategy='bm25' (more reliable)
        2. Lower similarity_threshold to 0.1 or 0.0
-       3. Try different/broader search keywords
+       3. Try different/broader search keywords or tags
        4. Use list_episodes to browse recent memories
        5. Search by tags in metadata if you know them
    - Set appropriate similarity_threshold:

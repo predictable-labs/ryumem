@@ -297,6 +297,8 @@ class SearchRequest(BaseModel):
     min_rrf_score: Optional[float] = Field(None, description="Minimum RRF score for hybrid search")
     min_bm25_score: Optional[float] = Field(None, description="Minimum BM25 score")
     kinds: Optional[List[str]] = Field(None, description="Filter episodes by kinds (e.g., ['query'], ['memory'], or None for all)")
+    tags: Optional[List[str]] = Field(None, description="Filter episodes by tags")
+    tag_match_mode: str = Field("any", description="Tag matching mode: 'any' or 'all'")
 
     class Config:
         json_schema_extra = {
@@ -916,6 +918,8 @@ async def search(
             min_rrf_score=request.min_rrf_score,
             min_bm25_score=request.min_bm25_score,
             kinds=request.kinds,
+            tags=request.tags,
+            tag_match_mode=request.tag_match_mode,
         )
 
         episodes = []
