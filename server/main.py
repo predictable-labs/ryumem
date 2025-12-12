@@ -245,6 +245,8 @@ class AddEpisodeRequest(BaseModel):
     kind: str = Field("query", description="Episode kind: 'query' or 'memory'")
     metadata: Optional[Dict] = Field(None, description="Optional metadata")
     extract_entities: Optional[bool] = Field(None, description="Override config setting for entity extraction (None uses config default)")
+    enable_embeddings: Optional[bool] = Field(None, description="Override config setting for episode embeddings (None uses config default)")
+    deduplication_enabled: Optional[bool] = Field(None, description="Override config setting for episode deduplication (None uses config default)")
 
     class Config:
         json_schema_extra = {
@@ -638,6 +640,8 @@ async def add_episode(
             kind=request.kind,
             metadata=request.metadata,
             extract_entities=request.extract_entities,
+            enable_embeddings=request.enable_embeddings,
+            deduplication_enabled=request.deduplication_enabled,
         )
 
         return AddEpisodeResponse(

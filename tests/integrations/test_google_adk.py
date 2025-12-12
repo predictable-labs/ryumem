@@ -1014,13 +1014,15 @@ class TestAugmentationRealIntegration:
         # Create 3 sessions with different timestamps
         base_time = datetime.utcnow()
 
-        # Use naturally different content, with one exact match for testing
-        # (semantic search scores are 0.0, so we need exact match for score=1.0)
+        # Test: Most recent episode with exact match should win
+        # Session 0 (3h ago): Different topic - low similarity
+        # Session 1 (2h ago): Similar but not exact
+        # Session 2 (1h ago, most recent): Exact match - should win
         exact_match_query = "Help me with a task"
         content_variants = [
-            "Help me with a task today",
-            exact_match_query,  # Exact match for session 1 (most recent)
-            "Help me with a task please"
+            "Show me the database schema",  # Completely different - low similarity
+            "Please help with this task",  # Similar words, different order
+            exact_match_query,  # Exact match - most recent + best similarity
         ]
 
         for i, hours_ago in enumerate([3, 2, 1]):  # oldest to newest

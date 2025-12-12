@@ -185,27 +185,111 @@ class TestQueryAugmentationE2E:
         assert episode.uuid == episode_id, "Retrieved episode should match created episode"
 
     def test_duplicate_query_deduplication(self, ryumem_client, unique_user, unique_session):
-        """Test that duplicate queries within time window return same episode."""
-        content = "Exact duplicate query test"
+        """Test that duplicate and semantically similar queries are deduplicated.
 
-        # Create first episode
+        Tests both exact duplicates and semantic variations based on real production data.
+        Also tests BM25-based deduplication when embeddings are disabled.
+        """
+        # Test 1: Exact duplicates (with embeddings enabled - default)
+        content = "Exact duplicate query test"
         episode_id_1 = ryumem_client.add_episode(
             content=content,
             user_id=unique_user,
             session_id=unique_session,
             source="message"
         )
-
-        # Create second episode with same content (within 24h window)
         episode_id_2 = ryumem_client.add_episode(
             content=content,
             user_id=unique_user,
             session_id=unique_session,
             source="message"
         )
+        assert episode_id_1 == episode_id_2, "Exact duplicates should return same ID (embedding-based)"
 
-        # Should return same episode ID (deduplication)
-        assert episode_id_1 == episode_id_2, "Duplicate episodes should return same ID (deduplication)"
+        # Test 2: Semantic variants with embeddings (from production data)
+        # These should be deduplicated: "query cpu usage per container" with minor variations
+        variant_1 = ryumem_client.add_episode(
+            content="query cpu usage per container for last 1 hour",
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        variant_2 = ryumem_client.add_episode(
+            content="query for cpu usage per container for last 1 hour",  # Extra "for"
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        assert variant_1 == variant_2, f"Semantic variants should be deduplicated (embedding-based). Got {variant_1} vs {variant_2}"
+
+        # Test 3: Log summarization variants with embeddings (from production data)
+        log_1 = ryumem_client.add_episode(
+            content="Summarize logs for last 15 mins",
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        log_2 = ryumem_client.add_episode(
+            content="summarize logs for last 15 minutes",  # Case + "minutes" vs "mins"
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        assert log_1 == log_2, f"Log summary variants should be deduplicated (embedding-based). Got {log_1} vs {log_2}"
+
+        # Test 4: Semantically different should NOT be deduplicated
+        cpu_query = ryumem_client.add_episode(
+            content="query cpu usage per container",
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        memory_query = ryumem_client.add_episode(
+            content="query memory usage per container",
+            user_id=unique_user,
+            session_id=unique_session,
+            source="message"
+        )
+        assert cpu_query != memory_query, "CPU vs memory queries should NOT be deduplicated"
+
+        # Test 5: BM25-based deduplication (with embeddings disabled)
+        # Create new unique user for BM25 tests to avoid interference
+        bm25_user = f"{unique_user}_bm25"
+
+        # Exact duplicates should still work with BM25
+        bm25_content = "BM25 exact duplicate test query"
+        bm25_id_1 = ryumem_client.add_episode(
+            content=bm25_content,
+            user_id=bm25_user,
+            session_id=unique_session,
+            source="message",
+            enable_embeddings=False  # Disable embeddings to use BM25
+        )
+        bm25_id_2 = ryumem_client.add_episode(
+            content=bm25_content,
+            user_id=bm25_user,
+            session_id=unique_session,
+            source="message",
+            enable_embeddings=False
+        )
+        assert bm25_id_1 == bm25_id_2, "Exact duplicates should be detected with BM25 (no embeddings)"
+
+        # Similar keyword-based queries should be deduplicated with BM25
+        bm25_variant_1 = ryumem_client.add_episode(
+            content="show me the database connection settings",
+            user_id=bm25_user,
+            session_id=unique_session,
+            source="message",
+            enable_embeddings=False
+        )
+        bm25_variant_2 = ryumem_client.add_episode(
+            content="show database connection settings",  # Very similar keywords
+            user_id=bm25_user,
+            session_id=unique_session,
+            source="message",
+            enable_embeddings=False
+        )
+        assert bm25_variant_1 == bm25_variant_2, f"Keyword-similar queries should be deduplicated with BM25. Got {bm25_variant_1} vs {bm25_variant_2}"
 
     def test_empty_query_handling(self, ryumem_client, unique_user, unique_session):
         """Test that empty queries are handled gracefully."""

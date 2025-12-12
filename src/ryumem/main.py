@@ -336,8 +336,14 @@ class Ryumem:
         kind: str = "query",
         metadata: Optional[Dict] = None,
         extract_entities: Optional[bool] = None,
+        enable_embeddings: Optional[bool] = None,
+        deduplication_enabled: Optional[bool] = None,
     ) -> str:
         """Add a new episode."""
+        # Apply config default if not provided
+        if extract_entities is None:
+            extract_entities = self.config.entity_extraction.enabled
+
         payload = {
             "content": content,
             "user_id": user_id,
@@ -345,7 +351,9 @@ class Ryumem:
             "source": source,
             "kind": kind,
             "metadata": metadata,
-            "extract_entities": extract_entities
+            "extract_entities": extract_entities,
+            "enable_embeddings": enable_embeddings,
+            "deduplication_enabled": deduplication_enabled,
         }
         response = self._post("/episodes", json=payload)
 
@@ -488,7 +496,7 @@ class Ryumem:
         user_id: str,
         session_id: str,
         limit: int = 10,
-        strategy: str = "hybrid",
+        strategy: Optional[str] = None,
         similarity_threshold: Optional[float] = None,
         max_depth: int = 2,
         min_rrf_score: Optional[float] = None,
@@ -497,6 +505,12 @@ class Ryumem:
         kinds: Optional[List[str]] = None,
     ) -> SearchResult:
         """Search the memory system."""
+        # Apply config defaults
+        if strategy is None:
+            strategy = self.config.tool_tracking.similarity_strategy
+        if similarity_threshold is None:
+            similarity_threshold = self.config.tool_tracking.similarity_threshold
+
         payload = {
             "query": query,
             "user_id": user_id,
@@ -625,8 +639,8 @@ class Ryumem:
         agent_type: str = "google_adk",
         enhanced_instruction: Optional[str] = None,
         query_augmentation_template: Optional[str] = None,
-        memory_enabled: bool = False,
-        tool_tracking_enabled: bool = False,
+        memory_enabled: Optional[bool] = None,
+        tool_tracking_enabled: Optional[bool] = None,
     ) -> str:
         """
         Register or update an agent by its base instruction.
@@ -636,12 +650,18 @@ class Ryumem:
             agent_type: Type of agent (e.g., "google_adk", "custom_agent")
             enhanced_instruction: Instruction with memory/tool guidance added
             query_augmentation_template: Template for query augmentation
-            memory_enabled: Whether memory features are enabled
-            tool_tracking_enabled: Whether tool tracking is enabled
+            memory_enabled: Whether memory features are enabled (defaults to config)
+            tool_tracking_enabled: Whether tool tracking is enabled (defaults to config)
 
         Returns:
             UUID of the agent instruction record
         """
+        # Apply config defaults
+        if memory_enabled is None:
+            memory_enabled = self.config.agent.memory_enabled
+        if tool_tracking_enabled is None:
+            tool_tracking_enabled = self.config.tool_tracking.track_tools
+
         payload = {
             "base_instruction": base_instruction,
             "agent_type": agent_type,

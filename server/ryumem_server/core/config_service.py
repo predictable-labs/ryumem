@@ -1,6 +1,6 @@
 """
 Configuration service for managing Ryumem configuration in the database.
-Provides migration from .env to database and runtime configuration management.
+Provides runtime configuration management with database storage.
 """
 
 import json
@@ -9,8 +9,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from dotenv import dotenv_values
-
+from ryumem.core.config import EpisodeConfig
 from ryumem_server.core.config import (
     AgentConfig,
     DatabaseConfig,
@@ -95,159 +94,6 @@ class ConfigService:
         """
         return RyumemConfig()
 
-    def migrate_from_env(self, env_path: Optional[str] = None) -> Tuple[int, int]:
-        """
-        One-time migration: Read .env file and populate database with config values.
-        Uses default values from pydantic models as fallback.
-
-        Args:
-            env_path: Path to .env file (defaults to server/.env)
-
-        Returns:
-            Tuple of (migrated_count, skipped_count)
-        """
-        # Check if already migrated
-        existing_configs = self.db.get_all_configs()
-        if existing_configs:
-            logger.info(f"Configuration already migrated ({len(existing_configs)} configs in DB)")
-            return (0, len(existing_configs))
-
-        logger.info("Starting configuration migration from .env to database...")
-
-        # Load .env file if it exists
-        env_values = {}
-        if env_path and os.path.exists(env_path):
-            env_values = dotenv_values(env_path)
-            logger.info(f"Loaded {len(env_values)} values from {env_path}")
-        elif os.path.exists(".env"):
-            env_values = dotenv_values(".env")
-            logger.info(f"Loaded {len(env_values)} values from .env")
-        else:
-            logger.warning("No .env file found - using default configuration values")
-            logger.warning("To customize: Create a .env file with RYUMEM_* environment variables")
-            logger.warning("Key settings: RYUMEM_LLM_PROVIDER, RYUMEM_LLM_MODEL, RYUMEM_EMBEDDING_PROVIDER, RYUMEM_EMBEDDING_MODEL")
-
-        # Get default config model
-        defaults = self.get_default_configs()
-
-        # ENV variable mapping (from .env names to config keys)
-        env_mapping = {
-            # API Keys
-            "OPENAI_API_KEY": "llm.openai_api_key",
-            "GOOGLE_API_KEY": "llm.gemini_api_key",
-
-            # Database
-            "RYUMEM_DB_PATH": "database.db_path",
-
-            # LLM
-            "RYUMEM_LLM_PROVIDER": "llm.provider",
-            "RYUMEM_LLM_MODEL": "llm.model",
-            "RYUMEM_LLM_OLLAMA_BASE_URL": "llm.ollama_base_url",
-            "RYUMEM_LLM_ENTITY_EXTRACTION_TEMPERATURE": "llm.entity_extraction_temperature",
-            "RYUMEM_LLM_RELATION_EXTRACTION_TEMPERATURE": "llm.relation_extraction_temperature",
-            "RYUMEM_LLM_TOOL_SUMMARIZATION_TEMPERATURE": "llm.tool_summarization_temperature",
-            "RYUMEM_LLM_ENTITY_EXTRACTION_MAX_TOKENS": "llm.entity_extraction_max_tokens",
-            "RYUMEM_LLM_RELATION_EXTRACTION_MAX_TOKENS": "llm.relation_extraction_max_tokens",
-            "RYUMEM_LLM_TOOL_SUMMARIZATION_MAX_TOKENS": "llm.tool_summarization_max_tokens",
-            "RYUMEM_LLM_TIMEOUT_SECONDS": "llm.timeout_seconds",
-            "RYUMEM_LLM_MAX_RETRIES": "llm.max_retries",
-
-            # Embedding
-            "RYUMEM_EMBEDDING_PROVIDER": "embedding.provider",
-            "RYUMEM_EMBEDDING_MODEL": "embedding.model",
-            "RYUMEM_EMBEDDING_DIMENSIONS": "embedding.dimensions",
-            "RYUMEM_EMBEDDING_BATCH_SIZE": "embedding.batch_size",
-            "RYUMEM_EMBEDDING_TIMEOUT_SECONDS": "embedding.timeout_seconds",
-
-            # Entity Extraction
-            "RYUMEM_ENTITY_ENABLED": "entity_extraction.enabled",
-            "RYUMEM_ENTITY_ENTITY_SIMILARITY_THRESHOLD": "entity_extraction.entity_similarity_threshold",
-            "RYUMEM_ENTITY_RELATIONSHIP_SIMILARITY_THRESHOLD": "entity_extraction.relationship_similarity_threshold",
-            "RYUMEM_ENTITY_MAX_CONTEXT_EPISODES": "entity_extraction.max_context_episodes",
-
-            # Search
-            "RYUMEM_SEARCH_DEFAULT_LIMIT": "search.default_limit",
-            "RYUMEM_SEARCH_DEFAULT_STRATEGY": "search.default_strategy",
-            "RYUMEM_SEARCH_MAX_TRAVERSAL_DEPTH": "search.max_traversal_depth",
-            "RYUMEM_SEARCH_RRF_K": "search.rrf_k",
-            "RYUMEM_SEARCH_MIN_RRF_SCORE": "search.min_rrf_score",
-            "RYUMEM_SEARCH_MIN_BM25_SCORE": "search.min_bm25_score",
-
-            # Tool Tracking
-            "RYUMEM_TOOL_TRACKING_TRACK_TOOLS": "tool_tracking.track_tools",
-            "RYUMEM_TOOL_TRACKING_TRACK_QUERIES": "tool_tracking.track_queries",
-            "RYUMEM_TOOL_TRACKING_AUGMENT_QUERIES": "tool_tracking.augment_queries",
-            "RYUMEM_TOOL_TRACKING_SIMILARITY_THRESHOLD": "tool_tracking.similarity_threshold",
-            "RYUMEM_TOOL_TRACKING_TOP_K_SIMILAR": "tool_tracking.top_k_similar",
-
-            # System
-            "RYUMEM_SYSTEM_CORS_ORIGINS": "system.cors_origins",
-            "RYUMEM_SYSTEM_LOG_LEVEL": "system.log_level",
-        }
-
-        # Reverse mapping for quick lookup
-        key_to_env = {v: k for k, v in env_mapping.items()}
-
-        # Iterate through config sections and fields
-        migrated = 0
-        using_defaults = []
-
-        for section_name in defaults.model_fields:
-            # Skip database config (circular dependency)
-            if section_name == "database":
-                continue
-
-            section_value = getattr(defaults, section_name)
-
-            for field_name, field_info in section_value.model_fields.items():
-                key = f"{section_name}.{field_name}"
-                value = getattr(section_value, field_name)
-
-                # Override with env value if present
-                env_key = key_to_env.get(key)
-                if env_key and env_key in env_values:
-                    value = env_values[env_key]
-                else:
-                    # Track important defaults being used
-                    if key in ["llm.provider", "llm.model", "embedding.provider", "embedding.model"]:
-                        using_defaults.append(f"{key}={value}")
-
-                # Infer data type from annotation for serialization
-                ann_str = str(field_info.annotation).lower()
-                if 'bool' in ann_str:
-                    data_type = 'bool'
-                elif 'int' in ann_str and 'float' not in ann_str:
-                    data_type = 'int'
-                elif 'float' in ann_str:
-                    data_type = 'float'
-                elif 'list' in ann_str:
-                    data_type = 'list'
-                else:
-                    data_type = 'string'
-
-                # Detect sensitive fields
-                is_sensitive = any(s in field_name.lower() for s in ['key', 'secret', 'token', 'password'])
-
-                # Save to database
-                self.db.save_config(
-                    key=key,
-                    value=self._serialize_value(value, data_type),
-                    category=section_name,
-                    data_type=data_type,
-                    is_sensitive=is_sensitive,
-                    description=field_info.description or f"{section_name} {field_name}"
-                )
-                migrated += 1
-
-        logger.info(f"Migration complete: {migrated} configs saved to database")
-
-        # Warn about important defaults being used
-        if using_defaults and not env_values:
-            logger.warning(f"Using default values for: {', '.join(using_defaults)}")
-            logger.warning("Consider setting these in .env for your use case")
-
-        return (migrated, 0)
-
     def load_config_from_database(self) -> RyumemConfig:
         """
         Load configuration from database and construct a RyumemConfig instance.
@@ -331,6 +177,14 @@ class ConfigService:
             max_context_episodes=get_value("entity_extraction.max_context_episodes", 5),
         )
 
+        episode_config = EpisodeConfig(
+            enable_embeddings=get_value("episode.enable_embeddings", True),
+            deduplication_enabled=get_value("episode.deduplication_enabled", True),
+            similarity_threshold=get_value("episode.similarity_threshold", 0.95),
+            bm25_similarity_threshold=get_value("episode.bm25_similarity_threshold", 0.7),
+            time_window_hours=get_value("episode.time_window_hours", 24),
+        )
+
         search_config = SearchConfig(
             default_limit=get_value("search.default_limit", 10),
             default_strategy=get_value("search.default_strategy", "hybrid"),
@@ -370,6 +224,7 @@ class ConfigService:
             llm=llm_config,
             embedding=embedding_config,
             entity_extraction=entity_extraction_config,
+            episode=episode_config,
             search=search_config,
             tool_tracking=tool_tracking_config,
             agent=agent_config,

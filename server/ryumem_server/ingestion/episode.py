@@ -18,6 +18,7 @@ from ryumem_server.utils.llm import LLMClient
 
 if TYPE_CHECKING:
     from ryumem_server.retrieval.bm25 import BM25Index
+    from ryumem.core.config import EpisodeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class EpisodeIngestion:
         max_context_episodes: int = 5,
         bm25_index: Optional["BM25Index"] = None,
         enable_entity_extraction: bool = False,
+        episode_config: Optional["EpisodeConfig"] = None,
     ):
         """
         Initialize episode ingestion pipeline.
@@ -50,13 +52,17 @@ class EpisodeIngestion:
             max_context_episodes: Maximum number of previous episodes to use as context
             bm25_index: Optional BM25 index for keyword search
             enable_entity_extraction: Whether to enable entity extraction (default: False)
+            episode_config: Episode configuration (default: creates new with defaults)
         """
+        from ryumem.core.config import EpisodeConfig
+
         self.db = db
         self.llm_client = llm_client
         self.embedding_client = embedding_client
         self.max_context_episodes = max_context_episodes
         self.bm25_index = bm25_index
         self.enable_entity_extraction = enable_entity_extraction
+        self.episode_config = episode_config if episode_config is not None else EpisodeConfig()
 
         # Initialize extractors
         self.entity_extractor = EntityExtractor(
@@ -87,6 +93,7 @@ class EpisodeIngestion:
         metadata: Optional[Dict] = None,
         name: Optional[str] = None,
         extract_entities: Optional[bool] = None,
+        episode_config_override: Optional["EpisodeConfig"] = None,
     ) -> str:
         """
         Ingest a new episode and extract entities/relationships.
@@ -120,12 +127,38 @@ class EpisodeIngestion:
         # Per-request override takes precedence over instance setting
         should_extract_entities = extract_entities if extract_entities is not None else self.enable_entity_extraction
 
-        # Check for duplicate episode FIRST (before expensive LLM calls)
-        existing_episode = self.db.find_similar_episode(
-            content=content,
-            user_id=user_id,
-            time_window_hours=24,
-        )
+        # Use override config if provided, otherwise use instance config
+        config = episode_config_override if episode_config_override is not None else self.episode_config
+
+        start_time = datetime.utcnow()
+
+        # Generate embedding if enabled (for semantic duplicate detection)
+        if config.enable_embeddings:
+            content_embedding = self.embedding_client.embed(content)
+        else:
+            content_embedding = None
+
+        # Check for duplicate episode if deduplication enabled
+        existing_episode = None
+        if config.deduplication_enabled:
+            if config.enable_embeddings:
+                # Use semantic similarity (embedding-based)
+                existing_episode = self.db.find_similar_episode(
+                    content=content,
+                    content_embedding=content_embedding,
+                    user_id=user_id,
+                    time_window_hours=config.time_window_hours,
+                    similarity_threshold=config.similarity_threshold,
+                )
+            else:
+                # Use BM25 keyword similarity
+                existing_episode = self.db.find_similar_episode_bm25(
+                    content=content,
+                    user_id=user_id,
+                    bm25_index=self.bm25_index,
+                    time_window_hours=config.time_window_hours,
+                    similarity_threshold=config.bm25_similarity_threshold,
+                )
 
         if existing_episode:
             logger.info(
@@ -135,7 +168,6 @@ class EpisodeIngestion:
             )
             return existing_episode["uuid"]
 
-        start_time = datetime.utcnow()
         step_start = start_time
 
         # Generate episode UUID
@@ -146,10 +178,6 @@ class EpisodeIngestion:
             name = f"Episode {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
 
         logger.info(f"Starting ingestion for episode {episode_uuid}")
-
-        # Step 1: Create episode node and generate content embedding
-        # Generate embedding for episode content
-        content_embedding = self.embedding_client.embed(content)
 
         # Ensure metadata includes session_id if provided
         episode_metadata = metadata.copy() if metadata else {}
