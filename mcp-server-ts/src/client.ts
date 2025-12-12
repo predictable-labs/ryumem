@@ -27,7 +27,6 @@ export interface AddEpisodeParams {
   source?: 'text' | 'message' | 'json';
   metadata?: Record<string, any>;
   agent_id?: string;
-  extract_entities?: boolean;
 }
 
 

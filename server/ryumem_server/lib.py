@@ -98,7 +98,10 @@ class Ryumem:
         from ryumem_server.core.config_service import ConfigService
         self.config_service = ConfigService(self.db)
 
-        # Load config from database (uses Pydantic defaults if DB is empty)
+        # Ensure default configs are in database (no-op if already populated)
+        self.config_service.ensure_defaults_in_database()
+
+        # Load config from database (now guaranteed to have values)
         # This ensures we use the database as the source of truth
         db_config = self.config_service.load_config_from_database()
         

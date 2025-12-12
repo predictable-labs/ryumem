@@ -98,10 +98,6 @@ export const TOOLS = [
           type: 'string',
           description: 'Agent identifier',
         },
-        extract_entities: {
-          type: 'boolean',
-          description: 'Enable entity extraction (default: server config)',
-        },
       },
       required: ['content', 'user_id', 'session_id'],
     },
