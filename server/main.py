@@ -774,6 +774,22 @@ async def update_episode_metadata(
         raise HTTPException(status_code=500, detail=f"Error updating metadata: {str(e)}")
 
 
+@app.delete("/episodes/{episode_uuid}", response_model=Dict[str, Any])
+async def delete_episode(
+    episode_uuid: str,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Delete an episode by UUID.
+    """
+    try:
+        result = ryumem.db.delete_episode(episode_uuid)
+        return result
+    except Exception as e:
+        logger.error(f"Error deleting episode: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting episode: {str(e)}")
+
+
 @app.post("/cypher/execute", response_model=CypherResponse)
 async def execute_cypher(
     request: CypherRequest,

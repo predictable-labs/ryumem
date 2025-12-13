@@ -66,6 +66,23 @@ export interface PruneMemoriesParams {
   compact_redundant?: boolean;
 }
 
+export interface ListAgentInstructionsParams {
+  agent_type?: string;
+  limit?: number;
+}
+
+export interface AgentInstruction {
+  instruction_id: string;
+  base_instruction: string;
+  enhanced_instruction?: string;
+  query_augmentation_template?: string;
+  agent_type: string;
+  memory_enabled?: boolean;
+  tool_tracking_enabled?: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export class RyumemClient {
   private config: RyumemConfig;
 
@@ -155,5 +172,30 @@ export class RyumemClient {
 
   async pruneMemories(params: PruneMemoriesParams): Promise<any> {
     return this.request('/prune', 'POST', params);
+  }
+
+  async listAgentInstructions(params: ListAgentInstructionsParams = {}): Promise<AgentInstruction[]> {
+    const queryParams = new URLSearchParams();
+    if (params.agent_type) {
+      queryParams.append('agent_type', params.agent_type);
+    }
+    if (params.limit !== undefined) {
+      queryParams.append('limit', String(params.limit));
+    }
+
+    const query = queryParams.toString();
+    const endpoint = query ? `/agent-instructions?${query}` : '/agent-instructions';
+    return this.request<AgentInstruction[]>(endpoint, 'GET');
+  }
+
+  async saveAgentInstruction(params: {
+    base_instruction: string;
+    agent_type?: string;
+    enhanced_instruction?: string;
+    query_augmentation_template?: string;
+    memory_enabled?: boolean;
+    tool_tracking_enabled?: boolean;
+  }): Promise<AgentInstruction> {
+    return this.request<AgentInstruction>('/agent-instructions', 'POST', params);
   }
 }

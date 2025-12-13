@@ -1249,6 +1249,27 @@ class RyugraphDB:
 
         return self.execute(query, params)
 
+    def delete_episode(self, episode_uuid: str) -> Dict[str, Any]:
+        """
+        Delete an episode and all its relationships.
+
+        Args:
+            episode_uuid: UUID of the episode to delete
+
+        Returns:
+            Result dictionary with deletion confirmation
+        """
+        query = """
+        MATCH (e:Episode {uuid: $uuid})
+        DETACH DELETE e
+        RETURN $uuid AS deleted_uuid
+        """
+
+        params = {"uuid": episode_uuid}
+        result = self.execute(query, params)
+
+        return {"success": True, "deleted_uuid": episode_uuid}
+
     def get_all_entities(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get all entities, optionally filtered by user.

@@ -16,100 +16,144 @@ import { TOOLS } from './tools.js';
 
 const DEFAULT_API_URL = 'https://api.ryumem.io';
 
-const INSTRUCTIONS = `Ryumem is a bi-temporal knowledge graph memory system. To provide persistent memory across conversations:
+const INSTRUCTIONS = `⚠️ MEMORY FIRST - NON-NEGOTIABLE ⚠️
 
-0. **Session Initialization**: At the start of EVERY conversation (even if user just says "hi"):
-   - Determine the project name from the working directory or context (e.g., "myapp", "company-platform")
-   - IMMEDIATELY use search_memory to find relevant context:
-     - Search for "user preferences coding standards recent work" with strategy='bm25'
-     - Use the project name as user_id (NEVER use personal names, always use project/workspace identifier)
-     - Set similarity_threshold=0.3 for broad recall
-   - ALSO use list_episodes with the project name as user_id to read recent episodes
-   - Look for user preferences, coding standards, past decisions, and context
-   - Episodes may contain important information about:
-     - User's coding preferences and standards
-     - Project-specific conventions and patterns
-     - Past decisions and their rationale
-     - Important technical context from previous sessions
-   - Apply learned preferences throughout the conversation
+EVERY conversation MUST start with the 3 required searches. NO EXCEPTIONS.
+EVERY file access MUST search memory first. Reading files directly wastes context.
 
-1. **Automatic Memory Saving with Rich Metadata**: Periodically save important context using add_episode:
-   - Save key decisions, facts learned, and important exchanges
-   - Use project/workspace name as user_id for project-scoped memories
-   - Use descriptive session_id for conversation context (e.g., "bug_fix_2025_12_12", "feature_planning")
-   - Use kind='memory' for facts, kind='query' for questions/requests
-   - **CRITICAL - Always include comprehensive metadata tagging**:
-     - type: Category like "user_preferences", "bug_fix", "api_documentation", "infrastructure", "technical_investigation"
-     - tags: Array of specific, searchable keywords (e.g., ["authentication", "api", "database", "performance"])
-     - category: Broad category like "system_architecture", "methodology", "resolution"
-     - importance: "high", "medium", or "low" to prioritize critical information
-     - status: Current state like "resolved", "investigating", "pending" for tracking
-     - relates_to: Array of related components for connecting information
-   - **Example good metadata**:
-     {
-       "type": "bug_fix",
-       "tags": ["search", "performance", "configuration"],
-       "category": "resolution",
-       "importance": "high",
-       "status": "resolved",
-       "relates_to": ["search_system", "api"]
-     }
-   - **Save user preferences**: When user expresses preferences about code style, tools, or workflows, save with type="user_preferences" and relevant tags
+═══════════════════════════════════════════════════════════
+0. STARTUP - REQUIRED (Run these 3 searches IMMEDIATELY)
+═══════════════════════════════════════════════════════════
 
-2. **Memory Retrieval with Fallback Strategies**: Use search_memory to recall relevant past context:
-   - Always use the project/workspace name as user_id when searching
-   - **CRITICAL: Search memory BEFORE reading files** - Code, APIs, and configurations may already be indexed
-     - Before reading files or exploring code, search for relevant information using tags and keywords
-     - If found in memory, use that information instead of re-reading files
-     - Only read files if memory search returns no results or outdated information
-     - This reduces redundant file operations and leverages indexed knowledge
-   - Search before answering questions that might benefit from history
-   - **Search Strategy Selection**:
-     - strategy='bm25': Use for keyword/text matching (reliable for most queries, works with or without embeddings)
-     - strategy='hybrid': Combines semantic + keyword + graph (best results when embeddings enabled, but may need threshold adjustments)
-     - strategy='semantic': Requires embeddings enabled on server (check if results are empty)
-   - **Tag-Based Filtering**:
-     - Use tags parameter to filter episodes by metadata tags: tags=["authentication", "bug_fix"]
-     - tag_match_mode='any': Find episodes with at least one matching tag (default, more permissive)
-     - tag_match_mode='all': Find episodes with all specified tags (stricter filtering)
-     - Tags are case-insensitive and exact-match
-     - Examples: tags=["python", "async"] with mode='any' finds episodes tagged with python OR async
-   - **Handling Empty Results**:
-     - If search returns no results, try these in order:
-       1. Switch to strategy='bm25' (more reliable)
-       2. Lower similarity_threshold to 0.1 or 0.0
-       3. Try different/broader search keywords or tags
-       4. Use list_episodes to browse recent memories
-       5. Search by tags in metadata if you know them
-   - Set appropriate similarity_threshold:
-     - 0.1-0.3 for very broad exploration
-     - 0.3-0.5 for standard recall
-     - 0.6+ for precise matches when you know exactly what to find
+Determine project name from working directory (e.g., "myapp", "ryumem").
+Use user_id = project_name.
 
-3. **Best Practices**:
-   - Save conversations in logical chunks (per topic or decision point, not every message)
-   - Always provide meaningful content in episodes (avoid saving empty or trivial exchanges)
-   - **Use rich, specific metadata tags** - this is the most important factor for future searchability
-   - Tag by multiple dimensions: type, component, status, priority, technology, problem area
-   - Be specific with tags: use "database_migration" not just "database", "jwt_authentication" not just "auth"
-   - Check entity_context to understand relationships between people/concepts
-   - Store user preferences separately with clear metadata for easy retrieval
-   - When documenting technical details, include file paths, configuration keys, and specific values
+🚨 REQUIRED - Run these 3 searches at the START of EVERY conversation:
+1. search_memory("project summary", {user_id, tags: ["project"], limit: 1})
+2. search_memory("user preferences", {user_id, tags: ["preferences"], limit: 3})
+3. search_memory("recent decisions", {user_id, tags: ["decision"], limit: 2})
 
-4. **Multi-step Workflows**:
-   - For bulk operations: use batch_add_episodes instead of multiple add_episode calls
-   - For entity exploration: get_entity_context before searching memories about that entity
-   - For cleanup: periodically use prune_memories to remove low-value data
+If you skip these searches, you will:
+- Miss critical user preferences and waste their time
+- Repeat past mistakes and decisions
+- Provide solutions that don't match their coding style
+- Force them to re-explain context
 
-5. **Troubleshooting Search Issues**:
-   - If search consistently returns empty, the server may have embeddings disabled - use strategy='bm25'
-   - Only recently created episodes may be indexed - older memories might not be searchable
-   - Check that you're using the correct user_id (should match project/workspace name)
-   - Verify metadata tags are being saved - use list_episodes to check recent episode structure`;
+═══════════════════════════════════════════════════════════
+1. CODE FILES - ALWAYS Search Before Reading
+═══════════════════════════════════════════════════════════
+
+🚨 MANDATORY workflow for ANY file access:
+
+Step 1: search_memory("path/to/file.ext", {tags: ["code"], limit: 1})
+
+Step 2:
+  → Summary found? → Use it, SKIP reading the file
+  → No summary? → Read file, IMMEDIATELY store summary (< 200 words)
+
+After reading ANY file, you MUST run:
+add_episode({
+  content: "path/to/file.ext: {purpose}. Key: {exports/classes}. Notable: {details}",
+  user_id, session_id,
+  kind: "memory",
+  metadata: {type: "code_summary", tags: ["code", "backend"|"frontend", domain], file_path: "path/to/file.ext"}
+})
+
+WHY: Re-reading files bloats context. Summaries are 10x more efficient.
+
+═══════════════════════════════════════════════════════════
+2. WHEN TO SEARCH MEMORY - Use Aggressively
+═══════════════════════════════════════════════════════════
+
+Search memory BEFORE:
+✓ Reading any file
+✓ Making implementation decisions
+✓ Answering questions about the codebase
+✓ Updating user preferences
+✓ Starting any multi-step task
+✓ Exploring unfamiliar code areas
+
+Search limits:
+- Code summaries: limit: 1
+- Preferences: limit: 3
+- Decisions: limit: 2
+- General queries: limit: 5
+
+Strategy: "bm25" (default) | "hybrid" | "semantic"
+
+═══════════════════════════════════════════════════════════
+3. WHAT TO STORE - Be Proactive
+═══════════════════════════════════════════════════════════
+
+Keep ALL content under 200 words. Store liberally.
+
+A. Code Summaries (AFTER every file read)
+   Tags: ["code", "backend"|"frontend", domain]
+   Format: "{file}: {purpose}. Key: {exports}. Notable: {details}"
+
+B. User Preferences (Update frequently as you learn)
+   Tags: ["preferences", category]
+   Examples: coding style, testing, security, tools, development
+
+   🚨 CRITICAL - Updating Preferences:
+   1. ALWAYS search for existing preferences first
+   2. Get COMPLETE existing content
+   3. Merge ALL previous + new info
+   4. NEVER create partial preferences
+
+C. Decisions (Store architecture choices, trade-offs)
+   Tags: ["decision", domain]
+   Why choices were made, affected files, alternatives considered
+
+D. Project Context (Store project structure, patterns)
+   Tags: ["project"]
+   Stack, architecture, key patterns, folder structure
+
+═══════════════════════════════════════════════════════════
+4. METADATA - Required Fields
+═══════════════════════════════════════════════════════════
+
+REQUIRED:
+- type: "code_summary" | "preferences" | "decision" | "project" | "issue"
+- tags: 2-3 tags (lowercase)
+
+OPTIONAL:
+- file_path: for code summaries
+- relates_to: related files
+
+session_id: "feature-name" or "context-name"
+
+═══════════════════════════════════════════════════════════
+5. PREVENT DUPLICATES - Always Merge
+═══════════════════════════════════════════════════════════
+
+WORKFLOW for updates:
+1. Search for existing content (limit: 1)
+2. If exists → Get full episode → Merge with new info → Create new episode
+3. If not exists → Create new
+
+NEVER:
+- Create duplicate partial content
+- Update without searching first
+- Lose information when updating
+
+═══════════════════════════════════════════════════════════
+6. LIMITS - Stay Within Budget
+═══════════════════════════════════════════════════════════
+
+- Searches per conversation: < 8
+- Results per search: ≤ 5
+- Episodes created: < 15
+- Episode content: < 200 words
+
+═══════════════════════════════════════════════════════════
+🎯 GOLDEN RULE: Memory first, files last. Always.
+═══════════════════════════════════════════════════════════`;
 
 class RyumemMCPServer {
   private server: Server;
   private client: RyumemClient;
+  private instructions: string;
 
   constructor() {
     const apiUrl = process.env.RYUMEM_API_URL || DEFAULT_API_URL;
@@ -120,6 +164,7 @@ class RyumemMCPServer {
     }
 
     this.client = new RyumemClient({ apiUrl, apiKey });
+    this.instructions = INSTRUCTIONS; // Default instructions
 
     this.server = new Server(
       {
@@ -130,11 +175,127 @@ class RyumemMCPServer {
         capabilities: {
           tools: {},
         },
-        instructions: INSTRUCTIONS,
+        instructions: this.instructions,
       }
     );
 
     this.setupHandlers();
+  }
+
+  /**
+   * Fetch agent instructions from the database.
+   * Fallback hierarchy: API -> Memory -> Default instructions
+   */
+  private async fetchInstructions(): Promise<void> {
+    try {
+      console.error('Fetching MCP agent instructions...');
+
+      // Step 1: Try to get instructions from the API
+      const instructions = await this.client.listAgentInstructions({
+        agent_type: 'mcp',
+        limit: 1,
+      });
+
+      if (instructions && instructions.length > 0) {
+        const instruction = instructions[0];
+        // Use enhanced_instruction if available, otherwise use base_instruction
+        this.instructions = instruction.enhanced_instruction || instruction.base_instruction;
+        console.error(`✓ Loaded MCP instructions from database (ID: ${instruction.instruction_id})`);
+        return;
+      }
+
+      console.error('No MCP instructions found in database');
+
+      // Step 2: Try to get instructions from memory (stored summaries)
+      try {
+        const memoryResults = await this.client.searchMemory({
+          query: 'mcp server instructions agent behavior',
+          user_id: 'ryumem-system',
+          strategy: 'bm25',
+          limit: 1,
+          tags: ['project', 'preferences'],
+        });
+
+        if (memoryResults && memoryResults.episodes && memoryResults.episodes.length > 0) {
+          this.instructions = memoryResults.episodes[0].content;
+          console.error('✓ Loaded MCP instructions from memory');
+          return;
+        }
+      } catch (memError) {
+        console.error('Failed to fetch from memory:', memError instanceof Error ? memError.message : String(memError));
+      }
+
+      console.error('✓ Using default MCP instructions');
+    } catch (error) {
+      console.error('Failed to fetch instructions, using defaults:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
+   * Save default instructions to the database for future use.
+   * This creates a persistent configuration that can be customized later.
+   */
+  private async saveDefaultInstructions(): Promise<void> {
+    // Only save if we're using default instructions (not loaded from database or memory)
+    if (this.instructions !== INSTRUCTIONS) {
+      return;
+    }
+
+    try {
+      // Check if instructions already exist
+      const existing = await this.client.listAgentInstructions({
+        agent_type: 'mcp',
+        limit: 1,
+      });
+
+      if (existing && existing.length > 0) {
+        // Instructions already exist, don't overwrite
+        return;
+      }
+
+      // Save default instructions to database
+      console.error('Saving default MCP instructions to database...');
+      await this.client.saveAgentInstruction({
+        base_instruction: INSTRUCTIONS,
+        agent_type: 'mcp',
+        enhanced_instruction: INSTRUCTIONS,
+        memory_enabled: true,
+        tool_tracking_enabled: false,
+      });
+
+      console.error('✓ Default MCP instructions saved to database');
+
+      // Also save to memory as a backup
+      await this.saveInstructionsToMemory();
+    } catch (error) {
+      // This is not critical - we can still run with default instructions
+      console.error('Note: Could not save default instructions (write access may be required):',
+        error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
+   * Store instructions in memory for faster retrieval and redundancy.
+   */
+  private async saveInstructionsToMemory(): Promise<void> {
+    try {
+      await this.client.addEpisode({
+        content: this.instructions,
+        user_id: 'ryumem-system',
+        session_id: 'mcp-server-instructions',
+        kind: 'memory',
+        source: 'text',
+        metadata: {
+          type: 'agent_instruction',
+          agent_type: 'mcp',
+          tags: ['project', 'preferences'],
+        },
+      });
+      console.error('✓ MCP instructions backed up to memory');
+    } catch (error) {
+      console.error('Note: Could not save instructions to memory:',
+        error instanceof Error ? error.message : String(error));
+    }
   }
 
   private setupHandlers(): void {
@@ -199,6 +360,10 @@ class RyumemMCPServer {
   }
 
   async run(): Promise<void> {
+    // Fetch instructions before starting the server
+    await this.fetchInstructions();
+    await this.saveDefaultInstructions();
+
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     console.error('Ryumem MCP server running on stdio');

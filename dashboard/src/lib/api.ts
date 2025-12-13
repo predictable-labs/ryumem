@@ -271,6 +271,19 @@ class RyumemAPI {
     return this.request(`/episodes?${params}`);
   }
 
+  async updateEpisodeMetadata(episodeUuid: string, metadata: Record<string, any>) {
+    return this.request(`/episodes/${episodeUuid}/metadata`, {
+      method: 'PATCH',
+      body: JSON.stringify({ metadata }),
+    });
+  }
+
+  async deleteEpisode(episodeUuid: string) {
+    return this.request(`/episodes/${episodeUuid}`, {
+      method: 'DELETE',
+    });
+  }
+
   async search(query: SearchQuery): Promise<SearchResult> {
     return this.request('/search', {
       method: 'POST',
