@@ -98,7 +98,10 @@ class Ryumem:
         from ryumem_server.core.config_service import ConfigService
         self.config_service = ConfigService(self.db)
 
-        # Load config from database (uses Pydantic defaults if DB is empty)
+        # Ensure default configs are in database (no-op if already populated)
+        self.config_service.ensure_defaults_in_database()
+
+        # Load config from database (now guaranteed to have values)
         # This ensures we use the database as the source of truth
         db_config = self.config_service.load_config_from_database()
         
@@ -403,6 +406,8 @@ class Ryumem:
         min_bm25_score: Optional[float] = None,
         rrf_k: Optional[int] = None,
         kinds: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        tag_match_mode: str = 'any',
     ) -> SearchResult:
         """
         Search the memory system.
@@ -446,6 +451,8 @@ class Ryumem:
             similarity_threshold=similarity_threshold,
             max_depth=max_depth,
             kinds=kinds,
+            tags=tags,
+            tag_match_mode=tag_match_mode,
         )
 
         # Override with explicit parameters if provided

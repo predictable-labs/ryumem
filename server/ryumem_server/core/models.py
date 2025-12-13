@@ -258,17 +258,26 @@ class SearchConfig(BaseModel):
         le=100
     )
     min_rrf_score: float = Field(
-        default=0.025,
+        default=0.001,
         description='Minimum RRF score threshold for hybrid search results (filters weak matches)',
         ge=0.0,
         le=1.0
     )
     # BM25 settings
     min_bm25_score: float = Field(
-        default=0.1,
+        default=0.01,
         description='Minimum BM25 score threshold for keyword search results (higher = stricter)',
         ge=0.0,
         le=20.0
+    )
+    # Tag filtering
+    tags: list[str] | None = Field(
+        default=None,
+        description='Filter episodes by metadata tags'
+    )
+    tag_match_mode: str = Field(
+        default='any',
+        description='Tag matching: "any" (at least one tag matches) or "all" (all tags must match)'
     )
 
 

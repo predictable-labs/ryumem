@@ -26,6 +26,66 @@ from ryumem_server.core.graph_db import RyugraphDB
 logger = logging.getLogger(__name__)
 
 
+def extract_config_fields(config: RyumemConfig) -> List[Dict[str, Any]]:
+    """
+    Extract all config fields from a RyumemConfig instance.
+    Dynamically introspects the config model to get all fields with metadata.
+
+    Args:
+        config: RyumemConfig instance to introspect
+
+    Returns:
+        List of dicts with keys: key, value, category, data_type, is_sensitive, description
+    """
+    fields = []
+
+    # Iterate through all config sections
+    for section_name in config.model_fields:
+        # Skip database config (circular dependency - can't store db path in the db)
+        if section_name == "database":
+            continue
+
+        section_value = getattr(config, section_name)
+
+        # Iterate through fields in each section
+        for field_name, field_info in section_value.model_fields.items():
+            key = f"{section_name}.{field_name}"
+            value = getattr(section_value, field_name)
+
+            # Infer data type from type annotation
+            ann_str = str(field_info.annotation).lower()
+            if 'bool' in ann_str:
+                data_type = 'bool'
+            elif 'int' in ann_str and 'float' not in ann_str:
+                data_type = 'int'
+            elif 'float' in ann_str:
+                data_type = 'float'
+            elif 'list' in ann_str:
+                data_type = 'list'
+            else:
+                data_type = 'string'
+
+            # Detect sensitive fields (API keys, passwords, tokens, secrets)
+            is_sensitive = any(
+                s in field_name.lower()
+                for s in ['key', 'secret', 'token', 'password']
+            )
+
+            # Get description
+            description = field_info.description or f"{section_name} {field_name}"
+
+            fields.append({
+                'key': key,
+                'value': value,
+                'category': section_name,
+                'data_type': data_type,
+                'is_sensitive': is_sensitive,
+                'description': description
+            })
+
+    return fields
+
+
 class ConfigService:
     """
     Service for managing system configuration stored in the database.
@@ -233,6 +293,46 @@ class ConfigService:
 
         logger.info("Loaded configuration from database")
         return config
+
+    def ensure_defaults_in_database(self) -> int:
+        """
+        Ensure all default configuration values are stored in the database.
+        Called on startup to populate the database with defaults if empty.
+
+        Returns:
+            Number of configs saved
+        """
+        # Check if database already has configs
+        existing = self.db.get_all_configs()
+        if existing:
+            logger.debug(f"Database already has {len(existing)} configs, skipping defaults")
+            return 0
+
+        logger.info("Populating database with default configuration values...")
+
+        # Get default config and extract all fields
+        defaults = self.get_default_configs()
+        fields = extract_config_fields(defaults)
+
+        # Save each field to database
+        count = 0
+        for field in fields:
+            try:
+                value_str = self._serialize_value(field['value'], field['data_type'])
+                self.db.save_config(
+                    key=field['key'],
+                    value=value_str,
+                    category=field['category'],
+                    data_type=field['data_type'],
+                    is_sensitive=field['is_sensitive'],
+                    description=field['description']
+                )
+                count += 1
+            except Exception as e:
+                logger.warning(f"Failed to save default config {field['key']}: {e}")
+
+        logger.info(f"Saved {count} default configs to database")
+        return count
 
     def get_all_configs_grouped(self, mask_sensitive: bool = True) -> Dict[str, List[Dict[str, Any]]]:
         """

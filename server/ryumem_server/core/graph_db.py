@@ -613,7 +613,7 @@ class RyugraphDB:
                         uuid=row['uuid'],
                         name=row['name'],
                         content=row['content'],
-                        content_embedding=row.get('content_embedding'),
+                        content_embedding=clean_value(row.get('content_embedding')),
                         source=EpisodeType(row['source']),
                         source_description=row['source_description'],
                         created_at=row['created_at'],
@@ -655,8 +655,9 @@ class RyugraphDB:
 
         query += """
         RETURN target.uuid AS uuid,
+               target.name AS name,
                target.content AS content,
-               target.embedding AS embedding,
+               target.content_embedding AS content_embedding,
                target.source AS source,
                target.source_description AS source_description,
                target.created_at AS created_at,
@@ -678,6 +679,17 @@ class RyugraphDB:
 
         for row in results:
             try:
+                from ryumem_server.core.models import EpisodeType
+                import math
+
+                # Helper to clean nan/None values
+                def clean_value(val):
+                    if val is None:
+                        return None
+                    if isinstance(val, float) and math.isnan(val):
+                        return None
+                    return val
+
                 metadata = None
                 if row.get('metadata'):
                     metadata_str = row['metadata']
@@ -685,15 +697,16 @@ class RyugraphDB:
 
                 episode = EpisodeNode(
                     uuid=row['uuid'],
+                    name=row['name'],
                     content=row['content'],
-                    embedding=row.get('embedding'),
-                    source=row['source'],
-                    source_description=row.get('source_description'),
+                    content_embedding=clean_value(row.get('content_embedding')),
+                    source=EpisodeType(row['source']),
+                    source_description=row.get('source_description', ''),
                     created_at=row['created_at'],
                     valid_at=row.get('valid_at'),
-                    user_id=row.get('user_id'),
-                    agent_id=row.get('agent_id'),
-                    metadata=metadata,
+                    user_id=clean_value(row.get('user_id')),
+                    agent_id=clean_value(row.get('agent_id')),
+                    metadata=metadata or {},
                     entity_edges=row.get('entity_edges', []),
                 )
                 episodes.append(episode)
@@ -756,6 +769,8 @@ class RyugraphDB:
         limit: int = 10,
         kinds: Optional[List[str]] = None,
         time_cutoff: Optional[Any] = None,
+        tags: Optional[List[str]] = None,
+        tag_match_mode: str = 'any',
     ) -> List[Dict[str, Any]]:
         """
         Search for episodes similar to the given embedding.
@@ -767,6 +782,8 @@ class RyugraphDB:
             limit: Maximum number of results
             kinds: Filter by episode kinds (e.g., ['query'], ['memory'], or None for all)
             time_cutoff: Optional datetime cutoff - only return episodes created after this time
+            tags: Optional list of tags to filter by
+            tag_match_mode: Tag matching mode - 'any' (at least one tag) or 'all' (all tags)
 
         Returns:
             List of similar episodes with similarity scores
@@ -817,7 +834,39 @@ class RyugraphDB:
         if time_cutoff is not None:
             params["time_cutoff"] = time_cutoff
 
-        return self.execute(query, params)
+        # Execute query
+        raw_results = self.execute(query, params)
+
+        # Application-level tag filtering
+        if tags:
+            import json
+            query_tags = {tag.lower() for tag in tags}
+            filtered_results = []
+
+            for result in raw_results:
+                metadata = result.get("metadata")
+                if metadata:
+                    try:
+                        # Handle both dict and JSON string metadata
+                        metadata_dict = metadata if isinstance(metadata, dict) else json.loads(metadata)
+                        episode_tags = {str(tag).lower() for tag in metadata_dict.get("tags", []) if tag}
+
+                        # Apply tag matching
+                        if tag_match_mode == 'all':
+                            # All query tags must be present
+                            if query_tags.issubset(episode_tags):
+                                filtered_results.append(result)
+                        else:  # 'any' mode
+                            # At least one query tag must match
+                            if query_tags & episode_tags:
+                                filtered_results.append(result)
+                    except (json.JSONDecodeError, TypeError, AttributeError):
+                        # Skip episodes with malformed metadata
+                        continue
+
+            return filtered_results
+
+        return raw_results
 
     def search_similar_edges(
         self,
@@ -1199,6 +1248,27 @@ class RyugraphDB:
         }
 
         return self.execute(query, params)
+
+    def delete_episode(self, episode_uuid: str) -> Dict[str, Any]:
+        """
+        Delete an episode and all its relationships.
+
+        Args:
+            episode_uuid: UUID of the episode to delete
+
+        Returns:
+            Result dictionary with deletion confirmation
+        """
+        query = """
+        MATCH (e:Episode {uuid: $uuid})
+        DETACH DELETE e
+        RETURN $uuid AS deleted_uuid
+        """
+
+        params = {"uuid": episode_uuid}
+        result = self.execute(query, params)
+
+        return {"success": True, "deleted_uuid": episode_uuid}
 
     def get_all_entities(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """

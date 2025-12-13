@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-type Category = 'api_keys' | 'llm' | 'embedding' | 'entity_extraction' | 'search' | 'tool_tracking';
+type Category = 'api_keys' | 'llm' | 'embedding' | 'entity_extraction' | 'episode' | 'search' | 'tool_tracking' | 'agent' | 'system';
 
 interface SettingsState {
   [key: string]: any;
@@ -267,9 +267,12 @@ export default function SettingsPage() {
     { id: 'api_keys', label: 'API Keys' },
     { id: 'llm', label: 'LLM' },
     { id: 'embedding', label: 'Embedding' },
+    { id: 'episode', label: 'Episode' },
     { id: 'search', label: 'Search' },
     { id: 'entity_extraction', label: 'Entity Extraction' },
     { id: 'tool_tracking', label: 'Tool Tracking' },
+    { id: 'agent', label: 'Agent' },
+    { id: 'system', label: 'System' },
   ];
 
   const hasChanges = Object.keys(changedFields).length > 0;

@@ -149,6 +149,8 @@ class SearchEngine:
             threshold=config.similarity_threshold,
             limit=config.limit,
             kinds=config.kinds,
+            tags=config.tags,
+            tag_match_mode=config.tag_match_mode,
         )
         logger.debug(f"📊 Found {len(episode_results)} similar episodes")
 
@@ -434,6 +436,8 @@ class SearchEngine:
         episode_results = self.bm25_index.search_episodes(
             query=config.query,
             top_k=config.limit,
+            tags=config.tags,
+            tag_match_mode=config.tag_match_mode,
         )
 
         # Fetch full entity objects from database

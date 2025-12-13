@@ -63,6 +63,7 @@ class BM25Index:
         self.episode_uuids: List[str] = []
         self.episode_corpus: List[List[str]] = []
         self.episode_bm25: Optional[BM25Okapi] = None
+        self.episode_tags: Dict[str, set] = {}  # uuid → set of tags
 
         logger.info("BM25Index initialized")
 
@@ -136,11 +137,18 @@ class BM25Index:
         """
         # Collect text to index: episode content + memories from metadata
         texts_to_index = [episode.content]
+        tags: set = set()
 
-        # Extract memories from episode metadata if present
+        # Extract memories and tags from episode metadata if present
         if episode.metadata:
             import json
             metadata_dict = episode.metadata if isinstance(episode.metadata, dict) else json.loads(episode.metadata)
+
+            # Extract tags for filtering
+            if 'tags' in metadata_dict and isinstance(metadata_dict['tags'], list):
+                # Normalize tags to lowercase for case-insensitive matching
+                tags = {str(tag).lower() for tag in metadata_dict['tags'] if tag}
+                logger.info(f"[TAG-DEBUG] Extracted tags for episode {episode.uuid[:8]}: {tags}")
 
             # Check if metadata has sessions with query runs
             if 'sessions' in metadata_dict:
@@ -155,13 +163,14 @@ class BM25Index:
         combined_text = " ".join(texts_to_index)
         tokens = tokenize(combined_text)
 
+        self.episode_tags[episode.uuid] = tags
         self.episode_uuids.append(episode.uuid)
         self.episode_corpus.append(tokens)
 
         # Rebuild BM25 index
         self._rebuild_episode_index()
 
-        logger.debug(f"Added episode to BM25: {episode.content[:50]}... (with {len(texts_to_index)-1} memories)")
+        logger.debug(f"Added episode to BM25: {episode.content[:50]}... (with {len(texts_to_index)-1} memories, tags: {tags})")
 
     def search_entities(
         self,
@@ -258,20 +267,30 @@ class BM25Index:
         query: str,
         top_k: int = 10,
         min_score: float = 0.0,
+        tags: Optional[List[str]] = None,
+        tag_match_mode: str = 'any',
     ) -> List[Tuple[str, float]]:
         """
-        Search episodes using BM25 keyword matching.
+        Search episodes using BM25 keyword matching with optional tag pre-filtering.
 
         Args:
             query: Search query
             top_k: Maximum number of results
             min_score: Minimum BM25 score threshold
+            tags: Optional list of tags to filter by
+            tag_match_mode: Tag matching mode - 'any' (at least one tag matches) or 'all' (all tags must match)
 
         Returns:
             List of (episode_uuid, score) tuples, sorted by score descending
 
         Example:
-            results = index.search_episodes("programming language", top_k=5)
+            # Search with tag filtering
+            results = index.search_episodes(
+                "programming language",
+                top_k=5,
+                tags=["python", "tutorial"],
+                tag_match_mode="any"
+            )
             for episode_uuid, score in results:
                 print(f"{episode_uuid}: {score:.3f}")
         """
@@ -279,17 +298,46 @@ class BM25Index:
             logger.warning("Episode BM25 index is empty")
             return []
 
+        # PRE-FILTERING: Filter indices by tags BEFORE BM25 scoring
+        valid_indices = []
+        if tags:
+            # Normalize query tags to lowercase
+            query_tags = {tag.lower() for tag in tags}
+            logger.info(f"[TAG-DEBUG] Tag filtering - Query tags: {query_tags}, Total episodes: {len(self.episode_uuids)}, episode_tags dict size: {len(self.episode_tags)}")
+
+            for idx, episode_uuid in enumerate(self.episode_uuids):
+                episode_tag_set = self.episode_tags.get(episode_uuid, set())
+                if idx < 3:  # Log first 3 for debugging
+                    logger.info(f"[TAG-DEBUG]   Episode {idx} ({episode_uuid[:8]}): tags={episode_tag_set}")
+
+                if tag_match_mode == 'all':
+                    # All query tags must be present in episode tags
+                    if query_tags.issubset(episode_tag_set):
+                        valid_indices.append(idx)
+                else:  # 'any' mode (default)
+                    # At least one query tag must match
+                    if query_tags & episode_tag_set:  # set intersection
+                        valid_indices.append(idx)
+        else:
+            # No tag filtering - all indices valid
+            valid_indices = list(range(len(self.episode_uuids)))
+
+        # If no episodes match tag filter, return empty
+        if not valid_indices:
+            logger.debug(f"No episodes match tag filter: {tags} (mode: {tag_match_mode})")
+            return []
+
         # Tokenize query
         query_tokens = tokenize(query)
 
-        # Get BM25 scores
-        scores = self.episode_bm25.get_scores(query_tokens)
+        # Get BM25 scores for ALL documents
+        all_scores = self.episode_bm25.get_scores(query_tokens)
 
-        # Create (uuid, score) pairs
+        # Create (uuid, score) pairs ONLY for pre-filtered indices
         results = [
-            (uuid, score)
-            for uuid, score in zip(self.episode_uuids, scores)
-            if score >= min_score
+            (self.episode_uuids[idx], all_scores[idx])
+            for idx in valid_indices
+            if all_scores[idx] >= min_score
         ]
 
         # Sort by score descending
@@ -379,6 +427,9 @@ class BM25Index:
             "entity_corpus": self.entity_corpus,
             "edge_uuids": self.edge_uuids,
             "edge_corpus": self.edge_corpus,
+            "episode_uuids": self.episode_uuids,
+            "episode_corpus": self.episode_corpus,
+            "episode_tags": {uuid: list(tags) for uuid, tags in self.episode_tags.items()},
         }
 
         with open(path, "wb") as f:
@@ -414,13 +465,22 @@ class BM25Index:
             self.edge_uuids = data["edge_uuids"]
             self.edge_corpus = data["edge_corpus"]
 
+            # Load episode data (with backward compatibility for old pickle files)
+            self.episode_uuids = data.get("episode_uuids", [])
+            self.episode_corpus = data.get("episode_corpus", [])
+
+            # Load episode tags (with backward compatibility)
+            episode_tags_data = data.get("episode_tags", {})
+            self.episode_tags = {uuid: set(tags) for uuid, tags in episode_tags_data.items()}
+
             # Rebuild BM25 indices
             self._rebuild_entity_index()
             self._rebuild_edge_index()
+            self._rebuild_episode_index()
 
             logger.info(
                 f"BM25 index loaded from {path} "
-                f"({len(self.entity_uuids)} entities, {len(self.edge_uuids)} edges)"
+                f"({len(self.entity_uuids)} entities, {len(self.edge_uuids)} edges, {len(self.episode_uuids)} episodes)"
             )
             return True
 
@@ -441,6 +501,7 @@ class BM25Index:
         self.episode_uuids = []
         self.episode_corpus = []
         self.episode_bm25 = None
+        self.episode_tags = {}
 
         logger.info("BM25 index cleared")
 

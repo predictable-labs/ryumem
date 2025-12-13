@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
@@ -17,6 +18,7 @@ interface EpisodeFormProps {
 export function EpisodeForm({ userId, onEpisodeAdded }: EpisodeFormProps) {
   const [content, setContent] = useState("");
   const [source, setSource] = useState("text");
+  const [tags, setTags] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
@@ -35,10 +37,22 @@ export function EpisodeForm({ userId, onEpisodeAdded }: EpisodeFormProps) {
     setIsLoading(true);
 
     try {
+      // Parse tags from comma-separated string
+      const tagArray = tags
+        .split(",")
+        .map(t => t.trim())
+        .filter(t => t.length > 0);
+
+      const metadata: Record<string, any> = {};
+      if (tagArray.length > 0) {
+        metadata.tags = tagArray;
+      }
+
       const response = await api.addEpisode({
         content: content.trim(),
         user_id: userId || "",
         source,
+        ...(Object.keys(metadata).length > 0 && { metadata }),
       });
 
       toast({
@@ -47,6 +61,7 @@ export function EpisodeForm({ userId, onEpisodeAdded }: EpisodeFormProps) {
       });
 
       setContent("");
+      setTags("");
       onEpisodeAdded?.();
     } catch (error) {
       console.error("Error adding episode:", error);
@@ -91,6 +106,20 @@ export function EpisodeForm({ userId, onEpisodeAdded }: EpisodeFormProps) {
         </Select>
         <p className="text-sm text-muted-foreground">
           Select the type of content you&apos;re adding
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="tags">Tags (optional)</Label>
+        <Input
+          id="tags"
+          placeholder="e.g., project, api, backend"
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+          disabled={isLoading}
+        />
+        <p className="text-sm text-muted-foreground">
+          Enter comma-separated tags to organize this episode
         </p>
       </div>
 

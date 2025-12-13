@@ -21,6 +21,65 @@ Ryumem is a production-ready memory system for building intelligent agents with 
 - 🔄 **Query augmentation** - Enrich queries with historical context from similar past queries
 - ⚙️ **Dynamic configuration** - Hot-reload settings without server restart
 - 🎨 **Beautiful web dashboard** - Modern Next.js UI with graph visualization
+- 🤖 **MCP Server** - Model Context Protocol integration for Claude Desktop and other coding agents
+
+## MCP Server for Coding Agents
+
+Ryumem includes an MCP (Model Context Protocol) server that exposes all memory operations to coding agents like Claude Desktop.
+
+### Quick Setup
+
+```bash
+cd mcp-server-ts
+npm install
+npm run build
+```
+
+### Configure for Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ryumem": {
+      "command": "node",
+      "args": ["/path/to/ryumem/mcp-server-ts/build/index.js"],
+      "env": {
+        "RYUMEM_API_KEY": "ryu_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+For local development, add `RYUMEM_API_URL`:
+
+```json
+{
+  "mcpServers": {
+    "ryumem": {
+      "command": "node",
+      "args": ["/path/to/ryumem/mcp-server-ts/build/index.js"],
+      "env": {
+        "RYUMEM_API_URL": "http://localhost:8000",
+        "RYUMEM_API_KEY": "ryu_your_local_api_key"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop, and you'll have access to 9 memory tools:
+- `search_memory` - Multi-strategy semantic search
+- `add_episode` - Save new memories
+- `get_entity_context` - Explore entity relationships
+- `batch_add_episodes` - Bulk memory operations
+- `list_episodes`, `get_episode`, `update_episode_metadata` - Episode management
+- `prune_memories` - Memory cleanup
+- `execute_cypher` - Advanced graph queries
+
+See [MCP Server Documentation](mcp-server-ts/README.md) for full details.
 
 ## Quick Start
 

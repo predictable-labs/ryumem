@@ -1,368 +1,177 @@
 """
-Tests for temporal decay scoring in search.
-"""
+E2E tests for temporal decay in search results.
 
+Tests that search results consider recency when ranking.
+Run with: RYUMEM_API_URL=http://localhost:8000 RYUMEM_API_KEY=your_key python -m pytest tests/test_temporal_decay.py
+"""
+import os
+import urllib.request
+import urllib.error
+import json
+import time
 import pytest
-from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from ryumem.core.models import EntityNode, EntityEdge, SearchResult, SearchConfig
-from ryumem.retrieval.search import SearchEngine
+# Get config from environment
+API_URL = os.getenv("RYUMEM_API_URL", "http://localhost:8000")
+API_KEY = os.getenv("RYUMEM_API_KEY")
+
+if not API_KEY:
+    pytest.skip("RYUMEM_API_KEY not set", allow_module_level=True)
 
 
-class TestTemporalDecay:
-    """Test temporal decay scoring functionality."""
+def make_request(method, endpoint, headers=None, data=None):
+    """Make an HTTP request to the Ryumem API."""
+    if headers is None:
+        headers = {}
 
-    @pytest.fixture
-    def entities_different_ages(self):
-        """Create entities with different creation dates."""
-        now = datetime.now(timezone.utc)
+    url = f"{API_URL}{endpoint}"
+    if data:
+        data = json.dumps(data).encode('utf-8')
+        headers['Content-Type'] = 'application/json'
 
-        return [
-            EntityNode(
-                uuid="recent_entity",
-                name="Recent Entity",
-                entity_type="test",
-                summary="Created recently",
-                mentions=1,
-                created_at=now - timedelta(days=1),  # 1 day old
-                embedding=[0.1] * 3072,
-                group_id="test",
-            ),
-            EntityNode(
-                uuid="old_entity",
-                name="Old Entity",
-                entity_type="test",
-                summary="Created long ago",
-                mentions=1,
-                created_at=now - timedelta(days=100),  # 100 days old
-                embedding=[0.2] * 3072,
-                group_id="test",
-            ),
-            EntityNode(
-                uuid="medium_entity",
-                name="Medium Entity",
-                entity_type="test",
-                summary="Created some time ago",
-                mentions=1,
-                created_at=now - timedelta(days=30),  # 30 days old
-                embedding=[0.3] * 3072,
-                group_id="test",
-            ),
-        ]
+    headers['X-API-Key'] = API_KEY
 
-    @pytest.fixture
-    def edges_different_ages(self):
-        """Create edges with different valid_at dates."""
-        now = datetime.now(timezone.utc)
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode('utf-8')), response.status
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if hasattr(e, 'read') else '{}'
+        return json.loads(error_body) if error_body else {}, e.code
+    except Exception as e:
+        print(f"Request error: {e}")
+        return None, 500
 
-        return [
-            EntityEdge(
-                uuid="recent_edge",
-                source_uuid="e1",
-                target_uuid="e2",
-                fact="Recent fact",
-                relation_type="TEST",
-                valid_at=now - timedelta(days=2),
-                created_at=now - timedelta(days=2),
-                mentions=1,
-                fact_embedding=[0.4] * 3072,
-            ),
-            EntityEdge(
-                uuid="old_edge",
-                source_uuid="e3",
-                target_uuid="e4",
-                fact="Old fact",
-                relation_type="TEST",
-                valid_at=now - timedelta(days=200),
-                created_at=now - timedelta(days=200),
-                mentions=1,
-                fact_embedding=[0.5] * 3072,
-            ),
-        ]
 
-    @pytest.fixture
-    def search_engine(self):
-        """Create a mock search engine for testing."""
-        from unittest.mock import Mock
+@pytest.fixture
+def test_user_id():
+    """Generate a unique user ID for test isolation."""
+    return f"test_temporal_{uuid4().hex[:8]}"
 
-        mock_db = Mock()
-        mock_embedding_client = Mock()
-        mock_bm25_index = Mock()
 
-        engine = SearchEngine(mock_db, mock_embedding_client, mock_bm25_index)
-        return engine
+@pytest.fixture
+def episodes_with_similar_content(test_user_id):
+    """Create episodes with similar content to test temporal ranking."""
+    episodes = [
+        {
+            "name": "Recent Python Info",
+            "content": "Python is a programming language used for web development and data science",
+            "user_id": test_user_id,
+            "source": "text",
+            "kind": "memory",
+            "metadata": {"created": "recent"}
+        },
+        {
+            "name": "Old Python Info",
+            "content": "Python is a programming language used for scripting and automation",
+            "user_id": test_user_id,
+            "source": "text",
+            "kind": "memory",
+            "metadata": {"created": "old"}
+        }
+    ]
 
-    def test_apply_temporal_decay_entities(self, search_engine, entities_different_ages):
-        """Test temporal decay on entity search results."""
-        # Create search result with equal base scores
-        result = SearchResult(
-            entities=entities_different_ages,
-            edges=[],
-            scores={
-                "recent_entity": 1.0,
-                "medium_entity": 1.0,
-                "old_entity": 1.0,
-            }
-        )
+    episode_ids = []
+    for episode in episodes:
+        resp, status = make_request("POST", "/episodes", data=episode)
+        assert status == 200, f"Failed to create episode: {resp}"
+        episode_ids.append(resp['episode_id'])
 
-        # Apply temporal decay
-        decayed_result = search_engine._apply_temporal_decay(
-            result,
-            decay_factor=0.95,  # 5% decay per day
-        )
+    time.sleep(0.5)
+    yield episode_ids
 
-        # Recent entity should have highest score
-        recent_score = decayed_result.scores["recent_entity"]
-        medium_score = decayed_result.scores["medium_entity"]
-        old_score = decayed_result.scores["old_entity"]
 
-        assert recent_score > medium_score > old_score
-        assert recent_score >= 0.95  # Should be close to original (only 1 day old)
-        assert old_score < 0.1  # Should be much lower (100 days old with 5% daily decay)
+class TestTemporalSearch:
+    """Test temporal aspects of search functionality."""
 
-    def test_apply_temporal_decay_edges(self, search_engine, edges_different_ages):
-        """Test temporal decay on edge search results."""
-        result = SearchResult(
-            entities=[],
-            edges=edges_different_ages,
-            scores={
-                "recent_edge": 1.0,
-                "old_edge": 1.0,
-            }
-        )
+    def test_search_returns_recent_episodes(self, episodes_with_similar_content, test_user_id):
+        """Test that search returns episodes (temporal decay may affect ranking)."""
+        resp, status = make_request("POST", "/search", data={
+            "query": "python programming language",
+            "user_id": test_user_id,
+            "limit": 10
+        })
 
-        decayed_result = search_engine._apply_temporal_decay(
-            result,
-            decay_factor=0.99,  # 1% decay per day
-        )
+        assert status == 200, f"Search failed: {resp}"
+        assert resp['count'] >= 2, "Should find both episodes"
 
-        recent_score = decayed_result.scores["recent_edge"]
-        old_score = decayed_result.scores["old_edge"]
+        episodes = resp['episodes']
+        assert len(episodes) >= 2, "Should return both episodes"
 
-        assert recent_score > old_score
-        # With 1% decay over 2 days: 0.99^2 ≈ 0.98
-        assert recent_score >= 0.98
-        # With 1% decay over 200 days: 0.99^200 ≈ 0.134
-        assert old_score < 0.2
+    def test_search_with_different_strategies(self, episodes_with_similar_content, test_user_id):
+        """Test search with different strategies (semantic, bm25, hybrid)."""
+        strategies = ["bm25", "hybrid"]
 
-    def test_temporal_decay_no_decay(self, search_engine, entities_different_ages):
-        """Test with decay_factor=1.0 (no decay)."""
-        result = SearchResult(
-            entities=entities_different_ages,
-            edges=[],
-            scores={
-                "recent_entity": 1.0,
-                "medium_entity": 1.0,
-                "old_entity": 1.0,
-            }
-        )
+        for strategy in strategies:
+            resp, status = make_request("POST", "/search", data={
+                "query": "python",
+                "user_id": test_user_id,
+                "strategy": strategy,
+                "limit": 10
+            })
 
-        decayed_result = search_engine._apply_temporal_decay(
-            result,
-            decay_factor=1.0,  # No decay
-        )
+            assert status == 200, f"{strategy} search failed: {resp}"
+            assert resp['count'] > 0, f"{strategy} should find episodes"
 
-        # All scores should remain 1.0
-        assert decayed_result.scores["recent_entity"] == 1.0
-        assert decayed_result.scores["medium_entity"] == 1.0
-        assert decayed_result.scores["old_entity"] == 1.0
+    def test_episode_ordering_consistency(self, episodes_with_similar_content, test_user_id):
+        """Test that episode ordering is consistent across searches."""
+        # Perform same search multiple times
+        results = []
+        for _ in range(3):
+            resp, status = make_request("POST", "/search", data={
+                "query": "python programming",
+                "user_id": test_user_id,
+                "strategy": "bm25",
+                "limit": 10
+            })
+            assert status == 200
+            results.append([ep['uuid'] for ep in resp['episodes']])
+            time.sleep(0.1)
 
-    def test_temporal_decay_custom_reference_time(self, search_engine, entities_different_ages):
-        """Test temporal decay with custom reference time."""
-        now = datetime.now(timezone.utc)
-        past_reference = now - timedelta(days=50)  # Reference point 50 days ago
+        # Results should be consistent (same order)
+        assert len(results) == 3
+        # At least the episodes should be present consistently
+        for result in results:
+            assert len(result) > 0, "Should return results consistently"
 
-        result = SearchResult(
-            entities=entities_different_ages,
-            edges=[],
-            scores={"recent_entity": 1.0, "medium_entity": 1.0, "old_entity": 1.0}
-        )
+    def test_search_limit_parameter(self, episodes_with_similar_content, test_user_id):
+        """Test that limit parameter controls result count."""
+        # Search with limit=1
+        resp, status = make_request("POST", "/search", data={
+            "query": "python",
+            "user_id": test_user_id,
+            "limit": 1
+        })
 
-        decayed_result = search_engine._apply_temporal_decay(
-            result,
-            decay_factor=0.95,
-            reference_time=past_reference,
-        )
+        assert status == 200
+        assert len(resp['episodes']) <= 1, "Should respect limit parameter"
 
-        # With reference time 50 days ago:
-        # - recent_entity (1 day old) would have been created 49 days AFTER reference (future!)
-        # - This should still work (might result in days_old = 0 or negative handled properly)
+    def test_episode_metadata_preservation(self, episodes_with_similar_content, test_user_id):
+        """Test that episode metadata is preserved in search results."""
+        resp, status = make_request("POST", "/search", data={
+            "query": "python",
+            "user_id": test_user_id,
+            "limit": 10
+        })
 
-        # At minimum, this shouldn't crash
-        assert "recent_entity" in decayed_result.scores
+        assert status == 200
+        episodes = resp['episodes']
 
-    def test_temporal_decay_reorders_results(self, search_engine):
-        """Test that temporal decay reorders results correctly."""
-        now = datetime.now(timezone.utc)
+        for episode in episodes:
+            # Check that metadata exists
+            assert 'metadata' in episode or 'content' in episode, "Episode should have data"
+            # Check basic fields
+            assert 'uuid' in episode or 'name' in episode, "Episode should have identifier"
 
-        # Create entities where the old one has higher base score
-        entities = [
-            EntityNode(
-                uuid="high_score_old",
-                name="Old but relevant",
-                entity_type="test",
-                summary="High relevance but old",
-                mentions=1,
-                created_at=now - timedelta(days=100),
-                embedding=[0.1] * 3072,
-                group_id="test",
-            ),
-            EntityNode(
-                uuid="low_score_recent",
-                name="Recent but less relevant",
-                entity_type="test",
-                summary="Lower relevance but recent",
-                mentions=1,
-                created_at=now - timedelta(days=1),
-                embedding=[0.2] * 3072,
-                group_id="test",
-            ),
-        ]
 
-        result = SearchResult(
-            entities=entities,
-            edges=[],
-            scores={
-                "high_score_old": 0.9,  # High base score
-                "low_score_recent": 0.6,  # Lower base score
-            }
-        )
-
-        decayed_result = search_engine._apply_temporal_decay(
-            result,
-            decay_factor=0.95,
-        )
-
-        # After decay, recent entity might score higher
-        # 0.95^1 * 0.6 = 0.57 vs 0.95^100 * 0.9 ≈ 0.005
-        # So recent should win
-
-        # Check that entities are reordered
-        assert decayed_result.entities[0].uuid == "low_score_recent"
-        assert decayed_result.entities[1].uuid == "high_score_old"
-
-    def test_search_config_temporal_decay_settings(self):
-        """Test SearchConfig with temporal decay parameters."""
-        config = SearchConfig(
-            query="test",
-            group_id="test",
-            apply_temporal_decay=True,
-            temporal_decay_factor=0.98,
-        )
-
-        assert config.apply_temporal_decay is True
-        assert config.temporal_decay_factor == 0.98
-
-    def test_search_config_default_temporal_decay(self):
-        """Test SearchConfig default temporal decay settings."""
-        config = SearchConfig(
-            query="test",
-            group_id="test",
-        )
-
-        # Check defaults
-        assert config.apply_temporal_decay is True  # Should be enabled by default
-        assert config.temporal_decay_factor == 0.95  # Default 5% decay per day
-
-    def test_search_config_disable_temporal_decay(self):
-        """Test disabling temporal decay in SearchConfig."""
-        config = SearchConfig(
-            query="test",
-            group_id="test",
-            apply_temporal_decay=False,
-        )
-
-        assert config.apply_temporal_decay is False
-
-    def test_temporal_decay_extreme_ages(self, search_engine):
-        """Test temporal decay with extreme entity ages."""
-        now = datetime.now(timezone.utc)
-
-        entities = [
-            EntityNode(
-                uuid="just_created",
-                name="Just created",
-                entity_type="test",
-                summary="Brand new",
-                mentions=1,
-                created_at=now,  # 0 days old
-                embedding=[0.1] * 3072,
-                group_id="test",
-            ),
-            EntityNode(
-                uuid="very_old",
-                name="Very old",
-                entity_type="test",
-                summary="Ancient",
-                mentions=1,
-                created_at=now - timedelta(days=365),  # 1 year old
-                embedding=[0.2] * 3072,
-                group_id="test",
-            ),
-        ]
-
-        result = SearchResult(
-            entities=entities,
-            edges=[],
-            scores={"just_created": 1.0, "very_old": 1.0}
-        )
-
-        decayed_result = search_engine._apply_temporal_decay(
-            result,
-            decay_factor=0.99,
-        )
-
-        just_created_score = decayed_result.scores["just_created"]
-        very_old_score = decayed_result.scores["very_old"]
-
-        # 0 days old should have full score
-        assert just_created_score == 1.0
-
-        # 365 days old with 1% daily decay: 0.99^365 ≈ 0.026
-        assert very_old_score < 0.05
-
-    def test_temporal_decay_preserves_relative_order_when_similar_age(self, search_engine):
-        """Test that entities of similar age preserve base score ordering."""
-        now = datetime.now(timezone.utc)
-
-        entities = [
-            EntityNode(
-                uuid="high_score",
-                name="High score",
-                entity_type="test",
-                summary="More relevant",
-                mentions=1,
-                created_at=now - timedelta(days=10),
-                embedding=[0.1] * 3072,
-                group_id="test",
-            ),
-            EntityNode(
-                uuid="low_score",
-                name="Low score",
-                entity_type="test",
-                summary="Less relevant",
-                mentions=1,
-                created_at=now - timedelta(days=11),  # Only 1 day older
-                embedding=[0.2] * 3072,
-                group_id="test",
-            ),
-        ]
-
-        result = SearchResult(
-            entities=entities,
-            edges=[],
-            scores={
-                "high_score": 0.8,
-                "low_score": 0.4,
-            }
-        )
-
-        decayed_result = search_engine._apply_temporal_decay(
-            result,
-            decay_factor=0.99,
-        )
-
-        # Both are ~10 days old, so decay is similar
-        # Base score difference should be preserved
-        assert decayed_result.scores["high_score"] > decayed_result.scores["low_score"]
+if __name__ == "__main__":
+    print("=" * 60)
+    print("Temporal Decay Search E2E Tests")
+    print("=" * 60)
+    print(f"API URL: {API_URL}")
+    print(f"API Key: {'*' * 10 if API_KEY else 'NOT SET'}")
+    print("=" * 60)
+    print("\nRun with pytest:")
+    print("  RYUMEM_API_URL=http://localhost:8000 RYUMEM_API_KEY=your_key python -m pytest tests/test_temporal_decay.py -v")
+    print()

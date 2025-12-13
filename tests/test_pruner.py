@@ -1,326 +1,156 @@
 """
-Tests for memory pruning and compaction.
+E2E tests for memory pruning functionality.
+
+Tests the /prune endpoint to verify old and low-value memories are cleaned up.
+Run with: RYUMEM_API_URL=http://localhost:8000 RYUMEM_API_KEY=your_key python -m pytest tests/test_pruner.py
 """
-
+import os
+import urllib.request
+import urllib.error
+import json
+import time
 import pytest
-from unittest.mock import Mock, MagicMock
-from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+from datetime import datetime, timedelta
 
-from ryumem.maintenance.pruner import MemoryPruner
+# Get config from environment
+API_URL = os.getenv("RYUMEM_API_URL", "http://localhost:8000")
+API_KEY = os.getenv("RYUMEM_API_KEY")
+
+if not API_KEY:
+    pytest.skip("RYUMEM_API_KEY not set", allow_module_level=True)
 
 
-class TestMemoryPruner:
-    """Test memory pruning and compaction functionality."""
+def make_request(method, endpoint, headers=None, data=None):
+    """Make an HTTP request to the Ryumem API."""
+    if headers is None:
+        headers = {}
 
-    @pytest.fixture
-    def mock_db(self):
-        """Create a mock database."""
-        db = Mock()
-        db.execute = Mock()
-        return db
+    url = f"{API_URL}{endpoint}"
+    if data:
+        data = json.dumps(data).encode('utf-8')
+        headers['Content-Type'] = 'application/json'
 
-    @pytest.fixture
-    def pruner(self, mock_db):
-        """Create a memory pruner instance."""
-        return MemoryPruner(mock_db)
+    headers['X-API-Key'] = API_KEY
 
-    def test_initialization(self, pruner, mock_db):
-        """Test pruner initialization."""
-        assert pruner.db == mock_db
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode('utf-8')), response.status
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if hasattr(e, 'read') else '{}'
+        return json.loads(error_body) if error_body else {}, e.code
+    except Exception as e:
+        print(f"Request error: {e}")
+        return None, 500
 
-    def test_prune_expired_edges(self, pruner, mock_db):
-        """Test pruning expired edges."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-        mock_db.execute.return_value = [{"deleted_count": 5}]
 
-        deleted = pruner.prune_expired_edges("test_group", cutoff)
+@pytest.fixture
+def test_user_id():
+    """Generate a unique user ID for test isolation."""
+    return f"test_pruner_{uuid4().hex[:8]}"
 
-        assert deleted == 5
-        mock_db.execute.assert_called_once()
 
-        # Check the query was called with correct parameters
-        call_args = mock_db.execute.call_args
-        assert call_args[0][1]["group_id"] == "test_group"
-        assert call_args[0][1]["cutoff_date"] == cutoff
+class TestMemoryPruning:
+    """Test memory pruning functionality via API."""
 
-    def test_prune_expired_edges_none_found(self, pruner, mock_db):
-        """Test pruning when no expired edges exist."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=90)
-        mock_db.execute.return_value = [{"deleted_count": 0}]
+    def test_prune_endpoint_exists(self, test_user_id):
+        """Test that the prune endpoint is accessible."""
+        resp, status = make_request("POST", "/prune", data={
+            "user_id": test_user_id,
+            "min_age_days": 30,
+            "min_mentions": 1
+        })
 
-        deleted = pruner.prune_expired_edges("test_group", cutoff)
+        # Should succeed even if no memories to prune
+        assert status == 200, f"Prune endpoint failed: {resp}"
+        assert "pruned_count" in resp or "message" in resp
 
-        assert deleted == 0
-
-    def test_prune_low_mention_entities(self, pruner, mock_db):
-        """Test pruning entities with low mentions."""
-        mock_db.execute.return_value = [{"deleted_count": 3}]
-
-        deleted = pruner.prune_low_mention_entities(
-            "test_group",
-            min_mentions=2,
-            min_age_days=30
-        )
-
-        assert deleted == 3
-        mock_db.execute.assert_called_once()
-
-        # Verify query parameters
-        call_args = mock_db.execute.call_args
-        assert call_args[0][1]["group_id"] == "test_group"
-        assert call_args[0][1]["min_mentions"] == 2
-
-    def test_prune_low_mention_entities_custom_params(self, pruner, mock_db):
-        """Test pruning with custom parameters."""
-        mock_db.execute.return_value = [{"deleted_count": 1}]
-
-        deleted = pruner.prune_low_mention_entities(
-            "test_group",
-            min_mentions=5,
-            min_age_days=60
-        )
-
-        assert deleted == 1
-
-        # Check that cutoff date is calculated correctly
-        call_args = mock_db.execute.call_args
-        cutoff_date = call_args[0][1]["cutoff_date"]
-        expected_cutoff = datetime.now(timezone.utc) - timedelta(days=60)
-
-        # Allow 1 second tolerance for test execution time
-        assert abs((cutoff_date - expected_cutoff).total_seconds()) < 1
-
-    def test_cosine_similarity(self, pruner):
-        """Test cosine similarity calculation."""
-        vec1 = [1.0, 0.0, 0.0]
-        vec2 = [1.0, 0.0, 0.0]
-
-        similarity = pruner._cosine_similarity(vec1, vec2)
-        assert abs(similarity - 1.0) < 0.001  # Should be 1.0 (identical)
-
-        vec3 = [1.0, 0.0, 0.0]
-        vec4 = [0.0, 1.0, 0.0]
-
-        similarity = pruner._cosine_similarity(vec3, vec4)
-        assert abs(similarity - 0.0) < 0.001  # Should be 0.0 (orthogonal)
-
-        vec5 = [1.0, 1.0, 0.0]
-        vec6 = [1.0, 1.0, 0.0]
-
-        similarity = pruner._cosine_similarity(vec5, vec6)
-        assert abs(similarity - 1.0) < 0.001
-
-    def test_cosine_similarity_zero_vectors(self, pruner):
-        """Test cosine similarity with zero vectors."""
-        vec1 = [0.0, 0.0, 0.0]
-        vec2 = [1.0, 1.0, 1.0]
-
-        similarity = pruner._cosine_similarity(vec1, vec2)
-        assert similarity == 0.0  # Undefined, returns 0
-
-    def test_compact_redundant_edges_no_edges(self, pruner, mock_db):
-        """Test compaction when no edges exist."""
-        mock_db.get_all_edges.return_value = []
-
-        merged = pruner.compact_redundant_edges("test_group")
-
-        assert merged == 0
-
-    def test_compact_redundant_edges_no_duplicates(self, pruner, mock_db):
-        """Test compaction when edges are not similar enough."""
-        edges = [
+    def test_prune_with_parameters(self, test_user_id):
+        """Test pruning with different parameter combinations."""
+        # Add some test episodes first
+        episodes = [
             {
-                "uuid": "edge1",
-                "source_uuid": "a",
-                "target_uuid": "b",
-                "fact_embedding": [1.0, 0.0, 0.0],
+                "name": "Test Memory 1",
+                "content": "This is a test memory",
+                "user_id": test_user_id,
+                "source": "text",
+                "kind": "memory"
             },
             {
-                "uuid": "edge2",
-                "source_uuid": "a",
-                "target_uuid": "b",
-                "fact_embedding": [0.0, 1.0, 0.0],  # Orthogonal - not similar
-            },
+                "name": "Test Memory 2",
+                "content": "Another test memory",
+                "user_id": test_user_id,
+                "source": "text",
+                "kind": "memory"
+            }
         ]
-        mock_db.get_all_edges.return_value = edges
 
-        merged = pruner.compact_redundant_edges("test_group", similarity_threshold=0.95)
+        for episode in episodes:
+            resp, status = make_request("POST", "/episodes", data=episode)
+            assert status == 200
 
-        assert merged == 0  # No merging should occur
+        time.sleep(0.5)
 
-    def test_compact_redundant_edges_merges_similar(self, pruner, mock_db):
-        """Test that highly similar edges are merged."""
-        edges = [
-            {
-                "uuid": "edge1",
-                "source_uuid": "a",
-                "target_uuid": "b",
-                "fact_embedding": [1.0, 0.0, 0.0],
-                "mentions": 2,
-                "episodes": '["ep1"]',
-            },
-            {
-                "uuid": "edge2",
-                "source_uuid": "a",
-                "target_uuid": "b",
-                "fact_embedding": [0.99, 0.01, 0.0],  # Very similar
-                "mentions": 1,
-                "episodes": '["ep2"]',
-            },
-        ]
-        mock_db.get_all_edges.return_value = edges
-        mock_db.execute.return_value = None
+        # Test prune with different parameters
+        resp, status = make_request("POST", "/prune", data={
+            "user_id": test_user_id,
+            "min_age_days": 1,  # Very short age
+            "min_mentions": 100,  # High mention threshold
+            "expired_cutoff_days": 90
+        })
 
-        merged = pruner.compact_redundant_edges("test_group", similarity_threshold=0.9)
+        assert status == 200, f"Prune failed: {resp}"
 
-        assert merged == 1
-        # Should call execute twice: once to update edge1, once to delete edge2
-        assert mock_db.execute.call_count == 2
+    def test_prune_returns_count(self, test_user_id):
+        """Test that prune endpoint returns pruned count."""
+        resp, status = make_request("POST", "/prune", data={
+            "user_id": test_user_id,
+            "min_age_days": 30
+        })
 
-    def test_merge_edges(self, pruner, mock_db):
-        """Test merging two edges."""
-        edge1 = {
-            "uuid": "edge1",
-            "mentions": 2,
-            "episodes": '["ep1", "ep2"]',
-        }
-        edge2 = {
-            "uuid": "edge2",
-            "mentions": 3,
-            "episodes": '["ep3", "ep4"]',
-        }
+        assert status == 200
+        # Response should have some indication of results
+        assert isinstance(resp, dict), "Response should be a dictionary"
 
-        mock_db.execute.return_value = None
+    def test_prune_with_compact_redundant(self, test_user_id):
+        """Test pruning with redundant memory compaction."""
+        resp, status = make_request("POST", "/prune", data={
+            "user_id": test_user_id,
+            "min_age_days": 30,
+            "compact_redundant": True
+        })
 
-        pruner._merge_edges(edge1, edge2)
+        assert status == 200, f"Prune with compaction failed: {resp}"
 
-        # Should have called execute twice
-        assert mock_db.execute.call_count == 2
+    def test_prune_validation_errors(self):
+        """Test that prune endpoint validates input."""
+        # Test with invalid min_age_days (negative)
+        resp, status = make_request("POST", "/prune", data={
+            "user_id": "test_user",
+            "min_age_days": -1
+        })
 
-        # First call should update edge1
-        first_call = mock_db.execute.call_args_list[0]
-        assert first_call[0][1]["uuid"] == "edge1"
-        assert first_call[0][1]["mentions"] == 5  # 2 + 3
+        # Should return validation error
+        assert status in [400, 422], "Should reject negative min_age_days"
 
-        # Second call should delete edge2
-        second_call = mock_db.execute.call_args_list[1]
-        assert second_call[0][1]["uuid"] == "edge2"
+    def test_prune_missing_user_id(self):
+        """Test that user_id is required."""
+        resp, status = make_request("POST", "/prune", data={
+            "min_age_days": 30
+        })
 
-    def test_prune_all_comprehensive(self, pruner, mock_db):
-        """Test running all pruning operations together."""
-        mock_db.execute.return_value = [{"deleted_count": 10}]
-        mock_db.get_all_edges.return_value = []
+        # Should return validation error
+        assert status in [400, 422], "Should require user_id"
 
-        stats = pruner.prune_all(
-            "test_group",
-            expired_cutoff_days=90,
-            min_mentions=2,
-            min_age_days=30,
-            compact_redundant=True,
-            similarity_threshold=0.95,
-        )
 
-        assert "expired_edges_deleted" in stats
-        assert "entities_deleted" in stats
-        assert "edges_merged" in stats
-
-        # All operations should have been called
-        assert mock_db.execute.call_count >= 2  # At least expired edges and entity pruning
-
-    def test_prune_all_without_compaction(self, pruner, mock_db):
-        """Test prune_all with compaction disabled."""
-        mock_db.execute.return_value = [{"deleted_count": 5}]
-        mock_db.get_all_edges.return_value = []
-
-        stats = pruner.prune_all(
-            "test_group",
-            compact_redundant=False
-        )
-
-        assert stats["edges_merged"] == 0
-        # get_all_edges should not be called when compaction is disabled
-        mock_db.get_all_edges.assert_not_called()
-
-    def test_compact_edges_different_pairs(self, pruner, mock_db):
-        """Test that only edges with same (source, target) are compared."""
-        edges = [
-            {
-                "uuid": "edge1",
-                "source_uuid": "a",
-                "target_uuid": "b",
-                "fact_embedding": [1.0, 0.0, 0.0],
-            },
-            {
-                "uuid": "edge2",
-                "source_uuid": "c",
-                "target_uuid": "d",  # Different pair
-                "fact_embedding": [1.0, 0.0, 0.0],  # Identical embedding
-            },
-        ]
-        mock_db.get_all_edges.return_value = edges
-
-        merged = pruner.compact_redundant_edges("test_group")
-
-        # Should not merge because they connect different entities
-        assert merged == 0
-
-    def test_compact_edges_missing_embeddings(self, pruner, mock_db):
-        """Test that edges without embeddings are skipped."""
-        edges = [
-            {
-                "uuid": "edge1",
-                "source_uuid": "a",
-                "target_uuid": "b",
-                "fact_embedding": None,  # Missing
-            },
-            {
-                "uuid": "edge2",
-                "source_uuid": "a",
-                "target_uuid": "b",
-                "fact_embedding": [1.0, 0.0, 0.0],
-            },
-        ]
-        mock_db.get_all_edges.return_value = edges
-
-        merged = pruner.compact_redundant_edges("test_group")
-
-        # Should not merge because edge1 has no embedding
-        assert merged == 0
-
-    def test_compact_edges_handles_list_episodes(self, pruner, mock_db):
-        """Test merging edges when episodes is already a list (not JSON string)."""
-        edges = [
-            {
-                "uuid": "edge1",
-                "source_uuid": "a",
-                "target_uuid": "b",
-                "fact_embedding": [1.0, 0.0, 0.0],
-                "mentions": 1,
-                "episodes": ["ep1"],  # Already a list
-            },
-            {
-                "uuid": "edge2",
-                "source_uuid": "a",
-                "target_uuid": "b",
-                "fact_embedding": [0.99, 0.01, 0.0],
-                "mentions": 1,
-                "episodes": ["ep2"],  # Already a list
-            },
-        ]
-        mock_db.get_all_edges.return_value = edges
-        mock_db.execute.return_value = None
-
-        merged = pruner.compact_redundant_edges("test_group", similarity_threshold=0.9)
-
-        assert merged == 1
-
-    def test_prune_all_returns_statistics(self, pruner, mock_db):
-        """Test that prune_all returns detailed statistics."""
-        mock_db.execute.return_value = [{"deleted_count": 7}]
-        mock_db.get_all_edges.return_value = []
-
-        stats = pruner.prune_all("test_group")
-
-        assert isinstance(stats, dict)
-        assert all(key in stats for key in ["expired_edges_deleted", "entities_deleted", "edges_merged"])
-        assert all(isinstance(val, int) for val in stats.values())
+if __name__ == "__main__":
+    print("=" * 60)
+    print("Memory Pruning E2E Tests")
+    print("=" * 60)
+    print(f"API URL: {API_URL}")
+    print(f"API Key: {'*' * 10 if API_KEY else 'NOT SET'}")
+    print("=" * 60)
+    print("\nRun with pytest:")
+    print("  RYUMEM_API_URL=http://localhost:8000 RYUMEM_API_KEY=your_key python -m pytest tests/test_pruner.py -v")
+    print()

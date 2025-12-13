@@ -297,6 +297,8 @@ class SearchRequest(BaseModel):
     min_rrf_score: Optional[float] = Field(None, description="Minimum RRF score for hybrid search")
     min_bm25_score: Optional[float] = Field(None, description="Minimum BM25 score")
     kinds: Optional[List[str]] = Field(None, description="Filter episodes by kinds (e.g., ['query'], ['memory'], or None for all)")
+    tags: Optional[List[str]] = Field(None, description="Filter episodes by tags")
+    tag_match_mode: str = Field("any", description="Tag matching mode: 'any' or 'all'")
 
     class Config:
         json_schema_extra = {
@@ -772,6 +774,22 @@ async def update_episode_metadata(
         raise HTTPException(status_code=500, detail=f"Error updating metadata: {str(e)}")
 
 
+@app.delete("/episodes/{episode_uuid}", response_model=Dict[str, Any])
+async def delete_episode(
+    episode_uuid: str,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Delete an episode by UUID.
+    """
+    try:
+        result = ryumem.db.delete_episode(episode_uuid)
+        return result
+    except Exception as e:
+        logger.error(f"Error deleting episode: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting episode: {str(e)}")
+
+
 @app.post("/cypher/execute", response_model=CypherResponse)
 async def execute_cypher(
     request: CypherRequest,
@@ -916,6 +934,8 @@ async def search(
             min_rrf_score=request.min_rrf_score,
             min_bm25_score=request.min_bm25_score,
             kinds=request.kinds,
+            tags=request.tags,
+            tag_match_mode=request.tag_match_mode,
         )
 
         episodes = []

@@ -1,0 +1,29 @@
+{
+  "name": "@ryumem/mcp-server",
+  "version": "0.1.0",
+  "description": "Ryumem MCP Server",
+  "type": "module",
+  "bin": {
+    "ryumem-mcp": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "memory",
+    "knowledge-graph",
+    "ryumem"
+  ],
+  "author": "Predictable Labs, Inc.",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

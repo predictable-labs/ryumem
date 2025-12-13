@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { api, type EpisodeInfo } from "@/lib/api";
-import { Search, Calendar, ArrowUpDown, Loader2, Plus, Clock, Wrench, CheckCircle2, XCircle } from "lucide-react";
+import { Search, Calendar, ArrowUpDown, Loader2, Plus, Clock, Wrench, CheckCircle2, XCircle, Trash2, X, Tag as TagIcon } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 
 interface EpisodesListProps {
@@ -24,6 +24,10 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [editingTags, setEditingTags] = useState<string | null>(null);
+  const [newTag, setNewTag] = useState("");
+  const [deletingEpisode, setDeletingEpisode] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState("");
 
   const { toast } = useToast();
   const observerTarget = useRef<HTMLDivElement>(null);
@@ -102,6 +106,113 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
     setSortOrder(prev => prev === "desc" ? "asc" : "desc");
   };
 
+  const handleDeleteEpisode = async (episodeUuid: string) => {
+    if (deletingEpisode === episodeUuid) {
+      // Confirmed - proceed with deletion
+      try {
+        await api.deleteEpisode(episodeUuid);
+        setEpisodes(prev => prev.filter(ep => ep.uuid !== episodeUuid));
+        setTotal(prev => prev - 1);
+        toast({
+          title: "Success",
+          description: "Episode deleted successfully",
+        });
+      } catch (error) {
+        console.error("Error deleting episode:", error);
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to delete episode",
+          variant: "destructive",
+        });
+      } finally {
+        setDeletingEpisode(null);
+      }
+    } else {
+      // First click - ask for confirmation
+      setDeletingEpisode(episodeUuid);
+      setTimeout(() => setDeletingEpisode(null), 3000); // Reset after 3 seconds
+    }
+  };
+
+  const handleRemoveTag = async (episode: EpisodeInfo, tagToRemove: string) => {
+    const currentTags = getTags(episode);
+    const updatedTags = currentTags.filter(tag => tag !== tagToRemove);
+
+    try {
+      const updatedMetadata = {
+        ...(episode.metadata || {}),
+        tags: updatedTags,
+      };
+
+      await api.updateEpisodeMetadata(episode.uuid, updatedMetadata);
+
+      // Update local state
+      setEpisodes(prev => prev.map(ep =>
+        ep.uuid === episode.uuid
+          ? { ...ep, metadata: updatedMetadata }
+          : ep
+      ));
+
+      toast({
+        title: "Success",
+        description: "Tag removed successfully",
+      });
+    } catch (error) {
+      console.error("Error removing tag:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to remove tag",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAddTag = async (episode: EpisodeInfo) => {
+    if (!newTag.trim()) return;
+
+    const currentTags = getTags(episode);
+    if (currentTags.includes(newTag.trim())) {
+      toast({
+        title: "Info",
+        description: "Tag already exists",
+      });
+      return;
+    }
+
+    const updatedTags = [...currentTags, newTag.trim()];
+
+    try {
+      const updatedMetadata = {
+        ...(episode.metadata || {}),
+        tags: updatedTags,
+      };
+
+      await api.updateEpisodeMetadata(episode.uuid, updatedMetadata);
+
+      // Update local state
+      setEpisodes(prev => prev.map(ep =>
+        ep.uuid === episode.uuid
+          ? { ...ep, metadata: updatedMetadata }
+          : ep
+      ));
+
+      setNewTag("");
+      setEditingTags(null);
+
+      toast({
+        title: "Success",
+        description: "Tag added successfully",
+      });
+    } catch (error) {
+      console.error("Error adding tag:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to add tag",
+        variant: "destructive",
+      });
+    }
+  };
+
   const formatDate = (dateString: string) => {
     try {
       const date = new Date(dateString);
@@ -138,6 +249,22 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
       default:
         return "bg-indigo-500/10 text-indigo-600 border-indigo-500/20";
     }
+  };
+
+  const getTags = (episode: EpisodeInfo): string[] => {
+    const metadata = episode.metadata;
+    if (!metadata?.tags) return [];
+    return Array.isArray(metadata.tags) ? metadata.tags : [];
+  };
+
+  const filterEpisodesByTag = (episodes: EpisodeInfo[]): EpisodeInfo[] => {
+    if (!tagFilter.trim()) return episodes;
+
+    const filterText = tagFilter.toLowerCase().trim();
+    return episodes.filter(episode => {
+      const tags = getTags(episode);
+      return tags.some(tag => tag.toLowerCase().includes(filterText));
+    });
   };
 
   const getToolsUsed = (episode: EpisodeInfo) => {
@@ -195,7 +322,7 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
       </div>
 
       {/* Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         {/* Search */}
         <div className="md:col-span-2 relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -203,6 +330,17 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
             placeholder="Search episodes..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+
+        {/* Tag Filter */}
+        <div className="relative">
+          <TagIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Filter by tags..."
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
             className="pl-10"
           />
         </div>
@@ -247,24 +385,30 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
 
       {/* Episodes Timeline */}
       <div className="space-y-4">
-        {episodes.length === 0 && !isLoading ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Clock className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No episodes found</h3>
-              <p className="text-sm text-muted-foreground text-center mb-4">
-                {search || startDate || endDate
-                  ? "Try adjusting your filters"
-                  : "Get started by adding your first episode"}
-              </p>
-              <Button onClick={onAddEpisodeClick} className="gap-2">
-                <Plus className="h-4 w-4" />
-                Add Episode
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          episodes.map((episode) => (
+        {(() => {
+          const filteredEpisodes = filterEpisodesByTag(episodes);
+
+          if (filteredEpisodes.length === 0 && !isLoading) {
+            return (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <Clock className="h-12 w-12 text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">No episodes found</h3>
+                  <p className="text-sm text-muted-foreground text-center mb-4">
+                    {search || startDate || endDate || tagFilter
+                      ? "Try adjusting your filters"
+                      : "Get started by adding your first episode"}
+                  </p>
+                  <Button onClick={onAddEpisodeClick} className="gap-2">
+                    <Plus className="h-4 w-4" />
+                    Add Episode
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          }
+
+          return filteredEpisodes.map((episode) => (
             <Card key={episode.uuid} className="transition-all hover:shadow-md">
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-4">
@@ -284,17 +428,100 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-2 shrink-0">
+                  <div className="flex gap-2 shrink-0 items-start">
                     <Badge className={getKindColor(episode.kind)}>
                       {episode.kind || 'query'}
                     </Badge>
                     <Badge className={getSourceColor(episode.source)}>
                       {episode.source}
                     </Badge>
+                    <Button
+                      variant={deletingEpisode === episode.uuid ? "destructive" : "ghost"}
+                      size="sm"
+                      onClick={() => handleDeleteEpisode(episode.uuid)}
+                      className="h-7 px-2"
+                      title={deletingEpisode === episode.uuid ? "Click again to confirm" : "Delete episode"}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
+                {/* Tags Section */}
+                {(() => {
+                  const tags = getTags(episode);
+                  const isEditing = editingTags === episode.uuid;
+
+                  return (
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <TagIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-xs font-medium text-muted-foreground">Tags</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditingTags(isEditing ? null : episode.uuid);
+                            setNewTag("");
+                          }}
+                          className="h-6 px-2 text-xs"
+                        >
+                          {isEditing ? "Done" : "Edit"}
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {tags.length === 0 && !isEditing ? (
+                          <span className="text-xs text-muted-foreground italic">No tags</span>
+                        ) : (
+                          tags.map((tag, idx) => (
+                            <Badge
+                              key={idx}
+                              variant="outline"
+                              className="text-xs bg-slate-500/10 text-slate-600 border-slate-500/20 gap-1.5"
+                            >
+                              {tag}
+                              {isEditing && (
+                                <button
+                                  onClick={() => handleRemoveTag(episode, tag)}
+                                  className="ml-1 hover:bg-slate-500/20 rounded-sm"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              )}
+                            </Badge>
+                          ))
+                        )}
+                        {isEditing && (
+                          <div className="flex items-center gap-1">
+                            <Input
+                              placeholder="New tag..."
+                              value={newTag}
+                              onChange={(e) => setNewTag(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleAddTag(episode);
+                                }
+                              }}
+                              className="h-6 w-24 text-xs px-2"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleAddTag(episode)}
+                              className="h-6 px-2"
+                              disabled={!newTag.trim()}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <p className="text-sm whitespace-pre-wrap break-words">
                   {episode.content}
                 </p>
@@ -422,8 +649,8 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                 })()}
               </CardContent>
             </Card>
-          ))
-        )}
+          ));
+        })()}
 
         {/* Loading Indicator */}
         {isLoading && (
