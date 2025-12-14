@@ -452,8 +452,8 @@ class SearchEngine:
             # Get entity from DB
             entity_data = self.db.get_entity_by_uuid(entity_uuid)
             if entity_data:
-                # Apply user_id filter if specified
-                if config.user_id is None or entity_data.get("user_id") == config.user_id:
+                # Apply user_id filter if specified (None or empty string means all users)
+                if not config.user_id or entity_data.get("user_id") == config.user_id:
                     entity = EntityNode(
                         uuid=entity_data["uuid"],
                         name=entity_data["name"],
@@ -500,8 +500,8 @@ class SearchEngine:
             # Get episode from DB
             episode_data = self.db.get_episode_by_uuid(episode_uuid)
             if episode_data:
-                # Apply user_id filter if specified
-                if config.user_id is None or episode_data.get("user_id") == config.user_id:
+                # Apply user_id filter if specified (None or empty string means all users)
+                if not config.user_id or episode_data.get("user_id") == config.user_id:
                     try:
                         # Handle nan values for optional string fields
                         def safe_str_or_none(value):

@@ -65,32 +65,52 @@ class AuthManager:
         self._init_schema()
 
     def _init_schema(self):
-        """Initialize Customer node table with GitHub OAuth fields"""
-        # Create table if not exists
+        """Initialize Customer and OAuthIdentity tables"""
+        # Customer table - core user record
         self.db.execute("""
             CREATE NODE TABLE IF NOT EXISTS Customer(
                 customer_id STRING PRIMARY KEY,
                 api_key STRING,
-                github_id STRING,
-                github_username STRING,
-                github_access_token STRING,
                 created_at TIMESTAMP
             )
         """)
 
-        # Add missing columns for backwards compatibility (migration)
-        # These will fail silently if columns already exist
+        # OAuthIdentity table - supports multiple OAuth providers
+        # NOTE: We do NOT store access_token/refresh_token for security.
+        # OAuth tokens are used once to identify the user, then discarded.
+        self.db.execute("""
+            CREATE NODE TABLE IF NOT EXISTS OAuthIdentity(
+                id STRING PRIMARY KEY,
+                provider STRING,
+                provider_user_id STRING,
+                provider_username STRING,
+                scopes STRING,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        """)
+
+        # Relationship: Customer -[HAS_OAUTH]-> OAuthIdentity
+        try:
+            self.db.execute("""
+                CREATE REL TABLE IF NOT EXISTS HAS_OAUTH(
+                    FROM Customer TO OAuthIdentity
+                )
+            """)
+        except Exception:
+            # Table may already exist
+            pass
+
+        # Migration: Add columns to Customer for backwards compatibility
+        # These are deprecated but kept for existing data
         migration_columns = [
             ("github_id", "STRING"),
             ("github_username", "STRING"),
-            ("github_access_token", "STRING"),
         ]
         for col_name, col_type in migration_columns:
             try:
-                self.db.execute(f"ALTER TABLE Customer ADD {col_name} {col_type}")
-                logger.info(f"Added column {col_name} to Customer table")
+                self.db.execute(f"ALTER TABLE Customer ADD {col_name} {col_type}", log_errors=False)
             except Exception:
-                # Column already exists, ignore
                 pass
 
     def create_customer(self, customer_id: str) -> str:
@@ -134,95 +154,222 @@ class AuthManager:
             return result[0]["c.customer_id"]
         return None
 
-    def get_customer_by_github_id(self, github_id: str) -> Optional[Dict[str, Any]]:
-        """Get customer by GitHub ID"""
+    def get_customer_by_oauth(
+        self,
+        provider: str,
+        provider_user_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get customer by OAuth provider and user ID (new table structure)"""
         result = self.db.execute(
-            "MATCH (c:Customer) WHERE c.github_id = $gid RETURN c.customer_id, c.api_key, c.github_username",
-            {"gid": github_id}
+            """
+            MATCH (c:Customer)-[:HAS_OAUTH]->(o:OAuthIdentity)
+            WHERE o.provider = $provider AND o.provider_user_id = $uid
+            RETURN c.customer_id, c.api_key, o.provider_username
+            """,
+            {"provider": provider, "uid": provider_user_id}
         )
         if result and len(result) > 0:
             return {
                 "customer_id": result[0]["c.customer_id"],
                 "api_key": result[0]["c.api_key"],
-                "github_username": result[0]["c.github_username"]
+                "provider_username": result[0]["o.provider_username"]
             }
         return None
 
-    def create_or_update_github_customer(
+    def get_customer_by_github_id(self, github_id: str) -> Optional[Dict[str, Any]]:
+        """Get customer by GitHub ID (checks both old and new table structure)"""
+        # First check new OAuthIdentity table
+        result = self.get_customer_by_oauth("github", github_id)
+        if result:
+            return {
+                "customer_id": result["customer_id"],
+                "api_key": result["api_key"],
+                "github_username": result.get("provider_username")
+            }
+
+        # Fallback to legacy github_id column for backwards compatibility
+        legacy_result = self.db.execute(
+            "MATCH (c:Customer) WHERE c.github_id = $gid RETURN c.customer_id, c.api_key, c.github_username",
+            {"gid": github_id}
+        )
+        if legacy_result and len(legacy_result) > 0:
+            return {
+                "customer_id": legacy_result[0]["c.customer_id"],
+                "api_key": legacy_result[0]["c.api_key"],
+                "github_username": legacy_result[0]["c.github_username"]
+            }
+        return None
+
+    def create_or_update_oauth_customer(
         self,
-        github_id: str,
-        github_username: str,
-        github_access_token: str
+        provider: str,
+        provider_user_id: str,
+        provider_username: str,
+        scopes: str = "",
     ) -> Dict[str, Any]:
-        """Create or update a customer from GitHub OAuth login"""
-        existing = self.get_customer_by_github_id(github_id)
+        """
+        Create or update a customer from OAuth login.
+
+        Security note: We do NOT store the OAuth access token. The token is used
+        once to identify the user, then discarded. Users authenticate with our
+        api_key for all subsequent requests.
+
+        Args:
+            provider: OAuth provider name (e.g., 'github', 'google')
+            provider_user_id: User ID from the OAuth provider
+            provider_username: Username/display name from the provider
+            scopes: OAuth scopes that were requested
+        """
+        existing = self.get_customer_by_oauth(provider, provider_user_id)
 
         if existing:
-            # Update existing customer with new access token
+            # Update username if changed
+            oauth_id = f"{provider}_{provider_user_id}"
             self.db.execute(
                 """
-                MATCH (c:Customer {github_id: $gid})
-                SET c.github_access_token = $token, c.github_username = $username
+                MATCH (o:OAuthIdentity {id: $oid})
+                SET o.provider_username = $username, o.updated_at = $updated_at
                 """,
-                {"gid": github_id, "token": github_access_token, "username": github_username}
+                {"oid": oauth_id, "username": provider_username, "updated_at": datetime.utcnow()}
             )
-            return existing
 
-        # Create new customer with GitHub ID as customer_id
-        customer_id = f"github_{github_id}"
+            api_key = existing["api_key"]
+            # Regenerate API key if it's None (can happen from NaN->None conversion or NULL in DB)
+            if not api_key:
+                api_key = f"ryu_{secrets.token_urlsafe(32)}"
+                self.db.execute(
+                    """
+                    MATCH (c:Customer {customer_id: $cid})
+                    SET c.api_key = $key
+                    """,
+                    {"cid": existing["customer_id"], "key": api_key}
+                )
+                logger.info(f"Regenerated API key for customer {existing['customer_id']}")
+
+            return {
+                "customer_id": existing["customer_id"],
+                "api_key": api_key,
+                "provider_username": provider_username
+            }
+
+        # Create new customer and OAuth identity
+        customer_id = f"{provider}_{provider_user_id}"
         api_key = f"ryu_{secrets.token_urlsafe(32)}"
+        oauth_id = f"{provider}_{provider_user_id}"
+        now = datetime.utcnow()
 
+        # Create Customer node
         self.db.execute(
             """
             CREATE (c:Customer {
                 customer_id: $cid,
                 api_key: $key,
-                github_id: $gid,
-                github_username: $username,
-                github_access_token: $token,
                 created_at: $created_at
             })
             """,
+            {"cid": customer_id, "key": api_key, "created_at": now}
+        )
+
+        # Create OAuthIdentity node
+        self.db.execute(
+            """
+            CREATE (o:OAuthIdentity {
+                id: $oid,
+                provider: $provider,
+                provider_user_id: $uid,
+                provider_username: $username,
+                scopes: $scopes,
+                created_at: $created_at,
+                updated_at: $updated_at
+            })
+            """,
             {
-                "cid": customer_id,
-                "key": api_key,
-                "gid": github_id,
-                "username": github_username,
-                "token": github_access_token,
-                "created_at": datetime.utcnow()
+                "oid": oauth_id,
+                "provider": provider,
+                "uid": provider_user_id,
+                "username": provider_username,
+                "scopes": scopes,
+                "created_at": now,
+                "updated_at": now,
             }
+        )
+
+        # Create relationship
+        self.db.execute(
+            """
+            MATCH (c:Customer {customer_id: $cid}), (o:OAuthIdentity {id: $oid})
+            CREATE (c)-[:HAS_OAUTH]->(o)
+            """,
+            {"cid": customer_id, "oid": oauth_id}
         )
 
         return {
             "customer_id": customer_id,
             "api_key": api_key,
-            "github_username": github_username
+            "provider_username": provider_username
         }
 
-    def validate_github_token(self, access_token: str) -> Optional[str]:
-        """Validate GitHub access token and return customer_id"""
-        result = self.db.execute(
-            "MATCH (c:Customer) WHERE c.github_access_token = $token RETURN c.customer_id",
-            {"token": access_token}
+    def create_or_update_github_customer(
+        self,
+        github_id: str,
+        github_username: str,
+    ) -> Dict[str, Any]:
+        """
+        Create or update a customer from GitHub OAuth login.
+        Convenience wrapper around create_or_update_oauth_customer.
+        """
+        result = self.create_or_update_oauth_customer(
+            provider="github",
+            provider_user_id=github_id,
+            provider_username=github_username,
+            scopes="read:user",
         )
-        if result and len(result) > 0:
-            return result[0]["c.customer_id"]
-        return None
+        # Return with github_username key for backwards compatibility
+        return {
+            "customer_id": result["customer_id"],
+            "api_key": result["api_key"],
+            "github_username": result["provider_username"]
+        }
 
     def get_customer_details(self, customer_id: str) -> Optional[Dict[str, Any]]:
-        """Get full customer details by customer_id"""
+        """Get full customer details by customer_id, including OAuth identities"""
+        # Get basic customer info
         result = self.db.execute(
             "MATCH (c:Customer {customer_id: $cid}) RETURN c.customer_id, c.api_key, c.github_username, c.github_id",
             {"cid": customer_id}
         )
-        if result and len(result) > 0:
-            return {
-                "customer_id": result[0]["c.customer_id"],
-                "api_key": result[0]["c.api_key"],
-                "github_username": result[0].get("c.github_username"),
-                "github_id": result[0].get("c.github_id")
-            }
-        return None
+        if not result or len(result) == 0:
+            return None
+
+        customer = {
+            "customer_id": result[0]["c.customer_id"],
+            "api_key": result[0]["c.api_key"],
+            # Legacy fields for backwards compatibility
+            "github_username": result[0].get("c.github_username"),
+            "github_id": result[0].get("c.github_id"),
+        }
+
+        # Get OAuth identities
+        oauth_result = self.db.execute(
+            """
+            MATCH (c:Customer {customer_id: $cid})-[:HAS_OAUTH]->(o:OAuthIdentity)
+            RETURN o.provider, o.provider_user_id, o.provider_username
+            """,
+            {"cid": customer_id}
+        )
+        if oauth_result:
+            customer["oauth_identities"] = [
+                {
+                    "provider": row["o.provider"],
+                    "provider_user_id": row["o.provider_user_id"],
+                    "provider_username": row["o.provider_username"],
+                }
+                for row in oauth_result
+            ]
+        else:
+            customer["oauth_identities"] = []
+
+        return customer
 
 _auth_manager: Optional[AuthManager] = None
 _ryumem_cache: Dict[str, Ryumem] = {}
@@ -406,6 +553,7 @@ class EpisodeInfo(BaseModel):
     valid_at: datetime
     user_id: Optional[str] = None
     metadata: Optional[dict] = None
+    score: Optional[float] = None  # Search relevance score
 
 
 class GetEpisodesResponse(BaseModel):
@@ -689,11 +837,19 @@ class DevicePollResponse(BaseModel):
     error: Optional[str] = Field(None, description="Error message (on failure)")
 
 
+class OAuthIdentityInfo(BaseModel):
+    """OAuth identity information"""
+    provider: str = Field(..., description="OAuth provider (e.g., 'github', 'google')")
+    provider_user_id: str = Field(..., description="User ID from the OAuth provider")
+    provider_username: Optional[str] = Field(None, description="Username from the OAuth provider")
+
+
 class AuthMeResponse(BaseModel):
     """Response model for current user info"""
     customer_id: str = Field(..., description="Customer ID")
-    github_username: Optional[str] = Field(None, description="GitHub username if OAuth user")
+    github_username: Optional[str] = Field(None, description="GitHub username if OAuth user (deprecated, use oauth_identities)")
     api_key_preview: str = Field(..., description="First 8 chars of API key")
+    oauth_identities: List[OAuthIdentityInfo] = Field(default_factory=list, description="Linked OAuth identities")
 
 
 class GitHubAuthUrlResponse(BaseModel):
@@ -823,11 +979,10 @@ async def github_oauth_callback(request: GitHubCallbackRequest):
             github_id = str(user_data["id"])
             github_username = user_data.get("login", "unknown")
 
-            # Create or update customer
+            # Create or update customer (GitHub token is NOT stored - used once and discarded)
             customer = _auth_manager.create_or_update_github_customer(
                 github_id=github_id,
                 github_username=github_username,
-                github_access_token=access_token
             )
 
             logger.info(f"GitHub OAuth login successful for {github_username}")
@@ -982,11 +1137,10 @@ async def github_device_poll(request: DevicePollRequest):
             github_id = str(user_data["id"])
             github_username = user_data.get("login", "unknown")
 
-            # Create or update customer
+            # Create or update customer (GitHub token is NOT stored - used once and discarded)
             customer = _auth_manager.create_or_update_github_customer(
                 github_id=github_id,
                 github_username=github_username,
-                github_access_token=access_token
             )
 
             logger.info(f"Device flow login successful for {github_username}")
@@ -1026,10 +1180,21 @@ async def get_auth_me(customer_id: str = Depends(get_current_customer)):
     api_key = customer.get("api_key", "")
     api_key_preview = api_key[:8] + "..." if len(api_key) > 8 else api_key
 
+    # Build OAuth identities list
+    oauth_identities = [
+        OAuthIdentityInfo(
+            provider=oi["provider"],
+            provider_user_id=oi["provider_user_id"],
+            provider_username=oi.get("provider_username"),
+        )
+        for oi in customer.get("oauth_identities", [])
+    ]
+
     return AuthMeResponse(
         customer_id=customer["customer_id"],
         github_username=customer.get("github_username"),
-        api_key_preview=api_key_preview
+        api_key_preview=api_key_preview,
+        oauth_identities=oauth_identities,
     )
 
 
@@ -1047,8 +1212,21 @@ async def get_full_api_key(customer_id: str = Depends(get_current_customer)):
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
 
+    api_key = customer.get("api_key")
+    # Regenerate API key if it's None (can happen from data corruption or NaN->None conversion)
+    if not api_key:
+        api_key = f"ryu_{secrets.token_urlsafe(32)}"
+        _auth_manager.db.execute(
+            """
+            MATCH (c:Customer {customer_id: $cid})
+            SET c.api_key = $key
+            """,
+            {"cid": customer_id, "key": api_key}
+        )
+        logger.info(f"Regenerated API key for customer {customer_id} via /auth/api-key endpoint")
+
     return {
-        "api_key": customer.get("api_key"),
+        "api_key": api_key,
         "customer_id": customer["customer_id"],
         "github_username": customer.get("github_username")
     }
@@ -1424,9 +1602,12 @@ async def search(
     - hybrid: Combines all strategies (recommended)
     """
     try:
+        # Normalize user_id: empty string means "all users" (None)
+        user_id = request.user_id if request.user_id else None
+
         results = ryumem.search(
             query=request.query,
-            user_id=request.user_id,
+            user_id=user_id,
             limit=request.limit,
             strategy=request.strategy,
             min_rrf_score=request.min_rrf_score,
@@ -1448,7 +1629,8 @@ async def search(
                 created_at=episode.created_at,
                 valid_at=episode.valid_at,
                 user_id=episode.user_id or None,
-                metadata=episode.metadata or None
+                metadata=episode.metadata or None,
+                score=results.scores.get(episode.uuid, 0.0)
             ))
         
         # Convert entities to response format
@@ -1494,7 +1676,7 @@ async def search(
             edges=edges,
             query=request.query,
             strategy=request.strategy,
-            count=len(entities) + len(edges),
+            count=len(entities) + len(edges) + len(episodes),
             episodes=episodes
         )
     except Exception as e:

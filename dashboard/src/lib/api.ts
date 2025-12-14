@@ -63,9 +63,21 @@ export interface Edge {
   score: number;
 }
 
+export interface SearchResultEpisode {
+  uuid: string;
+  name: string;
+  content: string;
+  source: string;
+  source_description: string;
+  kind?: string;
+  created_at: string;
+  score: number;
+}
+
 export interface SearchResult {
   entities: Entity[];
   edges: Edge[];
+  episodes: SearchResultEpisode[];
   query: string;
   strategy: string;
   count: number;

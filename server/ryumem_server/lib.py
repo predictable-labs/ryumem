@@ -1062,12 +1062,57 @@ class Ryumem:
             )
             self.search_engine.bm25_index.add_edge(edge)
 
+        # Get all episodes from database (only core fields that always exist)
+        all_episodes_query = """
+        MATCH (ep:Episode)
+        RETURN
+            ep.uuid AS uuid,
+            ep.name AS name,
+            ep.content AS content,
+            ep.source AS source,
+            ep.source_description AS source_description,
+            ep.kind AS kind,
+            ep.created_at AS created_at,
+            ep.valid_at AS valid_at,
+            ep.user_id AS user_id,
+            ep.metadata AS metadata
+        """
+        episodes_data = self.db.execute(all_episodes_query, {})
+
+        # Rebuild episode index
+        import json
+        from ryumem_server.core.models import EpisodeNode, EpisodeType, EpisodeKind
+        for episode_data in episodes_data:
+            try:
+                # Handle metadata deserialization
+                metadata = episode_data.get("metadata", {})
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except (json.JSONDecodeError, TypeError):
+                        metadata = {}
+
+                episode = EpisodeNode(
+                    uuid=episode_data["uuid"],
+                    name=episode_data.get("name", ""),
+                    content=episode_data["content"],
+                    source=EpisodeType.from_str(episode_data.get("source", "text")),
+                    source_description=episode_data.get("source_description", ""),
+                    kind=EpisodeKind.from_str(episode_data.get("kind", "query")),
+                    user_id=episode_data.get("user_id"),
+                    metadata=metadata,
+                )
+                self.search_engine.bm25_index.add_episode(episode)
+            except Exception as e:
+                logger.warning(f"Failed to add episode {episode_data.get('uuid', 'unknown')} to BM25 index: {e}")
+                continue
+
         # Save rebuilt index
         bm25_path = str(Path(self.config.database.db_path).parent / f"{Path(self.config.database.db_path).stem}_bm25.pkl")
         self.search_engine.bm25_index.save(bm25_path)
 
         logger.info(
-            f"Rebuilt BM25 index: {len(entities_data)} entities, {len(edges_data)} edges"
+            f"Rebuilt BM25 index: {len(entities_data)} entities, {len(edges_data)} edges, {len(episodes_data)} episodes"
         )
 
     def close(self) -> None:

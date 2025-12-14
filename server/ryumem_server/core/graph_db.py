@@ -210,22 +210,42 @@ class RyugraphDB:
 
         logger.info("Graph schema created successfully")
 
-    def execute(self, query: str, parameters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def execute(
+        self,
+        query: str,
+        parameters: Optional[Dict[str, Any]] = None,
+        log_errors: bool = True
+    ) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query and return results as dictionaries.
 
         Args:
             query: Cypher query string
             parameters: Optional query parameters
+            log_errors: Whether to log errors (set False for expected failures like migrations)
 
         Returns:
             List of result dictionaries
         """
         try:
+            import math
             results = self.conn.execute(query, parameters or {})
-            return [dict(row) for row in results.get_as_df().to_dict('records')]
+            records = results.get_as_df().to_dict('records')
+            # Convert NaN values to None for JSON compatibility
+            # pandas converts NULL to NaN which is not JSON serializable
+            cleaned_records = []
+            for row in records:
+                cleaned_row = {}
+                for k, v in row.items():
+                    if isinstance(v, float) and math.isnan(v):
+                        cleaned_row[k] = None
+                    else:
+                        cleaned_row[k] = v
+                cleaned_records.append(cleaned_row)
+            return cleaned_records
         except Exception as e:
-            logger.error(f"Error executing query: {e}\nQuery: {query}\nParameters: {parameters}")
+            if log_errors:
+                logger.error(f"Error executing query: {e}\nQuery: {query}\nParameters: {parameters}")
             raise
 
     def save_episode(self, episode: EpisodeNode) -> Dict[str, Any]:
@@ -719,7 +739,7 @@ class RyugraphDB:
     def search_similar_entities(
         self,
         embedding: List[float],
-        user_id: str,
+        user_id: Optional[str],
         threshold: float = 0.7,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
@@ -728,17 +748,20 @@ class RyugraphDB:
 
         Args:
             embedding: Query embedding vector
-            user_id: User ID (required)
+            user_id: User ID (None for all users)
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
 
         Returns:
             List of similar entities with similarity scores
         """
+        # Build user_id filter (None means all users)
+        user_filter = "AND e.user_id = $user_id" if user_id else ""
+
         query = f"""
         MATCH (e:Entity)
         WHERE e.name_embedding IS NOT NULL
-          AND e.user_id = $user_id
+          {user_filter}
         WITH e, array_cosine_similarity(e.name_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
         WHERE similarity >= $threshold
         RETURN
@@ -764,7 +787,7 @@ class RyugraphDB:
     def search_similar_episodes(
         self,
         embedding: List[float],
-        user_id: str,
+        user_id: Optional[str],
         threshold: float = 0.7,
         limit: int = 10,
         kinds: Optional[List[str]] = None,
@@ -777,7 +800,7 @@ class RyugraphDB:
 
         Args:
             embedding: Query embedding vector
-            user_id: User ID (required)
+            user_id: User ID (None for all users)
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
             kinds: Filter by episode kinds (e.g., ['query'], ['memory'], or None for all)
@@ -788,6 +811,9 @@ class RyugraphDB:
         Returns:
             List of similar episodes with similarity scores
         """
+        # Build user_id filter (None means all users)
+        user_filter = "AND ep.user_id = $user_id" if user_id else ""
+
         # Build kind filter
         kind_filter = ""
         if kinds:
@@ -802,7 +828,7 @@ class RyugraphDB:
         query = f"""
         MATCH (ep:Episode)
         WHERE ep.content_embedding IS NOT NULL
-          AND ep.user_id = $user_id
+          {user_filter}
           {kind_filter}
           {time_filter}
         WITH ep, array_cosine_similarity(ep.content_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
@@ -871,7 +897,7 @@ class RyugraphDB:
     def search_similar_edges(
         self,
         embedding: List[float],
-        user_id: str,
+        user_id: Optional[str],
         threshold: float = 0.8,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
@@ -880,19 +906,21 @@ class RyugraphDB:
 
         Args:
             embedding: Query embedding vector
-            user_id: User ID (required)
+            user_id: User ID (None for all users)
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
 
         Returns:
             List of similar edges with similarity scores
         """
+        # Build user_id filter (None means all users)
+        user_filter = "AND source.user_id = $user_id AND target.user_id = $user_id" if user_id else ""
+
         query = f"""
         MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity)
         WHERE r.fact_embedding IS NOT NULL
           AND (r.expired_at IS NULL OR r.expired_at > current_timestamp())
-          AND source.user_id = $user_id
-          AND target.user_id = $user_id
+          {user_filter}
         WITH source, r, target,
              array_cosine_similarity(r.fact_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
         WHERE similarity >= $threshold
