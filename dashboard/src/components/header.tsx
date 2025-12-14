@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 export function Header() {
     const router = useRouter();
     const pathname = usePathname();
-    const [customerId, setCustomerId] = useState<string>("");
+    const [displayName, setDisplayName] = useState<string>("");
 
     useEffect(() => {
         // Don't fetch customer info on login page
@@ -21,7 +21,7 @@ export function Header() {
             try {
                 const customerInfo = await api.getCustomerMe().catch(() => null);
                 if (customerInfo) {
-                    setCustomerId(customerInfo.customer_id);
+                    setDisplayName(customerInfo.display_name || customerInfo.customer_id);
                 }
             } catch (error) {
                 console.error("Failed to load customer info:", error);
@@ -48,11 +48,10 @@ export function Header() {
                             RyuMem
                         </span>
                     </Link>
-                    {customerId && (
+                    {displayName && (
                         <div className="hidden md:flex items-center text-sm text-muted-foreground">
-                            <span className="mr-2">Customer:</span>
                             <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm font-semibold">
-                                {customerId}
+                                {displayName}
                             </code>
                         </div>
                     )}

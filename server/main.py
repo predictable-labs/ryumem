@@ -2704,7 +2704,16 @@ async def get_customer_me(
     """
     Get current authenticated customer details.
     """
-    return {"customer_id": customer_id}
+    # Get full customer details including github_username
+    if _auth_manager:
+        details = _auth_manager.get_customer_details(customer_id)
+        if details:
+            return {
+                "customer_id": customer_id,
+                "github_username": details.get("github_username"),
+                "display_name": details.get("github_username") or customer_id
+            }
+    return {"customer_id": customer_id, "display_name": customer_id}
 
 
 @app.delete("/database/reset")

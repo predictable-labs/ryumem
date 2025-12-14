@@ -3,6 +3,10 @@
 /**
  * Ryumem MCP Server
  * TypeScript implementation using MCP SDK
+ *
+ * Usage:
+ *   npx @ryumem/mcp-server              - Run the MCP server (for Claude)
+ *   npx @ryumem/mcp-server install      - Install/configure for Claude Code
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -14,6 +18,23 @@ import {
 import { RyumemClient } from './client.js';
 import { RyumemAuth } from './auth.js';
 import { TOOLS } from './tools.js';
+import { runInstaller, runUninstaller } from './install.js';
+
+// Check for install/uninstall command before anything else
+const args = process.argv.slice(2);
+if (args[0] === 'install') {
+  runInstaller(args.slice(1)).catch((error) => {
+    console.error('Installation failed:', error);
+    process.exit(1);
+  });
+} else if (args[0] === 'uninstall') {
+  runUninstaller(args.slice(1)).catch((error) => {
+    console.error('Uninstallation failed:', error);
+    process.exit(1);
+  });
+} else {
+  // Continue with normal MCP server startup (handled at bottom of file)
+}
 
 const DEFAULT_API_URL = 'https://api.ryumem.io';
 
@@ -389,8 +410,11 @@ class RyumemMCPServer {
   }
 }
 
-const server = new RyumemMCPServer();
-server.run().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+// Only start the MCP server if not running install/uninstall command
+if (args[0] !== 'install' && args[0] !== 'uninstall') {
+  const server = new RyumemMCPServer();
+  server.run().catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
+}

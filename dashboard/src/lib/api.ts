@@ -384,7 +384,7 @@ class RyumemAPI {
     return response.users;
   }
 
-  async getCustomerMe(): Promise<{ customer_id: string }> {
+  async getCustomerMe(): Promise<{ customer_id: string; display_name?: string; github_username?: string }> {
     return this.request('/customer/me');
   }
 
