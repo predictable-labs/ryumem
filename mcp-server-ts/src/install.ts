@@ -108,7 +108,7 @@ async function install(options: {
   const configPath = getClaudeConfigPath(options.client);
   console.log(`📁 Config path: ${configPath}`);
 
-  let apiKey = options.apiKey || process.env.RYUMEM_API_KEY;
+  let apiKey = options.apiKey;
 
   // If OAuth enabled and no API key, run device flow
   if (options.oauth && !apiKey) {
@@ -118,7 +118,7 @@ async function install(options: {
   }
 
   if (!apiKey) {
-    console.error('\n❌ No API key provided. Use --oauth or --api-key=<key> or set RYUMEM_API_KEY');
+    console.error('\n❌ No API key provided. Use --oauth or --api-key=<key>');
     process.exit(1);
   }
 
@@ -180,7 +180,7 @@ Examples:
 export async function runInstaller(args: string[]): Promise<void> {
   const options = {
     client: 'claude-code',
-    apiUrl: process.env.RYUMEM_API_URL || DEFAULT_API_URL,
+    apiUrl: DEFAULT_API_URL,
     oauth: false,
     apiKey: undefined as string | undefined,
   };

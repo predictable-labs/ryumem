@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Brain, Github, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [showApiKeyLogin, setShowApiKeyLogin] = useState(false);
   const [isProcessingOAuth, setIsProcessingOAuth] = useState(false);
+  const processingRef = useRef(false);
   const [isGitHubConfigured, setIsGitHubConfigured] = useState<boolean | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -43,7 +44,8 @@ export default function LoginPage() {
   // Handle GitHub OAuth callback
   useEffect(() => {
     const code = searchParams.get("code");
-    if (code && !isProcessingOAuth) {
+    if (code && !processingRef.current) {
+      processingRef.current = true;
       setIsProcessingOAuth(true);
       handleGitHubCallback(code);
     }

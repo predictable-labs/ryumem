@@ -50,21 +50,14 @@ export class RyumemAuth {
    * Get API key, using cached credentials or initiating device flow if needed
    */
   async getApiKey(): Promise<string> {
-    // 1. Check environment variable first (highest priority)
-    const envKey = process.env.RYUMEM_API_KEY;
-    if (envKey) {
-      console.error('Using API key from RYUMEM_API_KEY environment variable');
-      return envKey;
-    }
-
-    // 2. Check cached credentials
+    // 1. Check cached credentials
     const cached = this.loadCachedCredentials();
     if (cached) {
       console.error(`Using cached API key (GitHub: @${cached.github_username || 'unknown'})`);
       return cached.api_key;
     }
 
-    // 3. No credentials found, initiate device flow
+    // 2. No credentials found, initiate device flow
     console.error('No API key found. Starting GitHub device code authentication...');
     return this.deviceCodeFlow();
   }
