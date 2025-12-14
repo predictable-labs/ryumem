@@ -1,18 +1,29 @@
-fastapi==0.115.5
-uvicorn[standard]==0.32.1
+# Web
+fastapi>=0.121.0,<0.124
+starlette>=0.49.1,<0.50
+uvicorn[standard]>=0.32.1
+
+# Core config
 python-dotenv==1.0.1
-pydantic==2.10.3
+pydantic>=2.11.1,<3.0
 pydantic-settings==2.6.1
+
+# Graph / math
 ryugraph>=25.9.2
-openai>=1.0.0
-litellm>=1.0.0
-numpy>=1.24.0
+numpy>=1.24,<3.0
 networkx>=3.0
-scipy>=1.10.0
-tenacity>=8.0.0
+scipy>=1.10,<1.17
+pandas>=2.0,<2.4
 rank-bm25>=0.2.2
-requests>=2.31.0
-httpx>=0.27.0
-google-genai>=0.2.0
-pandas>=2.0.0
-google-adk>=1.18.0
+
+# LLM
+openai>=2.8,<3.0
+litellm>=1.80,<1.82
+tenacity>=8.0,<10
+requests>=2.31,<3
+
+
+# Google agents
+google-adk==1.21.0
+google-genai>=1.55,<2.0
+
