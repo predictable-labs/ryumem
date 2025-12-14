@@ -23,7 +23,8 @@ import httpx
 
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Header, status
+from fastapi import Depends, FastAPI, HTTPException, Header, Query, status
+from urllib.parse import urlencode
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -65,6 +66,7 @@ class AuthManager:
 
     def _init_schema(self):
         """Initialize Customer node table with GitHub OAuth fields"""
+        # Create table if not exists
         self.db.execute("""
             CREATE NODE TABLE IF NOT EXISTS Customer(
                 customer_id STRING PRIMARY KEY,
@@ -75,6 +77,21 @@ class AuthManager:
                 created_at TIMESTAMP
             )
         """)
+
+        # Add missing columns for backwards compatibility (migration)
+        # These will fail silently if columns already exist
+        migration_columns = [
+            ("github_id", "STRING"),
+            ("github_username", "STRING"),
+            ("github_access_token", "STRING"),
+        ]
+        for col_name, col_type in migration_columns:
+            try:
+                self.db.execute(f"ALTER TABLE Customer ADD {col_name} {col_type}")
+                logger.info(f"Added column {col_name} to Customer table")
+            except Exception:
+                # Column already exists, ignore
+                pass
 
     def create_customer(self, customer_id: str) -> str:
         """Create a new customer and return their API key"""
@@ -679,6 +696,12 @@ class AuthMeResponse(BaseModel):
     api_key_preview: str = Field(..., description="First 8 chars of API key")
 
 
+class GitHubAuthUrlResponse(BaseModel):
+    """Response model for GitHub auth URL"""
+    auth_url: str = Field(..., description="GitHub OAuth authorization URL")
+    configured: bool = Field(..., description="Whether GitHub OAuth is configured")
+
+
 # ===== API Endpoints =====
 
 @app.post("/register", response_model=RegisterResponse)
@@ -715,6 +738,26 @@ async def register_customer(
 
 
 # ===== GitHub OAuth Endpoints =====
+
+@app.get("/auth/github/url", response_model=GitHubAuthUrlResponse, tags=["Authentication"])
+async def get_github_auth_url(redirect_uri: str = Query(..., description="Redirect URI after OAuth")):
+    """
+    Get GitHub OAuth authorization URL.
+
+    Returns the URL to redirect users to for GitHub OAuth login.
+    The redirect_uri should be the frontend login page URL.
+    """
+    if not GITHUB_CLIENT_ID:
+        return GitHubAuthUrlResponse(auth_url="", configured=False)
+
+    params = {
+        "client_id": GITHUB_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "scope": "read:user",
+    }
+    auth_url = f"https://github.com/login/oauth/authorize?{urlencode(params)}"
+    return GitHubAuthUrlResponse(auth_url=auth_url, configured=True)
+
 
 @app.post("/auth/github/callback", response_model=GitHubAuthResponse, tags=["Authentication"])
 async def github_oauth_callback(request: GitHubCallbackRequest):

@@ -228,9 +228,11 @@ class RyumemAPI {
 
     if (response.status === 401) {
       if (typeof window !== 'undefined') {
-        // Clear invalid key and redirect
+        // Clear invalid key and redirect if not already on login
         localStorage.removeItem('ryumem_api_key');
-        window.location.href = '/login';
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login';
+        }
       }
       throw new Error('Unauthorized');
     }
@@ -594,24 +596,28 @@ export async function exchangeGitHubCode(
   return response.json();
 }
 
-/**
- * Get the GitHub OAuth authorization URL
- */
-export function getGitHubAuthUrl(): string {
-  const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
-  const redirectUri = process.env.NEXT_PUBLIC_GITHUB_REDIRECT_URI || `${typeof window !== 'undefined' ? window.location.origin : ''}/login`;
+export interface GitHubAuthUrlResponse {
+  auth_url: string;
+  configured: boolean;
+}
 
-  if (!clientId) {
-    throw new Error('GitHub OAuth not configured. Set NEXT_PUBLIC_GITHUB_CLIENT_ID.');
+/**
+ * Get the GitHub OAuth authorization URL from the server
+ */
+export async function getGitHubAuthUrl(): Promise<GitHubAuthUrlResponse> {
+  const redirectUri = typeof window !== 'undefined'
+    ? `${window.location.origin}/login`
+    : '/login';
+
+  const response = await fetch(
+    `${API_BASE_URL}/auth/github/url?redirect_uri=${encodeURIComponent(redirectUri)}`
+  );
+
+  if (!response.ok) {
+    throw new Error('Failed to get GitHub auth URL');
   }
 
-  const params = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    scope: 'read:user',
-  });
-
-  return `https://github.com/login/oauth/authorize?${params.toString()}`;
+  return response.json();
 }
 
 /**

@@ -14,6 +14,9 @@ export function Header() {
     const [customerId, setCustomerId] = useState<string>("");
 
     useEffect(() => {
+        // Don't fetch customer info on login page
+        if (pathname === "/login") return;
+
         const loadCustomerInfo = async () => {
             try {
                 const customerInfo = await api.getCustomerMe().catch(() => null);
@@ -26,7 +29,7 @@ export function Header() {
         };
 
         loadCustomerInfo();
-    }, []);
+    }, [pathname]);
 
     if (pathname === "/login") return null;
 

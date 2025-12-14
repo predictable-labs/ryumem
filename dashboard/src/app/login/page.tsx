@@ -23,8 +23,22 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [showApiKeyLogin, setShowApiKeyLogin] = useState(false);
   const [isProcessingOAuth, setIsProcessingOAuth] = useState(false);
+  const [isGitHubConfigured, setIsGitHubConfigured] = useState<boolean | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Check if GitHub OAuth is configured
+  useEffect(() => {
+    const checkGitHubConfig = async () => {
+      try {
+        const response = await getGitHubAuthUrl();
+        setIsGitHubConfigured(response.configured);
+      } catch {
+        setIsGitHubConfigured(false);
+      }
+    };
+    checkGitHubConfig();
+  }, []);
 
   // Handle GitHub OAuth callback
   useEffect(() => {
@@ -59,12 +73,19 @@ export default function LoginPage() {
     }
   };
 
-  const handleGitHubLogin = () => {
+  const handleGitHubLogin = async () => {
     try {
-      const authUrl = getGitHubAuthUrl();
-      window.location.href = authUrl;
+      setIsLoading(true);
+      const response = await getGitHubAuthUrl();
+      if (response.configured && response.auth_url) {
+        window.location.href = response.auth_url;
+      } else {
+        setError("GitHub OAuth not configured");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to initiate GitHub login");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -90,9 +111,6 @@ export default function LoginPage() {
     }
   };
 
-  // Check if GitHub OAuth is configured
-  const isGitHubConfigured = !!process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
-
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-background p-4 md:p-8">
       <Meteors number={60} />
@@ -117,7 +135,7 @@ export default function LoginPage() {
 
           <CardContent className="space-y-4">
             {/* GitHub OAuth Button */}
-            {isGitHubConfigured && (
+            {isGitHubConfigured === true && (
               <Button
                 type="button"
                 variant="outline"
@@ -131,7 +149,7 @@ export default function LoginPage() {
             )}
 
             {/* Divider */}
-            {isGitHubConfigured && (
+            {isGitHubConfigured === true && (
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t border-border" />
@@ -158,7 +176,7 @@ export default function LoginPage() {
             </Button>
 
             {/* API Key Form (collapsible) */}
-            {(showApiKeyLogin || !isGitHubConfigured) && (
+            {(showApiKeyLogin || isGitHubConfigured === false) && (
               <form onSubmit={handleApiKeyLogin} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="api-key">API Key</Label>
@@ -187,7 +205,7 @@ export default function LoginPage() {
             )}
           </CardContent>
 
-          {!isGitHubConfigured && (
+          {isGitHubConfigured === false && (
             <CardFooter className="text-xs text-muted-foreground text-center">
               <p className="w-full">
                 GitHub login not configured. Contact admin to enable OAuth.
