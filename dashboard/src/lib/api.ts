@@ -551,5 +551,93 @@ export interface DeleteDatabaseResponse {
   timestamp: string;
 }
 
+// ============================================================================
+// GitHub OAuth Types
+// ============================================================================
+
+export interface GitHubAuthResponse {
+  customer_id: string;
+  api_key: string;
+  github_username: string;
+  message: string;
+}
+
+export interface AuthApiKeyResponse {
+  api_key: string;
+  customer_id: string;
+  github_username?: string;
+}
+
+// ============================================================================
+// GitHub OAuth Functions (standalone, not part of RyumemAPI class)
+// ============================================================================
+
+/**
+ * Exchange GitHub OAuth code for API key
+ * This is used after the OAuth redirect from GitHub
+ */
+export async function exchangeGitHubCode(
+  code: string,
+  redirectUri?: string
+): Promise<GitHubAuthResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/github/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, redirect_uri: redirectUri }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'GitHub authentication failed');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get the GitHub OAuth authorization URL
+ */
+export function getGitHubAuthUrl(): string {
+  const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
+  const redirectUri = process.env.NEXT_PUBLIC_GITHUB_REDIRECT_URI || `${typeof window !== 'undefined' ? window.location.origin : ''}/login`;
+
+  if (!clientId) {
+    throw new Error('GitHub OAuth not configured. Set NEXT_PUBLIC_GITHUB_CLIENT_ID.');
+  }
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope: 'read:user',
+  });
+
+  return `https://github.com/login/oauth/authorize?${params.toString()}`;
+}
+
+/**
+ * Get full API key for authenticated user (requires existing auth)
+ */
+export async function getFullApiKey(): Promise<AuthApiKeyResponse> {
+  const apiKey = typeof window !== 'undefined' ? localStorage.getItem('ryumem_api_key') : null;
+
+  if (!apiKey) {
+    throw new Error('Not authenticated');
+  }
+
+  const response = await fetch(`${API_BASE_URL}/auth/api-key`, {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': apiKey,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to get API key');
+  }
+
+  return response.json();
+}
+
 export const api = new RyumemAPI();
 

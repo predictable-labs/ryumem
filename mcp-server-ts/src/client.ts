@@ -5,7 +5,8 @@
 
 export interface RyumemConfig {
   apiUrl: string;
-  apiKey: string;
+  apiKey?: string;        // Legacy API key (X-API-Key header)
+  accessToken?: string;   // OAuth access token (Bearer token)
 }
 
 export interface SearchMemoryParams {
@@ -90,6 +91,13 @@ export class RyumemClient {
     this.config = config;
   }
 
+  /**
+   * Update the API key (used by auth module after device flow completes)
+   */
+  setApiKey(apiKey: string): void {
+    this.config.apiKey = apiKey;
+  }
+
   private async request<T>(
     endpoint: string,
     method: string = 'POST',
@@ -98,8 +106,14 @@ export class RyumemClient {
     const url = `${this.config.apiUrl}${endpoint}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-API-Key': this.config.apiKey,
     };
+
+    // Support both API key and Bearer token authentication
+    if (this.config.accessToken) {
+      headers['Authorization'] = `Bearer ${this.config.accessToken}`;
+    } else if (this.config.apiKey) {
+      headers['X-API-Key'] = this.config.apiKey;
+    }
 
     const response = await fetch(url, {
       method,

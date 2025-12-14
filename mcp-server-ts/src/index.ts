@@ -12,6 +12,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { RyumemClient } from './client.js';
+import { RyumemAuth } from './auth.js';
 import { TOOLS } from './tools.js';
 
 const DEFAULT_API_URL = 'https://api.ryumem.io';
@@ -153,17 +154,18 @@ NEVER:
 class RyumemMCPServer {
   private server: Server;
   private client: RyumemClient;
+  private auth: RyumemAuth;
+  private apiUrl: string;
   private instructions: string;
 
   constructor() {
-    const apiUrl = process.env.RYUMEM_API_URL || DEFAULT_API_URL;
-    const apiKey = process.env.RYUMEM_API_KEY;
+    this.apiUrl = process.env.RYUMEM_API_URL || DEFAULT_API_URL;
 
-    if (!apiKey) {
-      throw new Error('RYUMEM_API_KEY environment variable is required');
-    }
+    // Initialize auth module (will handle API key or device flow)
+    this.auth = new RyumemAuth({ apiUrl: this.apiUrl });
 
-    this.client = new RyumemClient({ apiUrl, apiKey });
+    // Initialize client without API key (will be set after auth)
+    this.client = new RyumemClient({ apiUrl: this.apiUrl });
     this.instructions = INSTRUCTIONS; // Default instructions
 
     this.server = new Server(
@@ -180,6 +182,20 @@ class RyumemMCPServer {
     );
 
     this.setupHandlers();
+  }
+
+  /**
+   * Initialize authentication (get API key via env var, cache, or device flow)
+   */
+  private async initAuth(): Promise<void> {
+    try {
+      const apiKey = await this.auth.getApiKey();
+      this.client.setApiKey(apiKey);
+      console.error('Authentication successful');
+    } catch (error) {
+      console.error('Authentication failed:', error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
 
   /**
@@ -360,6 +376,9 @@ class RyumemMCPServer {
   }
 
   async run(): Promise<void> {
+    // Initialize authentication first
+    await this.initAuth();
+
     // Fetch instructions before starting the server
     await this.fetchInstructions();
     await this.saveDefaultInstructions();

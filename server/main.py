@@ -13,11 +13,13 @@ Run with: uvicorn main:app --reload --host 0.0.0.0 --port 8000
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import sqlite3
 import secrets
+
+import httpx
 
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -47,31 +49,38 @@ logger = logging.getLogger(__name__)
 # Global singleton instance
 # _ryumem_instance: Optional[Ryumem] = None  # REMOVED for multi-tenancy
 
+# GitHub OAuth Configuration
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+
 # Auth Manager and Cache
 class AuthManager:
     def __init__(self, db_path: str = "./data/master_auth.db"):
         self.db_path = db_path
         # Initialize RyugraphDB for auth
-        # We use a smaller embedding dimension since we don't need embeddings for auth, 
+        # We use a smaller embedding dimension since we don't need embeddings for auth,
         # but RyugraphDB requires it. 384 is small enough.
         self.db = RyugraphDB(db_path=db_path, embedding_dimensions=384)
         self._init_schema()
-    
+
     def _init_schema(self):
-        """Initialize Customer node table"""
+        """Initialize Customer node table with GitHub OAuth fields"""
         self.db.execute("""
             CREATE NODE TABLE IF NOT EXISTS Customer(
                 customer_id STRING PRIMARY KEY,
                 api_key STRING,
+                github_id STRING,
+                github_username STRING,
+                github_access_token STRING,
                 created_at TIMESTAMP
             )
         """)
-    
+
     def create_customer(self, customer_id: str) -> str:
         """Create a new customer and return their API key"""
         import secrets
         from datetime import datetime
-        
+
         # Check if exists
         existing = self.db.execute(
             "MATCH (c:Customer {customer_id: $cid}) RETURN c.customer_id",
@@ -79,9 +88,9 @@ class AuthManager:
         )
         if existing:
             raise ValueError(f"Customer {customer_id} already exists")
-            
+
         api_key = f"ryu_{secrets.token_urlsafe(32)}"
-        
+
         self.db.execute(
             """
             CREATE (c:Customer {
@@ -106,6 +115,96 @@ class AuthManager:
         )
         if result and len(result) > 0:
             return result[0]["c.customer_id"]
+        return None
+
+    def get_customer_by_github_id(self, github_id: str) -> Optional[Dict[str, Any]]:
+        """Get customer by GitHub ID"""
+        result = self.db.execute(
+            "MATCH (c:Customer) WHERE c.github_id = $gid RETURN c.customer_id, c.api_key, c.github_username",
+            {"gid": github_id}
+        )
+        if result and len(result) > 0:
+            return {
+                "customer_id": result[0]["c.customer_id"],
+                "api_key": result[0]["c.api_key"],
+                "github_username": result[0]["c.github_username"]
+            }
+        return None
+
+    def create_or_update_github_customer(
+        self,
+        github_id: str,
+        github_username: str,
+        github_access_token: str
+    ) -> Dict[str, Any]:
+        """Create or update a customer from GitHub OAuth login"""
+        existing = self.get_customer_by_github_id(github_id)
+
+        if existing:
+            # Update existing customer with new access token
+            self.db.execute(
+                """
+                MATCH (c:Customer {github_id: $gid})
+                SET c.github_access_token = $token, c.github_username = $username
+                """,
+                {"gid": github_id, "token": github_access_token, "username": github_username}
+            )
+            return existing
+
+        # Create new customer with GitHub ID as customer_id
+        customer_id = f"github_{github_id}"
+        api_key = f"ryu_{secrets.token_urlsafe(32)}"
+
+        self.db.execute(
+            """
+            CREATE (c:Customer {
+                customer_id: $cid,
+                api_key: $key,
+                github_id: $gid,
+                github_username: $username,
+                github_access_token: $token,
+                created_at: $created_at
+            })
+            """,
+            {
+                "cid": customer_id,
+                "key": api_key,
+                "gid": github_id,
+                "username": github_username,
+                "token": github_access_token,
+                "created_at": datetime.utcnow()
+            }
+        )
+
+        return {
+            "customer_id": customer_id,
+            "api_key": api_key,
+            "github_username": github_username
+        }
+
+    def validate_github_token(self, access_token: str) -> Optional[str]:
+        """Validate GitHub access token and return customer_id"""
+        result = self.db.execute(
+            "MATCH (c:Customer) WHERE c.github_access_token = $token RETURN c.customer_id",
+            {"token": access_token}
+        )
+        if result and len(result) > 0:
+            return result[0]["c.customer_id"]
+        return None
+
+    def get_customer_details(self, customer_id: str) -> Optional[Dict[str, Any]]:
+        """Get full customer details by customer_id"""
+        result = self.db.execute(
+            "MATCH (c:Customer {customer_id: $cid}) RETURN c.customer_id, c.api_key, c.github_username, c.github_id",
+            {"cid": customer_id}
+        )
+        if result and len(result) > 0:
+            return {
+                "customer_id": result[0]["c.customer_id"],
+                "api_key": result[0]["c.api_key"],
+                "github_username": result[0].get("c.github_username"),
+                "github_id": result[0].get("c.github_id")
+            }
         return None
 
 _auth_manager: Optional[AuthManager] = None
@@ -147,23 +246,35 @@ async def lifespan(app: FastAPI):
     logger.info("Shutdown complete")
 
 
-# Dependency for Auth
+# Dependency for Auth - supports both API Key and Bearer Token
 async def get_current_customer(
-    x_api_key: str = Header(..., description="Customer API Key")
+    x_api_key: Optional[str] = Header(None, description="Customer API Key"),
+    authorization: Optional[str] = Header(None, description="Bearer token for OAuth")
 ) -> str:
     """
-    Validate API key and return customer_id.
+    Validate API key or Bearer token and return customer_id.
+    Supports both X-API-Key header and Authorization: Bearer token.
     """
     if not _auth_manager:
         raise HTTPException(status_code=503, detail="AuthManager not initialized")
-        
-    customer_id = _auth_manager.validate_key(x_api_key)
-    if not customer_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API Key",
-        )
-    return customer_id
+
+    # Try Bearer token first (OAuth)
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        customer_id = _auth_manager.validate_github_token(token)
+        if customer_id:
+            return customer_id
+
+    # Fall back to API key
+    if x_api_key:
+        customer_id = _auth_manager.validate_key(x_api_key)
+        if customer_id:
+            return customer_id
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required. Provide X-API-Key or Authorization: Bearer token",
+    )
 
 
 # Dependency injection for per-request Ryumem instances
@@ -521,6 +632,53 @@ class RegisterResponse(BaseModel):
     api_key: str = Field(..., description="Generated API Key")
     message: str = Field(..., description="Success message")
 
+
+# ===== GitHub OAuth Models =====
+
+class GitHubCallbackRequest(BaseModel):
+    """Request model for GitHub OAuth callback"""
+    code: str = Field(..., description="Authorization code from GitHub")
+    redirect_uri: Optional[str] = Field(None, description="Redirect URI used in the authorization request")
+
+
+class GitHubAuthResponse(BaseModel):
+    """Response model for GitHub OAuth authentication"""
+    customer_id: str = Field(..., description="Customer ID")
+    api_key: str = Field(..., description="API Key for use in scripts/MCP")
+    github_username: str = Field(..., description="GitHub username")
+    message: str = Field(..., description="Success message")
+
+
+class DeviceCodeResponse(BaseModel):
+    """Response model for device code flow initiation"""
+    device_code: str = Field(..., description="Device code for polling")
+    user_code: str = Field(..., description="Code for user to enter")
+    verification_uri: str = Field(..., description="URL for user to visit")
+    expires_in: int = Field(..., description="Seconds until codes expire")
+    interval: int = Field(..., description="Polling interval in seconds")
+
+
+class DevicePollRequest(BaseModel):
+    """Request model for polling device code status"""
+    device_code: str = Field(..., description="Device code from initiation")
+
+
+class DevicePollResponse(BaseModel):
+    """Response model for device code polling"""
+    status: str = Field(..., description="Status: pending, complete, or error")
+    customer_id: Optional[str] = Field(None, description="Customer ID (on success)")
+    api_key: Optional[str] = Field(None, description="API Key (on success)")
+    github_username: Optional[str] = Field(None, description="GitHub username (on success)")
+    error: Optional[str] = Field(None, description="Error message (on failure)")
+
+
+class AuthMeResponse(BaseModel):
+    """Response model for current user info"""
+    customer_id: str = Field(..., description="Customer ID")
+    github_username: Optional[str] = Field(None, description="GitHub username if OAuth user")
+    api_key_preview: str = Field(..., description="First 8 chars of API key")
+
+
 # ===== API Endpoints =====
 
 @app.post("/register", response_model=RegisterResponse)
@@ -554,6 +712,303 @@ async def register_customer(
     except Exception as e:
         logger.error(f"Error registering customer: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ===== GitHub OAuth Endpoints =====
+
+@app.post("/auth/github/callback", response_model=GitHubAuthResponse, tags=["Authentication"])
+async def github_oauth_callback(request: GitHubCallbackRequest):
+    """
+    Handle GitHub OAuth callback (Authorization Code Flow).
+
+    Used by the dashboard for browser-based OAuth login.
+    Exchanges the authorization code for an access token and creates/updates the user.
+    """
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=500,
+            detail="GitHub OAuth not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET."
+        )
+
+    if not _auth_manager:
+        raise HTTPException(status_code=503, detail="AuthManager not initialized")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Exchange code for access token
+            token_response = await client.post(
+                "https://github.com/login/oauth/access_token",
+                data={
+                    "client_id": GITHUB_CLIENT_ID,
+                    "client_secret": GITHUB_CLIENT_SECRET,
+                    "code": request.code,
+                    "redirect_uri": request.redirect_uri,
+                },
+                headers={"Accept": "application/json"}
+            )
+
+            if token_response.status_code != 200:
+                logger.error(f"GitHub token exchange failed: {token_response.text}")
+                raise HTTPException(status_code=400, detail="Failed to exchange code for token")
+
+            token_data = token_response.json()
+
+            if "error" in token_data:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"GitHub OAuth error: {token_data.get('error_description', token_data['error'])}"
+                )
+
+            access_token = token_data.get("access_token")
+            if not access_token:
+                raise HTTPException(status_code=400, detail="No access token received")
+
+            # Get user info from GitHub
+            user_response = await client.get(
+                "https://api.github.com/user",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json"
+                }
+            )
+
+            if user_response.status_code != 200:
+                logger.error(f"GitHub user info failed: {user_response.text}")
+                raise HTTPException(status_code=400, detail="Failed to get GitHub user info")
+
+            user_data = user_response.json()
+            github_id = str(user_data["id"])
+            github_username = user_data.get("login", "unknown")
+
+            # Create or update customer
+            customer = _auth_manager.create_or_update_github_customer(
+                github_id=github_id,
+                github_username=github_username,
+                github_access_token=access_token
+            )
+
+            logger.info(f"GitHub OAuth login successful for {github_username}")
+
+            return GitHubAuthResponse(
+                customer_id=customer["customer_id"],
+                api_key=customer["api_key"],
+                github_username=github_username,
+                message="GitHub authentication successful"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"GitHub OAuth error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"OAuth error: {str(e)}")
+
+
+@app.post("/auth/github/device", response_model=DeviceCodeResponse, tags=["Authentication"])
+async def github_device_code():
+    """
+    Start GitHub Device Code Flow.
+
+    Used by CLI tools (MCP server) that can't open a browser directly.
+    Returns a user code that the user enters at github.com/login/device.
+    """
+    if not GITHUB_CLIENT_ID:
+        raise HTTPException(
+            status_code=500,
+            detail="GitHub OAuth not configured. Set GITHUB_CLIENT_ID."
+        )
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://github.com/login/device/code",
+                data={
+                    "client_id": GITHUB_CLIENT_ID,
+                    "scope": "read:user"
+                },
+                headers={"Accept": "application/json"}
+            )
+
+            if response.status_code != 200:
+                logger.error(f"GitHub device code request failed: {response.text}")
+                raise HTTPException(status_code=400, detail="Failed to initiate device flow")
+
+            data = response.json()
+
+            if "error" in data:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"GitHub error: {data.get('error_description', data['error'])}"
+                )
+
+            return DeviceCodeResponse(
+                device_code=data["device_code"],
+                user_code=data["user_code"],
+                verification_uri=data["verification_uri"],
+                expires_in=data["expires_in"],
+                interval=data.get("interval", 5)
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Device code error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Device flow error: {str(e)}")
+
+
+@app.post("/auth/github/device/poll", response_model=DevicePollResponse, tags=["Authentication"])
+async def github_device_poll(request: DevicePollRequest):
+    """
+    Poll for Device Code Flow completion.
+
+    Called repeatedly by CLI tools until the user completes authorization.
+    Returns status: "pending", "complete", or "error".
+    """
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=500,
+            detail="GitHub OAuth not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET."
+        )
+
+    if not _auth_manager:
+        raise HTTPException(status_code=503, detail="AuthManager not initialized")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Poll for access token
+            response = await client.post(
+                "https://github.com/login/oauth/access_token",
+                data={
+                    "client_id": GITHUB_CLIENT_ID,
+                    "client_secret": GITHUB_CLIENT_SECRET,
+                    "device_code": request.device_code,
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
+                },
+                headers={"Accept": "application/json"}
+            )
+
+            data = response.json()
+
+            # Check for pending/slow_down errors (user hasn't authorized yet)
+            if "error" in data:
+                error = data["error"]
+                if error in ["authorization_pending", "slow_down"]:
+                    return DevicePollResponse(
+                        status="pending",
+                        error=None
+                    )
+                elif error == "expired_token":
+                    return DevicePollResponse(
+                        status="error",
+                        error="Device code expired. Please restart the authentication flow."
+                    )
+                elif error == "access_denied":
+                    return DevicePollResponse(
+                        status="error",
+                        error="User denied authorization."
+                    )
+                else:
+                    return DevicePollResponse(
+                        status="error",
+                        error=data.get("error_description", error)
+                    )
+
+            # Success! Got access token
+            access_token = data.get("access_token")
+            if not access_token:
+                return DevicePollResponse(
+                    status="error",
+                    error="No access token received"
+                )
+
+            # Get user info from GitHub
+            user_response = await client.get(
+                "https://api.github.com/user",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json"
+                }
+            )
+
+            if user_response.status_code != 200:
+                return DevicePollResponse(
+                    status="error",
+                    error="Failed to get GitHub user info"
+                )
+
+            user_data = user_response.json()
+            github_id = str(user_data["id"])
+            github_username = user_data.get("login", "unknown")
+
+            # Create or update customer
+            customer = _auth_manager.create_or_update_github_customer(
+                github_id=github_id,
+                github_username=github_username,
+                github_access_token=access_token
+            )
+
+            logger.info(f"Device flow login successful for {github_username}")
+
+            return DevicePollResponse(
+                status="complete",
+                customer_id=customer["customer_id"],
+                api_key=customer["api_key"],
+                github_username=github_username
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Device poll error: {e}", exc_info=True)
+        return DevicePollResponse(
+            status="error",
+            error=str(e)
+        )
+
+
+@app.get("/auth/me", response_model=AuthMeResponse, tags=["Authentication"])
+async def get_auth_me(customer_id: str = Depends(get_current_customer)):
+    """
+    Get current authenticated user info.
+
+    Works with both API key and Bearer token authentication.
+    Returns customer details including API key preview.
+    """
+    if not _auth_manager:
+        raise HTTPException(status_code=503, detail="AuthManager not initialized")
+
+    customer = _auth_manager.get_customer_details(customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    api_key = customer.get("api_key", "")
+    api_key_preview = api_key[:8] + "..." if len(api_key) > 8 else api_key
+
+    return AuthMeResponse(
+        customer_id=customer["customer_id"],
+        github_username=customer.get("github_username"),
+        api_key_preview=api_key_preview
+    )
+
+
+@app.get("/auth/api-key", tags=["Authentication"])
+async def get_full_api_key(customer_id: str = Depends(get_current_customer)):
+    """
+    Get full API key for the authenticated user.
+
+    Use this to display the API key in the dashboard settings page.
+    """
+    if not _auth_manager:
+        raise HTTPException(status_code=503, detail="AuthManager not initialized")
+
+    customer = _auth_manager.get_customer_details(customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    return {
+        "api_key": customer.get("api_key"),
+        "customer_id": customer["customer_id"],
+        "github_username": customer.get("github_username")
+    }
 
 
 @app.get("/", response_model=HealthResponse)
