@@ -300,6 +300,7 @@ If the user wants a hint, use get_hint.""",
         augment_queries=True,    # ✨ Enable augmentation - this is key!
         similarity_threshold=0.3,  # Match queries with 30%+ similarity
         top_k_similar=5,         # Use top 5 similar queries for context
+        extract_entities=True,  # Disable entity extraction to save tokens
     )
 
     password_agent = add_memory_to_agent(password_agent, ryumem)

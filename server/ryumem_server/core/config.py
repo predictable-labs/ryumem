@@ -247,6 +247,42 @@ class SystemConfig(BaseSettings):
     )
 
 
+class WorkerConfig(BaseSettings):
+    """Background worker configuration for entity extraction"""
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether to enable background worker extraction (queue jobs instead of sync)"
+    )
+    redis_url: str = Field(
+        default="redis://localhost:6379",
+        description="Redis connection URL for job queue"
+    )
+    internal_key: str = Field(
+        default="",
+        description="Shared secret for internal worker endpoints"
+    )
+    server_url: str = Field(
+        default="http://localhost:8000",
+        description="Ryumem server URL for worker callbacks"
+    )
+    job_timeout_seconds: int = Field(
+        default=300,
+        description="Maximum time for a job to complete",
+        gt=0
+    )
+    max_retries: int = Field(
+        default=3,
+        description="Maximum number of retry attempts for failed jobs",
+        ge=0
+    )
+
+    model_config = SettingsConfigDict(
+        env_prefix="RYUMEM_WORKER_",
+        env_nested_delimiter="__"
+    )
+
+
 class RyumemConfig(BaseSettings):
     """
     Main configuration for Ryumem instance.
@@ -275,6 +311,7 @@ class RyumemConfig(BaseSettings):
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     system: SystemConfig = Field(default_factory=SystemConfig)
+    worker: WorkerConfig = Field(default_factory=WorkerConfig)
 
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",

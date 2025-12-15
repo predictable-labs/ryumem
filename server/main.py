@@ -173,17 +173,16 @@ def get_ryumem(customer_id: str = Depends(get_current_customer)):
     """
     if customer_id in _ryumem_cache:
         return _ryumem_cache[customer_id]
-        
+
     # Create new instance
     db_folder = os.getenv("RYUMEM_DB_FOLDER", "./data")
     db_path = os.path.join(db_folder, f"{customer_id}.db")
-    
+
     logger.info(f"Creating Ryumem instance for {customer_id} at {db_path}")
-    
-    # Initialize with specific DB path
-    # We create a fresh config to avoid sharing state, though Ryumem(db_path=...) handles override
-    instance = Ryumem(db_path=db_path)
-    
+
+    # Initialize with specific DB path and customer_id for worker callbacks
+    instance = Ryumem(db_path=db_path, customer_id=customer_id)
+
     _ryumem_cache[customer_id] = instance
     return instance
 
@@ -2242,6 +2241,360 @@ async def reset_database(
     except Exception as e:
         logger.error(f"Error resetting database: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error resetting database: {str(e)}")
+
+
+# ============================================================================
+# Internal Worker Endpoints
+# ============================================================================
+# These endpoints are called by the background worker to persist extraction results.
+# They require the X-Internal-Key header for authentication.
+
+
+def verify_internal_key(x_internal_key: str = Header(None)):
+    """Verify the internal key for worker endpoints."""
+    import os
+    expected_key = os.environ.get("WORKER_INTERNAL_KEY", "")
+    if expected_key and x_internal_key != expected_key:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid internal key"
+        )
+    return True
+
+
+class UpsertEntityRequest(BaseModel):
+    """Request model for upserting an entity from worker"""
+    name: str = Field(..., description="Entity name (normalized)")
+    entity_type: str = Field(..., description="Entity type (e.g., PERSON, ORGANIZATION)")
+    name_embedding: List[float] = Field(..., description="Entity name embedding vector")
+    user_id: str = Field(..., description="User ID for multi-tenancy")
+    customer_id: str = Field(..., description="Customer ID for database selection")
+    similarity_threshold: float = Field(default=0.65, description="Threshold for entity deduplication")
+    summary: str = Field(default="", description="Optional entity summary")
+
+
+class UpsertEntityResponse(BaseModel):
+    """Response model for entity upsert"""
+    uuid: str = Field(..., description="UUID of the created/updated entity")
+    name: str = Field(..., description="Canonical entity name")
+    is_new: bool = Field(..., description="Whether this is a new entity or existing")
+    mentions: int = Field(..., description="Total mention count")
+
+
+class UpsertRelationshipRequest(BaseModel):
+    """Request model for upserting a relationship from worker"""
+    source_entity_uuid: str = Field(..., description="Source entity UUID")
+    target_entity_uuid: str = Field(..., description="Target entity UUID")
+    relation_type: str = Field(..., description="Relationship type (e.g., WORKS_AT)")
+    fact: str = Field(..., description="Fact description")
+    fact_embedding: List[float] = Field(..., description="Fact embedding vector")
+    episode_uuid: str = Field(..., description="Episode UUID that mentions this relationship")
+    user_id: str = Field(..., description="User ID for multi-tenancy")
+    customer_id: str = Field(..., description="Customer ID for database selection")
+    similarity_threshold: float = Field(default=0.8, description="Threshold for relationship deduplication")
+
+
+class UpsertRelationshipResponse(BaseModel):
+    """Response model for relationship upsert"""
+    uuid: str = Field(..., description="UUID of the created/updated relationship")
+    is_new: bool = Field(..., description="Whether this is a new relationship or existing")
+    mentions: int = Field(..., description="Total mention count")
+
+
+class ExtractionCompleteRequest(BaseModel):
+    """Request model for marking extraction complete"""
+    job_id: str = Field(..., description="Extraction job ID")
+    entities_count: int = Field(..., description="Number of entities extracted")
+    relationships_count: int = Field(..., description="Number of relationships extracted")
+    customer_id: str = Field(..., description="Customer ID for database selection")
+    error: Optional[str] = Field(None, description="Error message if extraction failed")
+
+
+@app.post(
+    "/internal/entities/upsert",
+    response_model=UpsertEntityResponse,
+    tags=["Internal"],
+    summary="Upsert an entity from worker extraction"
+)
+async def internal_upsert_entity(
+    request: UpsertEntityRequest,
+    _: bool = Depends(verify_internal_key)
+):
+    """
+    Upsert an entity from worker extraction.
+
+    This endpoint handles entity deduplication:
+    - Searches for similar existing entities using embedding similarity
+    - If found, updates the existing entity (increments mentions)
+    - If not found, creates a new entity
+
+    Called by the background worker after LLM extraction.
+    """
+    try:
+        from uuid import uuid4
+        from datetime import datetime
+        from ryumem_server.core.models import EntityNode
+
+        # Get Ryumem instance for the customer
+        ryumem = get_ryumem(request.customer_id)
+
+        # Search for similar existing entities
+        similar = ryumem.db.search_similar_entities(
+            embedding=request.name_embedding,
+            user_id=request.user_id,
+            threshold=request.similarity_threshold,
+            limit=1,
+        )
+
+        if similar:
+            # Found existing entity - update it
+            existing = similar[0]
+            entity_uuid = existing["uuid"]
+            is_new = False
+            mentions = existing.get("mentions", 0) + 1
+
+            entity = EntityNode(
+                uuid=entity_uuid,
+                name=existing["name"],  # Use canonical name from DB
+                entity_type=request.entity_type,
+                summary=existing.get("summary", request.summary),
+                name_embedding=request.name_embedding,
+                mentions=mentions,
+                user_id=request.user_id,
+            )
+
+            logger.info(f"[Internal] Deduplicating entity '{request.name}' -> '{existing['name']}' (mentions: {mentions})")
+        else:
+            # Create new entity
+            entity_uuid = str(uuid4())
+            is_new = True
+            mentions = 1
+
+            entity = EntityNode(
+                uuid=entity_uuid,
+                name=request.name,
+                entity_type=request.entity_type,
+                summary=request.summary,
+                name_embedding=request.name_embedding,
+                mentions=mentions,
+                created_at=datetime.utcnow(),
+                user_id=request.user_id,
+            )
+
+            logger.info(f"[Internal] Creating new entity '{request.name}' (UUID: {entity_uuid[:8]}...)")
+
+        # Save to database
+        ryumem.db.save_entity(entity)
+
+        return UpsertEntityResponse(
+            uuid=entity_uuid,
+            name=entity.name,
+            is_new=is_new,
+            mentions=mentions,
+        )
+
+    except Exception as e:
+        logger.error(f"[Internal] Error upserting entity: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error upserting entity: {str(e)}")
+
+
+@app.post(
+    "/internal/relationships/upsert",
+    response_model=UpsertRelationshipResponse,
+    tags=["Internal"],
+    summary="Upsert a relationship from worker extraction"
+)
+async def internal_upsert_relationship(
+    request: UpsertRelationshipRequest,
+    _: bool = Depends(verify_internal_key)
+):
+    """
+    Upsert a relationship from worker extraction.
+
+    This endpoint handles relationship deduplication:
+    - Searches for similar existing relationships using fact embedding similarity
+    - If found, updates the existing relationship (increments mentions, adds episode)
+    - If not found, creates a new relationship
+
+    Called by the background worker after LLM extraction.
+    """
+    try:
+        # Get Ryumem instance for the customer
+        ryumem = get_ryumem(request.customer_id)
+        from uuid import uuid4
+        from datetime import datetime
+        from ryumem_server.core.models import EntityEdge
+
+        # Search for similar existing edges
+        similar = ryumem.db.search_similar_edges(
+            embedding=request.fact_embedding,
+            user_id=request.user_id,
+            threshold=request.similarity_threshold,
+            limit=1,
+        )
+
+        if similar:
+            # Found existing edge - update it
+            existing = similar[0]
+            edge_uuid = existing["edge_uuid"]
+            is_new = False
+            mentions = existing.get("mentions", 0) + 1
+
+            # Get existing episodes and add new one
+            existing_episodes = existing.get("episodes", [])
+            if request.episode_uuid not in existing_episodes:
+                existing_episodes.append(request.episode_uuid)
+
+            edge = EntityEdge(
+                uuid=edge_uuid,
+                source_node_uuid=request.source_entity_uuid,
+                target_node_uuid=request.target_entity_uuid,
+                name=request.relation_type,
+                fact=existing.get("fact", request.fact),  # Keep original fact
+                fact_embedding=request.fact_embedding,
+                episodes=existing_episodes,
+                mentions=mentions,
+            )
+
+            logger.info(f"[Internal] Updating relationship (mentions: {mentions})")
+        else:
+            # Create new edge
+            edge_uuid = str(uuid4())
+            is_new = True
+            mentions = 1
+
+            edge = EntityEdge(
+                uuid=edge_uuid,
+                source_node_uuid=request.source_entity_uuid,
+                target_node_uuid=request.target_entity_uuid,
+                name=request.relation_type,
+                fact=request.fact,
+                fact_embedding=request.fact_embedding,
+                episodes=[request.episode_uuid],
+                mentions=mentions,
+                created_at=datetime.utcnow(),
+                valid_at=datetime.utcnow(),
+            )
+
+            logger.info(f"[Internal] Creating new relationship (UUID: {edge_uuid[:8]}...)")
+
+        # Save to database
+        ryumem.db.save_entity_edge(
+            edge,
+            source_uuid=request.source_entity_uuid,
+            target_uuid=request.target_entity_uuid
+        )
+
+        return UpsertRelationshipResponse(
+            uuid=edge_uuid,
+            is_new=is_new,
+            mentions=mentions,
+        )
+
+    except Exception as e:
+        logger.error(f"[Internal] Error upserting relationship: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error upserting relationship: {str(e)}")
+
+
+@app.post(
+    "/internal/episodes/{episode_uuid}/extraction-complete",
+    tags=["Internal"],
+    summary="Mark episode extraction as complete"
+)
+async def internal_extraction_complete(
+    episode_uuid: str,
+    request: ExtractionCompleteRequest,
+    _: bool = Depends(verify_internal_key)
+):
+    """
+    Mark entity extraction as complete for an episode.
+
+    Updates the episode metadata with extraction results:
+    - extraction_status: "completed" or "failed"
+    - extraction_job_id: Reference to the Redis job
+    - extraction_completed_at: Timestamp
+    - extraction_entities_count: Number of entities extracted
+    - extraction_relationships_count: Number of relationships extracted
+    - extraction_error: Error message if failed
+
+    Called by the background worker after extraction finishes.
+    """
+    try:
+        from datetime import datetime
+
+        # Get Ryumem instance for the customer
+        ryumem = get_ryumem(request.customer_id)
+
+        # Get existing episode
+        episode = ryumem.db.get_episode_by_uuid(episode_uuid)
+        if not episode:
+            raise HTTPException(status_code=404, detail=f"Episode {episode_uuid} not found")
+
+        # Parse existing metadata
+        metadata_str = episode.get("metadata", "{}")
+        try:
+            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else (metadata_str or {})
+        except json.JSONDecodeError:
+            metadata = {}
+
+        # Update extraction status in metadata
+        metadata["extraction_status"] = "failed" if request.error else "completed"
+        metadata["extraction_job_id"] = request.job_id
+        metadata["extraction_completed_at"] = datetime.utcnow().isoformat()
+        metadata["extraction_entities_count"] = request.entities_count
+        metadata["extraction_relationships_count"] = request.relationships_count
+        if request.error:
+            metadata["extraction_error"] = request.error
+
+        # Update episode metadata in database
+        ryumem.db.execute(
+            "MATCH (e:Episode {uuid: $uuid}) SET e.metadata = $metadata",
+            {"uuid": episode_uuid, "metadata": json.dumps(metadata)}
+        )
+
+        logger.info(
+            f"[Internal] Marked extraction complete for episode {episode_uuid[:8]}... "
+            f"(entities: {request.entities_count}, relationships: {request.relationships_count}, "
+            f"status: {'failed' if request.error else 'completed'})"
+        )
+
+        return {
+            "episode_uuid": episode_uuid,
+            "status": "failed" if request.error else "completed",
+            "entities_count": request.entities_count,
+            "relationships_count": request.relationships_count,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Internal] Error marking extraction complete: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error marking extraction complete: {str(e)}")
+
+
+@app.get(
+    "/internal/queue/stats",
+    tags=["Internal"],
+    summary="Get extraction queue statistics"
+)
+async def internal_queue_stats(
+    _: bool = Depends(verify_internal_key)
+):
+    """
+    Get statistics about the extraction queue.
+
+    Returns number of pending and processing jobs.
+    """
+    try:
+        from ryumem_server.worker.queue import get_queue_stats
+        stats = get_queue_stats()
+        return stats
+    except ImportError:
+        # Redis not configured
+        return {"pending": 0, "processing": 0, "error": "Redis not configured"}
+    except Exception as e:
+        logger.error(f"[Internal] Error getting queue stats: {e}", exc_info=True)
+        return {"pending": 0, "processing": 0, "error": str(e)}
 
 
 if __name__ == "__main__":

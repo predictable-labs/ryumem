@@ -39,6 +39,8 @@ class EpisodeIngestion:
         bm25_index: Optional["BM25Index"] = None,
         enable_entity_extraction: bool = False,
         episode_config: Optional["EpisodeConfig"] = None,
+        worker_enabled: bool = False,
+        redis_url: str = "redis://localhost:6379",
     ):
         """
         Initialize episode ingestion pipeline.
@@ -53,6 +55,8 @@ class EpisodeIngestion:
             bm25_index: Optional BM25 index for keyword search
             enable_entity_extraction: Whether to enable entity extraction (default: False)
             episode_config: Episode configuration (default: creates new with defaults)
+            worker_enabled: Whether to use background worker for entity extraction
+            redis_url: Redis URL for worker queue (only used if worker_enabled=True)
         """
         from ryumem.core.config import EpisodeConfig
 
@@ -63,6 +67,8 @@ class EpisodeIngestion:
         self.bm25_index = bm25_index
         self.enable_entity_extraction = enable_entity_extraction
         self.episode_config = episode_config if episode_config is not None else EpisodeConfig()
+        self.worker_enabled = worker_enabled
+        self.redis_url = redis_url
 
         # Initialize extractors
         self.entity_extractor = EntityExtractor(
@@ -94,13 +100,16 @@ class EpisodeIngestion:
         name: Optional[str] = None,
         extract_entities: Optional[bool] = None,
         episode_config_override: Optional["EpisodeConfig"] = None,
+        queue_extraction: Optional[bool] = None,
+        customer_id: str = "",
+        api_key: str = "",
     ) -> str:
         """
         Ingest a new episode and extract entities/relationships.
 
         This is the main entry point for the ingestion pipeline.
 
-        Pipeline:
+        Pipeline (sync mode):
         1. Create episode node
         2. Get context from previous episodes (if entity extraction enabled)
         3. Extract entities and resolve against existing (if enabled)
@@ -108,6 +117,11 @@ class EpisodeIngestion:
         5. Create MENTIONS edges from episode to entities (if entities extracted)
         6. Detect and invalidate contradicting edges (if enabled)
         7. Update entity summaries (if enabled)
+
+        Pipeline (async worker mode):
+        1. Create episode node with content embedding
+        2. Queue extraction job to Redis
+        3. Return immediately (worker handles steps 2-7)
 
         Args:
             content: Episode content (text, message, or JSON)
@@ -119,6 +133,9 @@ class EpisodeIngestion:
             metadata: Optional metadata dictionary
             name: Optional name for the episode
             extract_entities: Override instance setting for entity extraction (None uses instance default)
+            queue_extraction: Override worker setting (None uses instance default)
+            customer_id: Customer ID for worker authentication (used when queueing)
+            api_key: API key for worker authentication (used when queueing)
 
         Returns:
             UUID of the created episode
@@ -126,6 +143,10 @@ class EpisodeIngestion:
         # Determine whether to extract entities for this request
         # Per-request override takes precedence over instance setting
         should_extract_entities = extract_entities if extract_entities is not None else self.enable_entity_extraction
+
+        # Determine whether to use worker queue
+        # Per-request override takes precedence, then instance setting
+        should_queue = queue_extraction if queue_extraction is not None else self.worker_enabled
 
         # Use override config if provided, otherwise use instance config
         config = episode_config_override if episode_config_override is not None else self.episode_config
@@ -214,6 +235,18 @@ class EpisodeIngestion:
         step_duration = (datetime.utcnow() - step_start).total_seconds()
         logger.info(f"⏱️  [TIMING] Step 1 - Create episode node with embedding: {step_duration:.2f}s")
         logger.debug(f"Created episode node: {episode_uuid}")
+
+        # Check if we should queue extraction to background worker
+        if should_extract_entities and should_queue:
+            return self._queue_extraction_job(
+                episode_uuid=episode_uuid,
+                content=content,
+                user_id=user_id,
+                session_id=session_id,
+                customer_id=customer_id,
+                api_key=api_key,
+                episode_metadata=episode_metadata,
+            )
 
         # Step 2: Get context from previous episodes (only if entity extraction is enabled)
         if should_extract_entities:
@@ -435,3 +468,160 @@ class EpisodeIngestion:
                 logger.error(
                     f"Error creating MENTIONS edge from {episode_uuid} to {entity_uuid}: {e}"
                 )
+
+    def _queue_extraction_job(
+        self,
+        episode_uuid: str,
+        content: str,
+        user_id: str,
+        session_id: Optional[str] = None,
+        customer_id: str = "",
+        api_key: str = "",
+        episode_metadata: Optional[Dict] = None,
+    ) -> str:
+        """
+        Queue an extraction job to the background worker.
+
+        Args:
+            episode_uuid: UUID of the episode to extract entities from
+            content: Episode content
+            user_id: User ID
+            session_id: Optional session ID for context
+            customer_id: Customer ID for authentication
+            api_key: API key for authentication
+            episode_metadata: Episode metadata dict to update with job info
+
+        Returns:
+            Episode UUID
+        """
+        import os
+        try:
+            from ryumem_server.worker.queue import ExtractionJob, enqueue_extraction_job
+
+            # Get context for extraction
+            context = self._get_episode_context(
+                user_id=user_id,
+                session_id=session_id,
+            )
+
+            # Create extraction job
+            job_id = str(uuid4())
+            job = ExtractionJob(
+                job_id=job_id,
+                episode_uuid=episode_uuid,
+                content=content,
+                user_id=user_id,
+                customer_id=customer_id,
+                api_key=api_key,
+                context=context if context else None,
+                created_at=datetime.utcnow(),
+            )
+
+            # Set Redis URL from environment or instance config
+            redis_url = os.environ.get("REDIS_URL", self.redis_url)
+            os.environ["REDIS_URL"] = redis_url
+
+            # Enqueue the job
+            enqueue_extraction_job(job)
+
+            # Update episode metadata with extraction status
+            if episode_metadata is None:
+                episode_metadata = {}
+
+            episode_metadata["extraction_status"] = "pending"
+            episode_metadata["extraction_job_id"] = job_id
+            episode_metadata["extraction_queued_at"] = datetime.utcnow().isoformat()
+
+            # Update episode in database
+            self.db.execute(
+                "MATCH (e:Episode {uuid: $uuid}) SET e.metadata = $metadata",
+                {"uuid": episode_uuid, "metadata": json.dumps(episode_metadata)}
+            )
+
+            logger.info(f"Queued extraction job {job_id} for episode {episode_uuid}")
+            return episode_uuid
+
+        except ImportError as e:
+            logger.warning(f"Redis/worker not available, falling back to sync extraction: {e}")
+            # Fallback to sync extraction if worker not available
+            return self._sync_extraction(episode_uuid, content, user_id, session_id)
+        except Exception as e:
+            logger.error(f"Error queueing extraction job: {e}")
+            # Fallback to sync extraction on error
+            return self._sync_extraction(episode_uuid, content, user_id, session_id)
+
+    def _sync_extraction(
+        self,
+        episode_uuid: str,
+        content: str,
+        user_id: str,
+        session_id: Optional[str] = None,
+    ) -> str:
+        """
+        Fallback synchronous extraction when worker is not available.
+
+        This runs the full extraction pipeline synchronously.
+        """
+        logger.info(f"Running synchronous extraction for episode {episode_uuid}")
+
+        # Get context
+        context = self._get_episode_context(
+            user_id=user_id,
+            session_id=session_id,
+        )
+
+        # Extract entities
+        entities, entity_map = self.entity_extractor.extract_and_resolve(
+            content=content,
+            user_id=user_id,
+            context=context,
+        )
+
+        if not entities:
+            logger.info(f"No entities extracted for episode {episode_uuid}")
+            return episode_uuid
+
+        # Extract relationships
+        edges = self.relation_extractor.extract_and_resolve(
+            content=content,
+            entities=entities,
+            entity_map=entity_map,
+            episode_uuid=episode_uuid,
+            user_id=user_id,
+            context=context,
+        )
+
+        # Create MENTIONS edges
+        self._create_mentions_edges(
+            episode_uuid=episode_uuid,
+            entity_uuids=[e.uuid for e in entities],
+        )
+
+        # Detect contradictions
+        if edges:
+            contradicting_edges = self.relation_extractor.detect_contradictions(
+                new_edges=edges,
+                user_id=user_id,
+            )
+            if contradicting_edges:
+                self.relation_extractor.invalidate_edges(contradicting_edges)
+
+        # Update summaries
+        for entity in entities:
+            try:
+                self.entity_extractor.update_entity_summary(
+                    entity_uuid=entity.uuid,
+                    new_context=content,
+                )
+            except Exception as e:
+                logger.error(f"Error updating summary for entity {entity.uuid}: {e}")
+
+        # Add to BM25 index
+        if self.bm25_index:
+            for entity in entities:
+                self.bm25_index.add_entity(entity)
+            for edge in edges:
+                self.bm25_index.add_edge(edge)
+
+        logger.info(f"Sync extraction complete: {len(entities)} entities, {len(edges)} relationships")
+        return episode_uuid

@@ -209,6 +209,109 @@ All settings are persisted to the database:
 - **Defaults**: Configurable default values
 - **Categories**: Organized by category for easy management
 
+## Background Worker for Entity Extraction
+
+Entity extraction runs in a **separate background worker process** to keep API responses fast. The worker pulls jobs from Redis, runs LLM-based extraction, and calls back to the server to persist results.
+
+### Architecture
+
+```
+Client --> FastAPI Server --> Redis Queue --> Entity Worker --> HTTP Callbacks --> Server --> Database
+```
+
+### Prerequisites
+
+- **Redis**: Required for job queue
+  ```bash
+  # macOS
+  brew install redis && redis-server
+
+  # Ubuntu/Debian
+  sudo apt install redis-server && sudo systemctl start redis
+
+  # Docker
+  docker run -d -p 6379:6379 redis:alpine
+  ```
+
+### Configuration
+
+Set these environment variables in your `.env` file:
+
+```bash
+# Enable background worker (default: true)
+RYUMEM_WORKER_ENABLED=true
+
+# Redis connection
+REDIS_URL=redis://localhost:6379
+
+# Shared secret for internal endpoints
+WORKER_INTERNAL_KEY=your-secure-random-string
+
+# Server URL for callbacks
+SERVER_URL=http://localhost:8000
+
+# LLM Provider for extraction (default: gemini)
+LLM_PROVIDER=gemini              # Options: gemini, openai, ollama, litellm
+EMBEDDING_PROVIDER=gemini        # Options: gemini, openai, ollama, litellm
+
+# Gemini Configuration (default)
+GOOGLE_API_KEY=your-google-api-key
+LLM_MODEL=gemini-2.0-flash-exp
+EMBEDDING_MODEL=text-embedding-004
+EMBEDDING_DIMENSIONS=768
+
+# Or OpenAI Configuration
+# LLM_PROVIDER=openai
+# EMBEDDING_PROVIDER=openai
+# OPENAI_API_KEY=sk-your-key
+# LLM_MODEL=gpt-4
+# EMBEDDING_MODEL=text-embedding-3-large
+# EMBEDDING_DIMENSIONS=3072
+```
+
+### Running the Worker
+
+**Important**: Run from the `server` directory:
+
+```bash
+cd server
+
+# Terminal 1: Start Redis (if not running)
+redis-server
+
+# Terminal 2: Start API server
+uvicorn main:app --port 8000
+
+# Terminal 3: Start background worker
+python -m ryumem_server.worker
+```
+
+### Supported Providers
+
+| Provider | LLM Models | Embedding Models | API Key |
+|----------|------------|------------------|---------|
+| `gemini` (default) | gemini-2.0-flash-exp, gemini-1.5-pro | text-embedding-004 | GOOGLE_API_KEY |
+| `openai` | gpt-4, gpt-4-turbo | text-embedding-3-large | OPENAI_API_KEY |
+| `ollama` | qwen2.5:7b, llama3 | nomic-embed-text | None (local) |
+| `litellm` | Any supported | Any supported | Varies |
+
+### Monitoring
+
+Check queue status via internal endpoint:
+```bash
+curl http://localhost:8000/internal/queue/stats \
+  -H "X-Internal-Key: your-internal-key"
+```
+
+### Disabling the Worker
+
+To run entity extraction synchronously (blocking):
+```bash
+RYUMEM_WORKER_ENABLED=false
+```
+
+This will process extraction inline with the API request (slower response times).
+
 ## Development
 
 ### Project Structure
@@ -222,11 +325,18 @@ server/
 ├── ryumem_server/
 │   ├── __init__.py
 │   ├── lib.py                  # Ryumem wrapper
-│   └── core/
-│       ├── config.py           # Config models
-│       ├── config_service.py   # Config management
-│       ├── graph_db.py         # Database operations
-│       └── models.py           # API models
+│   ├── worker/                 # Background worker
+│   │   ├── __init__.py
+│   │   ├── __main__.py         # Worker entry point
+│   │   ├── queue.py            # Redis queue operations
+│   │   └── entity_extraction.py # Extraction logic
+│   ├── core/
+│   │   ├── config.py           # Config models
+│   │   ├── config_service.py   # Config management
+│   │   ├── graph_db.py         # Database operations
+│   │   └── models.py           # API models
+│   ├── ingestion/              # Episode ingestion
+│   └── utils/                  # LLM/Embedding clients
 └── data/                       # Customer databases
     ├── customer1.db
     ├── customer2.db

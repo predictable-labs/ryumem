@@ -53,7 +53,7 @@ def main():
     for i, content in enumerate(episodes, 1):
         episode_id = ryumem.add_episode(
             content=content,
-            group_id="demo_user",
+            session_id="demo_user",
             user_id="demo_user",
             source="text",
         )

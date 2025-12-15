@@ -41,6 +41,7 @@ class Ryumem:
         self,
         config: Optional[RyumemConfig] = None,
         db_path: Optional[str] = None,
+        customer_id: Optional[str] = None,
     ):
         """
         Initialize Ryumem instance.
@@ -48,6 +49,7 @@ class Ryumem:
         Args:
             config: RyumemConfig instance (if not provided, loads from env)
             db_path: Optional override for database path
+            customer_id: Customer ID for multi-tenant operation (used for worker callbacks)
 
         Example:
             # From environment variables (.env file)
@@ -63,9 +65,12 @@ class Ryumem:
             config.llm.provider = "openai"
             config.llm.model = "gpt-4o-mini"
             ryumem = Ryumem(config=config)
-            
+
             # With explicit db_path (overrides config)
             ryumem = Ryumem(db_path="./data/customer_1.db")
+
+            # For multi-tenant server operation
+            ryumem = Ryumem(db_path="./data/customer_1.db", customer_id="customer_1")
         """
         # Load or create config
         if config is None:
@@ -77,6 +82,7 @@ class Ryumem:
             config.database.db_path = db_path
 
         self.config = config
+        self.customer_id = customer_id or ""
 
         # Ensure database directory exists
         db_path_obj = Path(config.database.db_path)
@@ -204,7 +210,7 @@ class Ryumem:
         else:
             logger.info("No existing BM25 index found, will rebuild from database if needed")
 
-        # Initialize ingestion pipeline with BM25 index
+        # Initialize ingestion pipeline with BM25 index and worker config
         self.ingestion = EpisodeIngestion(
             db=self.db,
             llm_client=self.llm_client,
@@ -215,6 +221,8 @@ class Ryumem:
             bm25_index=self.search_engine.bm25_index,
             enable_entity_extraction=config.entity_extraction.enabled,
             episode_config=config.episode,
+            worker_enabled=config.worker.enabled,
+            redis_url=config.worker.redis_url,
         )
 
         # Initialize memory pruner
@@ -296,6 +304,7 @@ class Ryumem:
             metadata=metadata,
             extract_entities=extract_entities,
             episode_config_override=episode_config,
+            customer_id=self.customer_id,
         )
 
         # Persist BM25 index to disk after ingestion
