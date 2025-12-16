@@ -122,6 +122,19 @@ async function install(options: {
     process.exit(1);
   }
 
+  // Save API key to credentials.json for consistency (both OAuth and --api-key methods)
+  const credentialsPath = path.join(os.homedir(), '.ryumem', 'credentials.json');
+  const credentialsDir = path.dirname(credentialsPath);
+  if (!fs.existsSync(credentialsDir)) {
+    fs.mkdirSync(credentialsDir, { recursive: true });
+  }
+  const credentials = {
+    api_key: apiKey,
+    cached_at: new Date().toISOString(),
+  };
+  fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2));
+  console.log(`✅ Credentials saved to ${credentialsPath}`);
+
   // Load existing config
   const config = loadConfig(configPath);
 
