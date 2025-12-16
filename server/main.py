@@ -154,6 +154,42 @@ class AuthManager:
             return result[0]["c.customer_id"]
         return None
 
+    async def validate_github_token(self, access_token: str) -> Optional[str]:
+        """
+        Validate GitHub access token and return customer_id.
+
+        Args:
+            access_token: GitHub OAuth access token
+
+        Returns:
+            customer_id if token is valid and user exists, None otherwise
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                # Get user info from GitHub
+                user_response = await client.get(
+                    "https://api.github.com/user",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Accept": "application/vnd.github+json"
+                    }
+                )
+
+                if user_response.status_code != 200:
+                    return None
+
+                user_data = user_response.json()
+                github_id = str(user_data["id"])
+
+                # Look up customer by GitHub ID
+                customer = self.get_customer_by_github_id(github_id)
+                if customer:
+                    return customer["customer_id"]
+
+                return None
+        except Exception:
+            return None
+
     def get_customer_by_oauth(
         self,
         provider: str,
@@ -425,7 +461,7 @@ async def get_current_customer(
     # Try Bearer token first (OAuth)
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
-        customer_id = _auth_manager.validate_github_token(token)
+        customer_id = await _auth_manager.validate_github_token(token)
         if customer_id:
             return customer_id
 
