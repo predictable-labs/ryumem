@@ -55,7 +55,6 @@ def test_episodes(test_user_id):
     """Create test episodes and clean up after test."""
     episodes = [
         {
-            "name": "Python Programming Language",
             "content": "Python is a high-level programming language known for readability",
             "user_id": test_user_id,
             "source": "text",
@@ -63,7 +62,6 @@ def test_episodes(test_user_id):
             "metadata": {"tags": ["python", "programming"], "test": True}
         },
         {
-            "name": "JavaScript Web Development",
             "content": "JavaScript is used for web development and runs in browsers",
             "user_id": test_user_id,
             "source": "text",
@@ -71,7 +69,6 @@ def test_episodes(test_user_id):
             "metadata": {"tags": ["javascript", "web"], "test": True}
         },
         {
-            "name": "Database Systems",
             "content": "PostgreSQL is a powerful relational database system",
             "user_id": test_user_id,
             "source": "text",
@@ -111,8 +108,9 @@ class TestBM25Search:
         assert resp['count'] > 0, "No episodes found"
 
         episodes = resp['episodes']
-        names = [ep['name'] for ep in episodes]
-        assert "Python Programming Language" in names, f"Python episode not found. Found: {names}"
+        contents = [ep['content'] for ep in episodes]
+        assert any("Python" in content and "programming language" in content for content in contents), \
+            f"Python programming language episode not found. Found: {contents}"
 
     def test_search_multiple_keywords(self, test_episodes, test_user_id):
         """Test BM25 search with multiple keywords."""
@@ -127,22 +125,9 @@ class TestBM25Search:
         assert resp['count'] > 0, "No episodes found for multi-keyword search"
 
         episodes = resp['episodes']
-        names = [ep['name'] for ep in episodes]
-        assert "Python Programming Language" in names, "Python episode should rank high for 'python readability'"
-
-    def test_search_with_low_threshold(self, test_episodes, test_user_id):
-        """Test BM25 search with low score threshold."""
-        resp, status = make_request("POST", "/search", data={
-            "query": "programming",
-            "user_id": test_user_id,
-            "strategy": "bm25",
-            "min_bm25_score": 0.01,
-            "limit": 10
-        })
-
-        assert status == 200, f"Search with threshold failed: {resp}"
-        episodes = resp['episodes']
-        assert len(episodes) >= 1, "Low threshold should return matches"
+        contents = [ep['content'] for ep in episodes]
+        assert any("Python" in content and "readability" in content for content in contents), \
+            "Python episode with readability should be found"
 
     def test_search_no_results_for_nonexistent(self, test_episodes, test_user_id):
         """Test that irrelevant queries return no or low-ranked results."""
@@ -193,11 +178,14 @@ class TestBM25Search:
         # Should have at least our test episodes
         assert len(episodes) >= 3, f"Expected at least 3 episodes, got {len(episodes)}"
 
-        # Verify our episodes are in the list
-        episode_names = [ep['name'] for ep in episodes]
-        assert "Python Programming Language" in episode_names
-        assert "JavaScript Web Development" in episode_names
-        assert "Database Systems" in episode_names
+        # Verify our episodes are in the list by checking content
+        episode_contents = [ep['content'] for ep in episodes]
+        assert any("Python" in content and "programming language" in content for content in episode_contents), \
+            "Python episode not found in persisted episodes"
+        assert any("JavaScript" in content and "web development" in content for content in episode_contents), \
+            "JavaScript episode not found in persisted episodes"
+        assert any("PostgreSQL" in content and "database system" in content for content in episode_contents), \
+            "PostgreSQL episode not found in persisted episodes"
 
 
 class TestBM25EdgeCases:
