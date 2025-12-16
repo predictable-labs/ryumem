@@ -90,6 +90,11 @@ class SearchEngine:
             )
             strategy = "bm25"
 
+        # Auto-fallback to BM25 for tag-only search (empty query)
+        if not config.query and strategy in ["semantic", "hybrid"]:
+            logger.info("Tag-only search detected, using BM25 strategy")
+            strategy = "bm25"
+
         # Run base search strategy
         if strategy == "semantic":
             results = self._semantic_search(config)
@@ -493,8 +498,8 @@ class SearchEngine:
         episodes: List[EpisodeNode] = []
 
         for episode_uuid, score in episode_results:
-            # Apply BM25 score threshold
-            if score < config.min_bm25_score:
+            # Apply BM25 score threshold (skip for tag-only search)
+            if config.query and score < config.min_bm25_score:
                 continue
 
             # Get episode from DB
@@ -536,6 +541,8 @@ class SearchEngine:
                         logger.warning(f"Failed to convert episode {episode_uuid} to EpisodeNode: {e}, skipping")
                         continue
 
+        # BM25 index already returns results in the correct order (score + recency)
+        # No need to re-sort here as it can disrupt the intended ranking
         logger.info(f"BM25 search found {len(entities)} entities, {len(edges)} edges, {len(episodes)} episodes (threshold: {config.min_bm25_score})")
 
         return SearchResult(

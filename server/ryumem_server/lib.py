@@ -201,8 +201,13 @@ class Ryumem:
             if stats["entity_count"] == 0 and stats["edge_count"] == 0:
                 logger.info("BM25 index is empty, rebuilding from database...")
                 self._rebuild_bm25_index()
+            # Check if episode_map is incomplete (old pickle file format) - rebuild if needed
+            elif stats["episode_count"] > 0 and len(self.search_engine.bm25_index.episode_map) == 0:
+                logger.info("BM25 index episode_map is empty (old format), rebuilding from database...")
+                self._rebuild_bm25_index()
         else:
-            logger.info("No existing BM25 index found, will rebuild from database if needed")
+            logger.info("No existing BM25 index found, rebuilding from database...")
+            self._rebuild_bm25_index()
 
         # Initialize ingestion pipeline with BM25 index
         self.ingestion = EpisodeIngestion(
@@ -396,8 +401,8 @@ class Ryumem:
 
     def search(
         self,
-        query: str,
         user_id: str,
+        query: Optional[str] = None,
         limit: int = 10,
         strategy: Optional[str] = None,
         similarity_threshold: Optional[float] = None,
@@ -413,8 +418,8 @@ class Ryumem:
         Search the memory system.
 
         Args:
-            query: Search query text
             user_id: User ID (required)
+            query: Search query text (optional for tag-only search)
             limit: Maximum number of results (default: 10)
             strategy: Search strategy - "semantic", "traversal", or "hybrid" (default: "hybrid")
             similarity_threshold: Minimum similarity threshold (default: from config)
@@ -1081,6 +1086,7 @@ class Ryumem:
 
         # Rebuild episode index
         import json
+        from datetime import datetime
         from ryumem_server.core.models import EpisodeNode, EpisodeType, EpisodeKind
         for episode_data in episodes_data:
             try:
@@ -1092,16 +1098,31 @@ class Ryumem:
                     except (json.JSONDecodeError, TypeError):
                         metadata = {}
 
-                episode = EpisodeNode(
-                    uuid=episode_data["uuid"],
-                    name=episode_data.get("name", ""),
-                    content=episode_data["content"],
-                    source=EpisodeType.from_str(episode_data.get("source", "text")),
-                    source_description=episode_data.get("source_description", ""),
-                    kind=EpisodeKind.from_str(episode_data.get("kind", "query")),
-                    user_id=episode_data.get("user_id"),
-                    metadata=metadata,
-                )
+                # Parse created_at timestamp
+                created_at_str = episode_data.get("created_at")
+                episode_kwargs = {
+                    "uuid": episode_data["uuid"],
+                    "name": episode_data.get("name", ""),
+                    "content": episode_data["content"],
+                    "source": EpisodeType.from_str(episode_data.get("source", "text")),
+                    "source_description": episode_data.get("source_description", ""),
+                    "kind": EpisodeKind.from_str(episode_data.get("kind", "query")),
+                    "user_id": episode_data.get("user_id"),
+                    "metadata": metadata,
+                }
+
+                # Only add created_at if it exists
+                if created_at_str:
+                    if isinstance(created_at_str, str):
+                        episode_kwargs["created_at"] = datetime.fromisoformat(created_at_str.replace(' ', 'T'))
+                    else:
+                        # Handle Timestamp or other datetime-like objects
+                        # Convert to Python datetime
+                        episode_kwargs["created_at"] = created_at_str.to_pydatetime() if hasattr(created_at_str, 'to_pydatetime') else created_at_str
+                
+                print(episode_data, created_at_str, episode_kwargs["created_at"])
+
+                episode = EpisodeNode(**episode_kwargs)
                 self.search_engine.bm25_index.add_episode(episode)
             except Exception as e:
                 logger.warning(f"Failed to add episode {episode_data.get('uuid', 'unknown')} to BM25 index: {e}")

@@ -51,9 +51,9 @@ Determine project name from working directory (e.g., "myapp", "ryumem").
 Use user_id = project_name.
 
 🚨 REQUIRED - Run these 3 searches at the START of EVERY conversation:
-1. search_memory("project summary", {user_id, tags: ["project"], limit: 1})
-2. search_memory("user preferences", {user_id, tags: ["preferences"], limit: 3})
-3. search_memory("recent decisions", {user_id, tags: ["decision"], limit: 2})
+1. search_memory({user_id, tags: ["project"], limit: 1})
+2. search_memory({user_id, tags: ["preferences"], limit: 3})
+3. search_memory({user_id, tags: ["decision"], limit: 2})
 
 If you skip these searches, you will:
 - Miss critical user preferences and waste their time
@@ -84,22 +84,26 @@ add_episode({
 WHY: Re-reading files bloats context. Summaries are 10x more efficient.
 
 ═══════════════════════════════════════════════════════════
-2. WHEN TO SEARCH MEMORY - Use Aggressively
+2. WHEN TO SEARCH & SEARCH VOLUME CONTROL
 ═══════════════════════════════════════════════════════════
 
 Search memory BEFORE:
-✓ Reading any file
-✓ Making implementation decisions
-✓ Answering questions about the codebase
-✓ Updating user preferences
-✓ Starting any multi-step task
+✓ Reading files (check for code summaries)
 ✓ Exploring unfamiliar code areas
+✓ Starting multi-step tasks
 
-Search limits:
+Search volume limits:
 - Code summaries: limit: 1
 - Preferences: limit: 3
 - Decisions: limit: 2
 - General queries: limit: 5
+- Max 5 search results before starting work
+
+🚨 STOP if search returns too much data:
+- If search returns >5 results, query is too broad
+- Refine with more specific tags or query
+- Don't search repeatedly if you keep finding data
+- If need more context, read files instead
 
 Strategy: "bm25" (default) | "hybrid" | "semantic"
 

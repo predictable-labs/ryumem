@@ -566,7 +566,7 @@ class GetEpisodesResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     """Request model for searching"""
-    query: str = Field(..., description="Search query text")
+    query: Optional[str] = Field(None, description="Search query text (optional for tag-only search)")
     user_id: str = Field(..., description="User ID to search within")
     limit: int = Field(10, description="Maximum number of results", ge=1, le=100)
     strategy: str = Field("hybrid", description="Search strategy: semantic, bm25, traversal, or hybrid")
@@ -615,7 +615,7 @@ class SearchResponse(BaseModel):
     entities: List[EntityInfo] = Field(default_factory=list, description="List of entities found")
     edges: List[EdgeInfo] = Field(default_factory=list, description="List of relationships found")
     episodes: List[EpisodeInfo] = Field(default_factory=list, description="List of episodes found")
-    query: str = Field(..., description="Original query")
+    query: Optional[str] = Field(None, description="Original query")
     strategy: str = Field(..., description="Search strategy used")
     count: int = Field(..., description="Total number of results")
 
@@ -1606,8 +1606,8 @@ async def search(
         user_id = request.user_id if request.user_id else None
 
         results = ryumem.search(
-            query=request.query,
             user_id=user_id,
+            query=request.query or "",
             limit=request.limit,
             strategy=request.strategy,
             min_rrf_score=request.min_rrf_score,

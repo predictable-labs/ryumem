@@ -64,6 +64,7 @@ class BM25Index:
         self.episode_corpus: List[List[str]] = []
         self.episode_bm25: Optional[BM25Okapi] = None
         self.episode_tags: Dict[str, set] = {}  # uuid → set of tags
+        self.episode_map: Dict[str, EpisodeNode] = {}  # uuid → full episode object
 
         logger.info("BM25Index initialized")
 
@@ -164,6 +165,7 @@ class BM25Index:
         tokens = tokenize(combined_text)
 
         self.episode_tags[episode.uuid] = tags
+        self.episode_map[episode.uuid] = episode  # Store full episode object
         self.episode_uuids.append(episode.uuid)
         self.episode_corpus.append(tokens)
 
@@ -340,8 +342,8 @@ class BM25Index:
             if all_scores[idx] >= min_score
         ]
 
-        # Sort by score descending
-        results.sort(key=lambda x: x[1], reverse=True)
+        # Sort by score descending, then by recency (created_at) descending for tie-breaking
+        results.sort(key=lambda x: (x[1], self.episode_map[x[0]].created_at), reverse=True)
 
         # Return top_k
         return results[:top_k]
@@ -430,6 +432,7 @@ class BM25Index:
             "episode_uuids": self.episode_uuids,
             "episode_corpus": self.episode_corpus,
             "episode_tags": {uuid: list(tags) for uuid, tags in self.episode_tags.items()},
+            "episode_map": self.episode_map,
         }
 
         with open(path, "wb") as f:
@@ -473,6 +476,9 @@ class BM25Index:
             episode_tags_data = data.get("episode_tags", {})
             self.episode_tags = {uuid: set(tags) for uuid, tags in episode_tags_data.items()}
 
+            # Load episode map (with backward compatibility - will be empty for old pickle files)
+            self.episode_map = data.get("episode_map", {})
+
             # Rebuild BM25 indices
             self._rebuild_entity_index()
             self._rebuild_edge_index()
@@ -502,6 +508,7 @@ class BM25Index:
         self.episode_corpus = []
         self.episode_bm25 = None
         self.episode_tags = {}
+        self.episode_map = {}
 
         logger.info("BM25 index cleared")
 
