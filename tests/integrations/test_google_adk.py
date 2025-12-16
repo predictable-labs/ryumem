@@ -794,9 +794,6 @@ class TestAugmentationRealIntegration:
 
         assert episode1_id is not None
 
-        # Wait for indexing - embeddings need time to be generated
-        time.sleep(2.0)
-
         # Verify episode is searchable before testing augmentation
         search_test = ryumem.search(
             query="What is the weather today?",
@@ -812,9 +809,6 @@ class TestAugmentationRealIntegration:
             for ep in search_test.episodes:
                 score = search_test.scores.get(ep.uuid, 0.0)
                 logger.info(f"Episode {ep.uuid[:8]}: score={score}")
-
-        if len(search_test.episodes) == 0:
-            pytest.skip("Episode not indexed yet - embeddings may take longer to generate")
 
         # Session 2: Create similar query that should trigger augmentation
         session2 = f"session_{uuid.uuid4().hex[:8]}"
@@ -840,23 +834,6 @@ class TestAugmentationRealIntegration:
         for ep in similar_episodes:
             logger.info(f"Similar episode score: {ep.get('score', 'N/A')}")
 
-        if len(similar_episodes) == 0:
-            # Try to understand why - get raw search results
-            raw_search = ryumem.search(
-                query=similar_query,
-                user_id=unique_user,
-                session_id=None,
-                strategy=ryumem.config.tool_tracking.similarity_strategy,
-                limit=5
-            )
-            logger.info(f"Raw search found {len(raw_search.episodes)} episodes")
-            if len(raw_search.episodes) > 0:
-                for ep in raw_search.episodes:
-                    score = raw_search.scores.get(ep.uuid, 0.0)
-                    logger.info(f"Raw episode score: {score}, source: {ep.source}")
-
-            pytest.skip(f"No similar episodes found with threshold {ryumem.config.tool_tracking.similarity_threshold}. Raw search found {len(raw_search.episodes)} episodes.")
-
         augmented_query = _augment_query_with_history(
             query_text=similar_query,
             memory=memory,
@@ -868,23 +845,17 @@ class TestAugmentationRealIntegration:
         assert augmented_query != similar_query, \
             f"Augmentation should have occurred. Found {len(similar_episodes)} similar episodes"
 
-        # Verify augmentation occurred
-        if augmented_query != similar_query:
-            # Augmentation happened - verify it contains expected components
-            assert "The weather is sunny and 25 degrees" in augmented_query, \
-                "Should include agent response from previous attempt"
-            assert "test_tool" in augmented_query, \
-                "Should include tool name in summary"
-            assert "Session ID:" in augmented_query, \
-                "Should include last session details"
-            assert session1 in augmented_query, \
-                "Should include the actual session ID from first query"
-            assert "Previous Attempt Summary" in augmented_query, \
-                "Should include template structure"
-        else:
-            # If augmentation didn't happen, it might be due to similarity threshold
-            # This is still a valid test - verifies threshold behavior
-            pytest.skip(f"Query did not meet similarity threshold ({ryumem.config.tool_tracking.similarity_threshold})")
+        # Augmentation happened - verify it contains expected components
+        assert "The weather is sunny and 25 degrees" in augmented_query, \
+            "Should include agent response from previous attempt"
+        assert "test_tool" in augmented_query, \
+            "Should include tool name in summary"
+        assert "Session ID:" in augmented_query, \
+            "Should include last session details"
+        assert session1 in augmented_query, \
+            "Should include the actual session ID from first query"
+        assert "Previous Attempt Summary" in augmented_query, \
+            "Should include template structure"
 
     @pytest.mark.asyncio
     async def test_augmentation_includes_tool_response_sizes(self, ryumem, unique_user):
@@ -943,8 +914,6 @@ class TestAugmentationRealIntegration:
             metadata=metadata.model_dump()
         )
 
-        time.sleep(2.0)
-
         # Verify episode is searchable
         search_test = ryumem.search(
             query="Get some data for analysis",
@@ -955,9 +924,6 @@ class TestAugmentationRealIntegration:
         )
 
         logger.info(f"Search test returned {len(search_test.episodes)} episodes")
-
-        if len(search_test.episodes) == 0:
-            pytest.skip("Episode not indexed yet")
 
         # Query similar content
         session2 = f"session_{uuid.uuid4().hex[:8]}"
@@ -977,9 +943,6 @@ class TestAugmentationRealIntegration:
         )
 
         logger.info(f"Found {len(similar_episodes)} similar episodes for response size test")
-
-        if len(similar_episodes) == 0:
-            pytest.skip(f"No similar episodes found with threshold {ryumem.config.tool_tracking.similarity_threshold}")
 
         augmented = _augment_query_with_history(
             query_text=similar_query,
@@ -1059,8 +1022,6 @@ class TestAugmentationRealIntegration:
                 metadata=metadata.model_dump()
             )
 
-        time.sleep(2.0)
-
         # Verify episodes are searchable
         search_test = ryumem.search(
             query="Help me with a task",
@@ -1076,9 +1037,6 @@ class TestAugmentationRealIntegration:
         for ep in search_test.episodes:
             score = search_test.scores.get(ep.uuid, "N/A")
             logger.info(f"Episode {ep.uuid}: content='{ep.content}', score={score}")
-
-        if len(search_test.episodes) == 0:
-            pytest.skip("Episodes not indexed yet")
 
         # Query with similar content
         new_session = f"session_new_{uuid.uuid4().hex[:8]}"
@@ -1109,9 +1067,6 @@ class TestAugmentationRealIntegration:
                 for sess_id, runs in episode_meta.sessions.items():
                     for run in runs:
                         logger.info(f"  Session: {sess_id[:20]}, timestamp: {run.timestamp}, response: {run.agent_response[:30] if run.agent_response else 'None'}")
-
-        if len(similar_episodes) == 0:
-            pytest.skip(f"No similar episodes found with threshold {ryumem.config.tool_tracking.similarity_threshold}")
 
         augmented = _augment_query_with_history(
             query_text=similar_query,

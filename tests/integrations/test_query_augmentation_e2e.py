@@ -263,14 +263,16 @@ class TestQueryAugmentationE2E:
             user_id=bm25_user,
             session_id=unique_session,
             source="message",
-            enable_embeddings=False  # Disable embeddings to use BM25
+            enable_embeddings=False,  # Disable embeddings to use BM25
+            deduplication_enabled=True
         )
         bm25_id_2 = ryumem_client.add_episode(
             content=bm25_content,
             user_id=bm25_user,
             session_id=unique_session,
             source="message",
-            enable_embeddings=False
+            enable_embeddings=False,
+            deduplication_enabled=True
         )
         assert bm25_id_1 == bm25_id_2, "Exact duplicates should be detected with BM25 (no embeddings)"
 
@@ -280,14 +282,16 @@ class TestQueryAugmentationE2E:
             user_id=bm25_user,
             session_id=unique_session,
             source="message",
-            enable_embeddings=False
+            enable_embeddings=False,
+            deduplication_enabled=True
         )
         bm25_variant_2 = ryumem_client.add_episode(
             content="show database connection settings",  # Very similar keywords
             user_id=bm25_user,
             session_id=unique_session,
             source="message",
-            enable_embeddings=False
+            enable_embeddings=False,
+            deduplication_enabled=True
         )
         assert bm25_variant_1 == bm25_variant_2, f"Keyword-similar queries should be deduplicated with BM25. Got {bm25_variant_1} vs {bm25_variant_2}"
 

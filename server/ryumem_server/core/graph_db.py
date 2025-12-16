@@ -483,20 +483,27 @@ class RyugraphDB:
         self,
         episode_uuids: List[str],
         time_cutoff: Any,
+        user_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Helper to filter episode UUIDs by time cutoff, returns most recent."""
+        """Helper to filter episode UUIDs by time cutoff and optionally user_id, returns most recent."""
         if not episode_uuids:
             return None
 
-        results = self.execute(
-            """
+        # Build user_id filter if provided
+        user_filter = "AND e.user_id = $user_id" if user_id else ""
+
+        query = f"""
             MATCH (e:Episode)
-            WHERE e.uuid IN $uuids AND e.created_at > $time_cutoff
+            WHERE e.uuid IN $uuids AND e.created_at > $time_cutoff {user_filter}
             RETURN e.uuid AS uuid, e.content AS content, e.created_at AS created_at, e.user_id AS user_id
             ORDER BY e.created_at DESC LIMIT 1
-            """,
-            {"uuids": episode_uuids, "time_cutoff": time_cutoff}
-        )
+        """
+
+        params = {"uuids": episode_uuids, "time_cutoff": time_cutoff}
+        if user_id:
+            params["user_id"] = user_id
+
+        results = self.execute(query, params)
         return results[0] if results else None
 
     def find_similar_episode(
@@ -575,9 +582,8 @@ class RyugraphDB:
         # Get candidate UUIDs from BM25 results
         candidate_uuids = [uuid for uuid, score in results]
 
-        # TODO: BM25 search doesn't filter by user_id - need to add user_id filtering to BM25Index
-        # Use helper to filter by time_cutoff (handles datetime comparison in DB)
-        return self._filter_episodes_by_time_cutoff(candidate_uuids, time_cutoff)
+        # Filter by user_id and time_cutoff in the database query
+        return self._filter_episodes_by_time_cutoff(candidate_uuids, time_cutoff, user_id=user_id)
 
     def get_episode_by_session_id(self, session_id: str) -> Optional[EpisodeNode]:
         """
