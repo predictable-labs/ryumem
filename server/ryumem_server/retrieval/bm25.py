@@ -271,6 +271,8 @@ class BM25Index:
         min_score: float = 0.0,
         tags: Optional[List[str]] = None,
         tag_match_mode: str = 'any',
+        kinds: Optional[List[str]] = None,
+        user_id: Optional[str] = None,
     ) -> List[Tuple[str, float]]:
         """
         Search episodes using BM25 keyword matching with optional tag pre-filtering.
@@ -328,6 +330,52 @@ class BM25Index:
         if not valid_indices:
             logger.debug(f"No episodes match tag filter: {tags} (mode: {tag_match_mode})")
             return []
+
+        # KINDS FILTERING: Further filter by episode kind if specified
+        if kinds:
+            # Normalize kinds to lowercase
+            query_kinds = {kind.lower() for kind in kinds}
+            logger.info(f"[KINDS-DEBUG] Filtering by kinds: {query_kinds}, valid_indices before filter: {len(valid_indices)}")
+
+            # Filter valid_indices to only include episodes with matching kinds
+            kinds_filtered_indices = []
+            for idx in valid_indices:
+                episode_uuid = self.episode_uuids[idx]
+                episode = self.episode_map.get(episode_uuid)
+                if episode and hasattr(episode, 'kind'):
+                    episode_kind = episode.kind.value if hasattr(episode.kind, 'value') else str(episode.kind)
+                    if idx < 3:  # Log first 3 for debugging
+                        logger.info(f"[KINDS-DEBUG]   Episode {idx} ({episode_uuid[:8]}): kind={episode_kind}, matches={episode_kind.lower() in query_kinds}")
+                    if episode_kind.lower() in query_kinds:
+                        kinds_filtered_indices.append(idx)
+                else:
+                    if idx < 3:
+                        logger.info(f"[KINDS-DEBUG]   Episode {idx} ({episode_uuid[:8]}): NO KIND ATTRIBUTE")
+
+            valid_indices = kinds_filtered_indices
+            logger.info(f"[KINDS-DEBUG] After kinds filter: {len(valid_indices)} episodes remain")
+
+            if not valid_indices:
+                logger.info(f"No episodes match kinds filter: {kinds}")
+                return []
+
+        # USER_ID FILTERING: Filter by user_id if specified
+        if user_id:
+            logger.info(f"[USER-DEBUG] Filtering by user_id: {user_id}, valid_indices before filter: {len(valid_indices)}")
+
+            user_filtered_indices = []
+            for idx in valid_indices:
+                episode_uuid = self.episode_uuids[idx]
+                episode = self.episode_map.get(episode_uuid)
+                if episode and hasattr(episode, 'user_id') and episode.user_id == user_id:
+                    user_filtered_indices.append(idx)
+
+            valid_indices = user_filtered_indices
+            logger.info(f"[USER-DEBUG] After user_id filter: {len(valid_indices)} episodes remain")
+
+            if not valid_indices:
+                logger.info(f"No episodes match user_id filter: {user_id}")
+                return []
 
         # Tokenize query
         query_tokens = tokenize(query)

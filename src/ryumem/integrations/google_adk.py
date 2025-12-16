@@ -210,8 +210,9 @@ class RyumemGoogleADK:
                 session_id=session_id,
                 strategy="hybrid",
                 limit=limit,
-                kinds=['memory'],  # NEW: Search only memory episodes
-                min_rrf_score=0.01  # Lower threshold for memory episodes (episode-only content)
+                kinds=['memory'],  # Only search memory episodes
+                min_bm25_score=0.001,  # Very low threshold for BM25
+                min_rrf_score=0.0  # Disable RRF filtering
             )
 
             # Collect all results: edges (facts), episodes (content), and entities

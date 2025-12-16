@@ -46,7 +46,8 @@ class TestQueryAugmentationE2E:
             content="Try to find the password",
             user_id=unique_user,
             session_id=unique_session,
-            source="message"
+            source="message",
+            enable_embeddings=True
         )
 
         assert episode_id is not None, "Episode ID should be returned"
@@ -65,7 +66,8 @@ class TestQueryAugmentationE2E:
             content="What is the capital of France?",
             user_id=unique_user,
             session_id=unique_session,
-            source="message"
+            source="message",
+            enable_embeddings=True
         )
 
         # Search for similar queries (should find the one we just created)
@@ -90,7 +92,8 @@ class TestQueryAugmentationE2E:
             content="How do I reset my password?",
             user_id=unique_user,
             session_id=session1,
-            source="message"
+            source="message",
+            enable_embeddings=True
         )
 
         # Wait briefly for indexing
@@ -119,7 +122,8 @@ class TestQueryAugmentationE2E:
             content="User A's secret query about passwords",
             user_id=user_a,
             session_id=session_a,
-            source="message"
+            source="message",
+            enable_embeddings=True
         )
 
         # User B creates episode
@@ -127,7 +131,8 @@ class TestQueryAugmentationE2E:
             content="User B's query about passwords",
             user_id=user_b,
             session_id=session_b,
-            source="message"
+            source="message",
+            enable_embeddings=True
         )
 
         # User B searches - should NOT see User A's episode
@@ -177,6 +182,7 @@ class TestQueryAugmentationE2E:
             session_id=unique_session,
             source="message",
             metadata=episode_metadata.model_dump(),
+            enable_embeddings=True
         )
 
         # Get episode by session ID
@@ -196,13 +202,17 @@ class TestQueryAugmentationE2E:
             content=content,
             user_id=unique_user,
             session_id=unique_session,
-            source="message"
+            source="message",
+            enable_embeddings=True,
+            deduplication_enabled=True
         )
         episode_id_2 = ryumem_client.add_episode(
             content=content,
             user_id=unique_user,
             session_id=unique_session,
-            source="message"
+            source="message",
+            enable_embeddings=True,
+            deduplication_enabled=True
         )
         assert episode_id_1 == episode_id_2, "Exact duplicates should return same ID (embedding-based)"
 
@@ -212,13 +222,17 @@ class TestQueryAugmentationE2E:
             content="query cpu usage per container for last 1 hour",
             user_id=unique_user,
             session_id=unique_session,
-            source="message"
+            source="message",
+            enable_embeddings=True,
+            deduplication_enabled=True
         )
         variant_2 = ryumem_client.add_episode(
             content="query for cpu usage per container for last 1 hour",  # Extra "for"
             user_id=unique_user,
             session_id=unique_session,
-            source="message"
+            source="message",
+            enable_embeddings=True,
+            deduplication_enabled=True
         )
         assert variant_1 == variant_2, f"Semantic variants should be deduplicated (embedding-based). Got {variant_1} vs {variant_2}"
 
@@ -227,13 +241,17 @@ class TestQueryAugmentationE2E:
             content="Summarize logs for last 15 mins",
             user_id=unique_user,
             session_id=unique_session,
-            source="message"
+            source="message",
+            enable_embeddings=True,
+            deduplication_enabled=True
         )
         log_2 = ryumem_client.add_episode(
             content="summarize logs for last 15 minutes",  # Case + "minutes" vs "mins"
             user_id=unique_user,
             session_id=unique_session,
-            source="message"
+            source="message",
+            enable_embeddings=True,
+            deduplication_enabled=True
         )
         assert log_1 == log_2, f"Log summary variants should be deduplicated (embedding-based). Got {log_1} vs {log_2}"
 
@@ -242,13 +260,17 @@ class TestQueryAugmentationE2E:
             content="query cpu usage per container",
             user_id=unique_user,
             session_id=unique_session,
-            source="message"
+            source="message",
+            enable_embeddings=True,
+            deduplication_enabled=True
         )
         memory_query = ryumem_client.add_episode(
             content="query memory usage per container",
             user_id=unique_user,
             session_id=unique_session,
-            source="message"
+            source="message",
+            enable_embeddings=True,
+            deduplication_enabled=True
         )
         assert cpu_query != memory_query, "CPU vs memory queries should NOT be deduplicated"
 
@@ -263,7 +285,7 @@ class TestQueryAugmentationE2E:
             user_id=bm25_user,
             session_id=unique_session,
             source="message",
-            enable_embeddings=False,  # Disable embeddings to use BM25
+            enable_embeddings=True,  # Enable embeddings for semantic search
             deduplication_enabled=True
         )
         bm25_id_2 = ryumem_client.add_episode(
@@ -271,7 +293,7 @@ class TestQueryAugmentationE2E:
             user_id=bm25_user,
             session_id=unique_session,
             source="message",
-            enable_embeddings=False,
+            enable_embeddings=True,
             deduplication_enabled=True
         )
         assert bm25_id_1 == bm25_id_2, "Exact duplicates should be detected with BM25 (no embeddings)"
@@ -282,7 +304,7 @@ class TestQueryAugmentationE2E:
             user_id=bm25_user,
             session_id=unique_session,
             source="message",
-            enable_embeddings=False,
+            enable_embeddings=True,
             deduplication_enabled=True
         )
         bm25_variant_2 = ryumem_client.add_episode(
@@ -290,7 +312,7 @@ class TestQueryAugmentationE2E:
             user_id=bm25_user,
             session_id=unique_session,
             source="message",
-            enable_embeddings=False,
+            enable_embeddings=True,
             deduplication_enabled=True
         )
         assert bm25_variant_1 == bm25_variant_2, f"Keyword-similar queries should be deduplicated with BM25. Got {bm25_variant_1} vs {bm25_variant_2}"
