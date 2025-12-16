@@ -3,16 +3,21 @@ Ryugraph database layer.
 Ryugraph is a renamed version of kuzu, so the API should be identical.
 """
 
+import json
 import logging
-from datetime import datetime
+import math
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
+import pandas as pd
 import ryugraph
 
 from ryumem_server.core.models import (
     EntityEdge,
     EntityNode,
     EpisodeNode,
+    EpisodeType,
     EpisodicEdge,
 )
 
@@ -48,8 +53,6 @@ class RyugraphDB:
 
                 # Delete WAL file for this specific database
                 # WAL file is named {db_path}.wal (e.g., admin.db.wal for admin.db)
-                import os
-
                 wal_file = f"{db_path}.wal"
 
                 if os.path.exists(wal_file):
@@ -214,7 +217,6 @@ class RyugraphDB:
         self,
         query: str,
         parameters: Optional[Dict[str, Any]] = None,
-        log_errors: bool = True
     ) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query and return results as dictionaries.
@@ -222,30 +224,28 @@ class RyugraphDB:
         Args:
             query: Cypher query string
             parameters: Optional query parameters
-            log_errors: Whether to log errors (set False for expected failures like migrations)
 
         Returns:
             List of result dictionaries
         """
         try:
-            import math
             results = self.conn.execute(query, parameters or {})
             records = results.get_as_df().to_dict('records')
             # Convert NaN values to None for JSON compatibility
-            # pandas converts NULL to NaN which is not JSON serializable
             cleaned_records = []
             for row in records:
                 cleaned_row = {}
                 for k, v in row.items():
                     if isinstance(v, float) and math.isnan(v):
-                        cleaned_row[k] = None
-                    else:
-                        cleaned_row[k] = v
+                        v = None
+                    cleaned_row[k] = v
                 cleaned_records.append(cleaned_row)
             return cleaned_records
         except Exception as e:
-            if log_errors:
-                logger.error(f"Error executing query: {e}\nQuery: {query}\nParameters: {parameters}")
+            logger.error(f"Query failed: {str(e)}")
+            logger.debug(f"Query: {query}")
+            if parameters:
+                logger.debug(f"Parameters: {parameters}")
             raise
 
     def save_episode(self, episode: EpisodeNode) -> Dict[str, Any]:
@@ -258,7 +258,6 @@ class RyugraphDB:
         Returns:
             Result dictionary
         """
-        import json
 
         query = """
         MERGE (e:Episode {uuid: $uuid})
@@ -311,7 +310,6 @@ class RyugraphDB:
         Returns:
             Result dictionary
         """
-        import json
 
         # Build dynamic query based on whether name_embedding is provided
         # Only update embedding if explicitly provided (not None)
@@ -389,7 +387,6 @@ class RyugraphDB:
         Returns:
             Result dictionary
         """
-        import json
 
         query = f"""
         MATCH (source:Entity {{uuid: $source_uuid}})
@@ -530,7 +527,6 @@ class RyugraphDB:
         Returns:
             Existing episode dict if found, None otherwise
         """
-        from datetime import datetime, timedelta, timezone
 
         time_cutoff = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
 
@@ -559,7 +555,6 @@ class RyugraphDB:
         similarity_threshold: float = 0.7,
     ) -> Optional[Dict[str, Any]]:
         """Find similar episode using BM25 keyword search (for when embeddings are disabled)."""
-        from datetime import datetime, timedelta, timezone
 
         time_cutoff = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
 
@@ -595,7 +590,6 @@ class RyugraphDB:
         Returns:
             EpisodeNode if found, None otherwise
         """
-        import json
 
         query = """
         MATCH (e:Episode)
@@ -624,8 +618,7 @@ class RyugraphDB:
                 sessions = metadata.get('sessions', {})
                 if session_id in sessions:
                     # Convert to EpisodeNode
-                    from ryumem_server.core.models import EpisodeNode, EpisodeType
-                    import math
+                    # Use EpisodeNode and math already imported at top
 
                     # Helper to clean nan/None values
                     def clean_value(val):
@@ -705,8 +698,7 @@ class RyugraphDB:
 
         for row in results:
             try:
-                from ryumem_server.core.models import EpisodeType
-                import math
+                # Use EpisodeType and math already imported at top
 
                 # Helper to clean nan/None values
                 def clean_value(val):
@@ -871,7 +863,6 @@ class RyugraphDB:
 
         # Application-level tag filtering
         if tags:
-            import json
             query_tags = {tag.lower() for tag in tags}
             filtered_results = []
 
@@ -1268,7 +1259,6 @@ class RyugraphDB:
         Returns:
             Result dictionary
         """
-        import json
 
         query = """
         MATCH (e:Episode {uuid: $uuid})
@@ -1426,9 +1416,7 @@ class RyugraphDB:
         Returns:
             Result dictionary
         """
-        from datetime import datetime, timezone
-        from uuid import uuid4
-        import hashlib
+        # Use imports from top of file
 
         # Generate deterministic UUID from tool_name for consistency
         tool_uuid = str(uuid4())  # Will be used only if creating

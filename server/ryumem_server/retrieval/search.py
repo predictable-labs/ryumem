@@ -499,15 +499,9 @@ class SearchEngine:
         # Fetch full episode objects from database
         episodes: List[EpisodeNode] = []
 
-        logger.info(f"[BM25-DEBUG] BM25 index returned {len(episode_results)} episode results")
-
-        filtered_by_score = 0
-        filtered_by_user = 0
-
         for episode_uuid, score in episode_results:
             # Apply BM25 score threshold (skip for tag-only search)
             if config.query and score < config.min_bm25_score:
-                filtered_by_score += 1
                 continue
 
             # Get episode from DB
@@ -548,12 +542,9 @@ class SearchEngine:
                     except Exception as e:
                         logger.warning(f"Failed to convert episode {episode_uuid} to EpisodeNode: {e}, skipping")
                         continue
-                else:
-                    filtered_by_user += 1
 
         # BM25 index already returns results in the correct order (score + recency)
         # No need to re-sort here as it can disrupt the intended ranking
-        logger.info(f"[BM25-DEBUG] Filtered: {filtered_by_score} by score, {filtered_by_user} by user_id")
         logger.info(f"BM25 search found {len(entities)} entities, {len(edges)} edges, {len(episodes)} episodes (threshold: {config.min_bm25_score})")
 
         return SearchResult(

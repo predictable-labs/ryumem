@@ -109,7 +109,7 @@ class AuthManager:
         ]
         for col_name, col_type in migration_columns:
             try:
-                self.db.execute(f"ALTER TABLE Customer ADD {col_name} {col_type}", log_errors=False)
+                self.db.execute(f"ALTER TABLE Customer ADD {col_name} {col_type}")
             except Exception:
                 pass
 

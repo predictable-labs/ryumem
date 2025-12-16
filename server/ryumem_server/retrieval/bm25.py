@@ -149,11 +149,10 @@ class BM25Index:
             if 'tags' in metadata_dict and isinstance(metadata_dict['tags'], list):
                 # Normalize tags to lowercase for case-insensitive matching
                 tags = {str(tag).lower() for tag in metadata_dict['tags'] if tag}
-                logger.info(f"[TAG-DEBUG] Extracted tags for episode {episode.uuid[:8]}: {tags}")
 
             # Check if metadata has sessions with query runs
             if 'sessions' in metadata_dict:
-                for session_id, runs in metadata_dict['sessions'].items():
+                for _, runs in metadata_dict['sessions'].items():
                     if isinstance(runs, list):
                         for run in runs:
                             # Add LLM saved memory if present
@@ -307,13 +306,9 @@ class BM25Index:
         if tags:
             # Normalize query tags to lowercase
             query_tags = {tag.lower() for tag in tags}
-            logger.info(f"[TAG-DEBUG] Tag filtering - Query tags: {query_tags}, Total episodes: {len(self.episode_uuids)}, episode_tags dict size: {len(self.episode_tags)}")
 
             for idx, episode_uuid in enumerate(self.episode_uuids):
                 episode_tag_set = self.episode_tags.get(episode_uuid, set())
-                if idx < 3:  # Log first 3 for debugging
-                    logger.info(f"[TAG-DEBUG]   Episode {idx} ({episode_uuid[:8]}): tags={episode_tag_set}")
-
                 if tag_match_mode == 'all':
                     # All query tags must be present in episode tags
                     if query_tags.issubset(episode_tag_set):
