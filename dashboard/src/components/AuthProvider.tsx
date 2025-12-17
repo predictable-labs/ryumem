@@ -1,35 +1,34 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-    const router = useRouter();
     const pathname = usePathname();
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
     useEffect(() => {
         const apiKey = localStorage.getItem("ryumem_api_key");
         const isLoginPage = pathname === "/login";
 
         if (!apiKey && !isLoginPage) {
-            router.push("/login");
-        } else if (apiKey && isLoginPage) {
-            router.push("/");
-        } else {
-            setIsAuthenticated(!!apiKey);
+            // Not authenticated and not on login - redirect
+            window.location.replace("/login");
+            return;
         }
-        setIsLoading(false);
-    }, [pathname, router]);
 
-    // Prevent flash of protected content
-    if (isLoading) {
-        return null; // Or a loading spinner
-    }
+        if (apiKey && isLoginPage) {
+            // Already authenticated but on login page - redirect to home
+            window.location.replace("/");
+            return;
+        }
 
-    // If not authenticated and not on login page, don't render anything (will redirect)
-    if (!isAuthenticated && pathname !== "/login") {
+        // Set auth state
+        setIsAuthenticated(!!apiKey);
+    }, [pathname]);
+
+    // Still checking auth - show nothing briefly
+    if (isAuthenticated === null) {
         return null;
     }
 

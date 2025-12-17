@@ -201,8 +201,13 @@ class Ryumem:
             if stats["entity_count"] == 0 and stats["edge_count"] == 0:
                 logger.info("BM25 index is empty, rebuilding from database...")
                 self._rebuild_bm25_index()
+            # Check if episode_map is incomplete (old pickle file format) - rebuild if needed
+            elif stats["episode_count"] > 0 and len(self.search_engine.bm25_index.episode_map) == 0:
+                logger.info("BM25 index episode_map is empty (old format), rebuilding from database...")
+                self._rebuild_bm25_index()
         else:
-            logger.info("No existing BM25 index found, will rebuild from database if needed")
+            logger.info("No existing BM25 index found, rebuilding from database...")
+            self._rebuild_bm25_index()
 
         # Initialize ingestion pipeline with BM25 index
         self.ingestion = EpisodeIngestion(
@@ -396,8 +401,8 @@ class Ryumem:
 
     def search(
         self,
-        query: str,
         user_id: str,
+        query: Optional[str] = None,
         limit: int = 10,
         strategy: Optional[str] = None,
         similarity_threshold: Optional[float] = None,
@@ -413,8 +418,8 @@ class Ryumem:
         Search the memory system.
 
         Args:
-            query: Search query text
             user_id: User ID (required)
+            query: Search query text (optional for tag-only search)
             limit: Maximum number of results (default: 10)
             strategy: Search strategy - "semantic", "traversal", or "hybrid" (default: "hybrid")
             similarity_threshold: Minimum similarity threshold (default: from config)
@@ -1013,61 +1018,74 @@ class Ryumem:
         self.search_engine.bm25_index.clear()
 
         # Get all entities from database
-        all_entities_query = """
-        MATCH (e:Entity)
-        RETURN
-            e.uuid AS uuid,
-            e.name AS name,
-            e.entity_type AS entity_type,
-            e.summary AS summary,
-            e.mentions AS mentions
-        """
-        entities_data = self.db.execute(all_entities_query, {})
-
-        # Rebuild entity index
-        from ryumem_server.core.models import EntityNode
-        for entity_data in entities_data:
-            entity = EntityNode(
-                uuid=entity_data["uuid"],
-                name=entity_data["name"],
-                entity_type=entity_data["entity_type"],
-                summary=entity_data.get("summary", ""),
-                mentions=entity_data["mentions"],
-            )
-            self.search_engine.bm25_index.add_entity(entity)
+        all_entities_data = self.db.get_all_entities()
+        all_entities = [EntityNode(**e) for e in all_entities_data]
+        logger.info(f"Loaded {len(all_entities)} entities for BM25 index")
 
         # Get all edges from database
-        all_edges_query = """
-        MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
-        RETURN
-            r.uuid AS uuid,
-            s.uuid AS source_uuid,
-            t.uuid AS target_uuid,
-            r.name AS relation_type,
-            r.fact AS fact,
-            r.mentions AS mentions
-        """
-        edges_data = self.db.execute(all_edges_query, {})
+        all_edges_data = self.db.get_all_edges()
+        all_edges = [EntityEdge(**e) for e in all_edges_data]
+        logger.info(f"Loaded {len(all_edges)} edges for BM25 index")
 
-        # Rebuild edge index
-        from ryumem_server.core.models import EntityEdge
-        for edge_data in edges_data:
-            edge = EntityEdge(
-                uuid=edge_data["uuid"],
-                source_node_uuid=edge_data["source_uuid"],
-                target_node_uuid=edge_data["target_uuid"],
-                name=edge_data["relation_type"],
-                fact=edge_data["fact"],
-                mentions=edge_data["mentions"],
-            )
+        # Get all episodes from database (use get_episodes with very high limit to get all)
+        all_episodes_result = self.db.get_episodes(limit=1000000)
+        all_episodes_data = all_episodes_result["episodes"]
+
+        # Add entities and edges to BM25 index
+        for entity in all_entities:
+            self.search_engine.bm25_index.add_entity(entity)
+        
+        for edge in all_edges:
             self.search_engine.bm25_index.add_edge(edge)
+
+        # Rebuild episode index
+        import json
+        from datetime import datetime
+        from ryumem_server.core.models import EpisodeNode, EpisodeType, EpisodeKind
+        for episode_data in all_episodes_data:
+            try:
+                # Handle metadata deserialization
+                metadata = episode_data.get("metadata", {})
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except (json.JSONDecodeError, TypeError):
+                        metadata = {}
+
+                # Parse created_at timestamp
+                created_at_str = episode_data.get("created_at")
+                episode_kwargs = {
+                    "uuid": episode_data["uuid"],
+                    "name": episode_data.get("name", ""),
+                    "content": episode_data["content"],
+                    "source": EpisodeType.from_str(episode_data.get("source", "text")),
+                    "source_description": episode_data.get("source_description", ""),
+                    "kind": EpisodeKind.from_str(episode_data.get("kind", "query")),
+                    "user_id": episode_data.get("user_id"),
+                    "metadata": metadata,
+                }
+
+                # Only add created_at if it exists
+                if created_at_str:
+                    if isinstance(created_at_str, str):
+                        episode_kwargs["created_at"] = datetime.fromisoformat(created_at_str.replace(' ', 'T'))
+                    else:
+                        # Handle Timestamp or other datetime-like objects
+                        # Convert to Python datetime
+                        episode_kwargs["created_at"] = created_at_str.to_pydatetime() if hasattr(created_at_str, 'to_pydatetime') else created_at_str
+
+                episode = EpisodeNode(**episode_kwargs)
+                self.search_engine.bm25_index.add_episode(episode)
+            except Exception as e:
+                logger.warning(f"Failed to add episode {episode_data.get('uuid', 'unknown')} to BM25 index: {e}")
+                continue
 
         # Save rebuilt index
         bm25_path = str(Path(self.config.database.db_path).parent / f"{Path(self.config.database.db_path).stem}_bm25.pkl")
         self.search_engine.bm25_index.save(bm25_path)
 
         logger.info(
-            f"Rebuilt BM25 index: {len(entities_data)} entities, {len(edges_data)} edges"
+            f"Rebuilt BM25 index: {len(all_entities)} entities, {len(all_edges)} edges, {len(all_episodes_data)} episodes"
         )
 
     def close(self) -> None:

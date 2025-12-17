@@ -70,7 +70,7 @@ export const TOOLS = [
           default: 'any',
         },
       },
-      required: ['query', 'user_id'],
+      required: ['user_id'],
     },
   },
   {

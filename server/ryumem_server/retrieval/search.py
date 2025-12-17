@@ -90,6 +90,11 @@ class SearchEngine:
             )
             strategy = "bm25"
 
+        # Auto-fallback to BM25 for tag-only search (empty query)
+        if not config.query and strategy in ["semantic", "hybrid"]:
+            logger.info("Tag-only search detected, using BM25 strategy")
+            strategy = "bm25"
+
         # Run base search strategy
         if strategy == "semantic":
             results = self._semantic_search(config)
@@ -438,6 +443,8 @@ class SearchEngine:
             top_k=config.limit,
             tags=config.tags,
             tag_match_mode=config.tag_match_mode,
+            kinds=config.kinds,
+            user_id=config.user_id,
         )
 
         # Fetch full entity objects from database
@@ -452,8 +459,8 @@ class SearchEngine:
             # Get entity from DB
             entity_data = self.db.get_entity_by_uuid(entity_uuid)
             if entity_data:
-                # Apply user_id filter if specified
-                if config.user_id is None or entity_data.get("user_id") == config.user_id:
+                # Apply user_id filter if specified (None or empty string means all users)
+                if not config.user_id or entity_data.get("user_id") == config.user_id:
                     entity = EntityNode(
                         uuid=entity_data["uuid"],
                         name=entity_data["name"],
@@ -493,15 +500,15 @@ class SearchEngine:
         episodes: List[EpisodeNode] = []
 
         for episode_uuid, score in episode_results:
-            # Apply BM25 score threshold
-            if score < config.min_bm25_score:
+            # Apply BM25 score threshold (skip for tag-only search)
+            if config.query and score < config.min_bm25_score:
                 continue
 
             # Get episode from DB
             episode_data = self.db.get_episode_by_uuid(episode_uuid)
             if episode_data:
-                # Apply user_id filter if specified
-                if config.user_id is None or episode_data.get("user_id") == config.user_id:
+                # Apply user_id filter if specified (None or empty string means all users)
+                if not config.user_id or episode_data.get("user_id") == config.user_id:
                     try:
                         # Handle nan values for optional string fields
                         def safe_str_or_none(value):
@@ -536,6 +543,8 @@ class SearchEngine:
                         logger.warning(f"Failed to convert episode {episode_uuid} to EpisodeNode: {e}, skipping")
                         continue
 
+        # BM25 index already returns results in the correct order (score + recency)
+        # No need to re-sort here as it can disrupt the intended ranking
         logger.info(f"BM25 search found {len(entities)} entities, {len(edges)} edges, {len(episodes)} episodes (threshold: {config.min_bm25_score})")
 
         return SearchResult(

@@ -7,8 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
-import { api, Entity, Edge } from "@/lib/api";
-import { Search, Loader2, User, Link as LinkIcon, TrendingUp, Sparkles } from "lucide-react";
+import { api, Entity, Edge, SearchResultEpisode } from "@/lib/api";
+import { Search, Loader2, User, Link as LinkIcon, TrendingUp, Sparkles, FileText } from "lucide-react";
 import { Label } from "@/components/ui/label";
 
 interface ChatInterfaceProps {
@@ -19,6 +19,7 @@ interface QueryResult {
   query: string;
   entities: Entity[];
   edges: Edge[];
+  episodes: SearchResultEpisode[];
   strategy: string;
   count: number;
 }
@@ -253,6 +254,52 @@ export function ChatInterface({ userId }: ChatInterfaceProps) {
                       <span className="flex items-center gap-1">
                         <TrendingUp className="h-3 w-3" />
                         Score: {edge.score.toFixed(4)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Episodes */}
+          {results.episodes && results.episodes.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <FileText className="h-5 w-5" />
+                  Episodes ({results.episodes.length})
+                </CardTitle>
+                <CardDescription>
+                  Matching memory episodes and queries
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {results.episodes.map((episode) => (
+                  <div
+                    key={episode.uuid}
+                    className="rounded-lg border p-4 space-y-2 hover:bg-accent/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      {episode.name && (
+                        <h4 className="font-semibold">{episode.name}</h4>
+                      )}
+                      {episode.kind && (
+                        <Badge variant="secondary">{episode.kind}</Badge>
+                      )}
+                      {episode.source && (
+                        <Badge variant="outline">{episode.source}</Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground line-clamp-3">
+                      {episode.content}
+                    </p>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span>{new Date(episode.created_at).toLocaleDateString()}</span>
+                      <span>•</span>
+                      <span className="flex items-center gap-1">
+                        <TrendingUp className="h-3 w-3" />
+                        Score: {episode.score.toFixed(4)}
                       </span>
                     </div>
                   </div>

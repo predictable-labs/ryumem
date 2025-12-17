@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { api, ConfigValue } from '@/lib/api';
+import { api, ConfigValue, getFullApiKey } from '@/lib/api';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Check, AlertCircle, Save, RotateCcw, Trash2, AlertTriangle } from "lucide-react";
+import { Check, AlertCircle, Save, RotateCcw, Trash2, AlertTriangle, Copy, Key, Eye, EyeOff } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -42,10 +42,33 @@ export default function SettingsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [userApiKey, setUserApiKey] = useState<string | null>(null);
+  const [githubUsername, setGithubUsername] = useState<string | null>(null);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [apiKeyCopied, setApiKeyCopied] = useState(false);
 
   useEffect(() => {
     loadSettings();
+    loadUserApiKey();
   }, []);
+
+  const loadUserApiKey = async () => {
+    try {
+      const response = await getFullApiKey();
+      setUserApiKey(response.api_key);
+      setGithubUsername(response.github_username || null);
+    } catch (error) {
+      console.error('Failed to load API key:', error);
+    }
+  };
+
+  const copyApiKey = async () => {
+    if (userApiKey) {
+      await navigator.clipboard.writeText(userApiKey);
+      setApiKeyCopied(true);
+      setTimeout(() => setApiKeyCopied(false), 2000);
+    }
+  };
 
   const loadSettings = async () => {
     try {
@@ -390,6 +413,68 @@ export default function SettingsPage() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* Your API Key Section */}
+      {userApiKey && (
+        <Card className="mt-8 border-primary/30 bg-primary/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" />
+              Your API Key
+            </CardTitle>
+            <CardDescription>
+              Use this API key in scripts, MCP servers, and other integrations.
+              {githubUsername && (
+                <span className="ml-1">
+                  Connected to GitHub as <strong>@{githubUsername}</strong>
+                </span>
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 relative">
+                <Input
+                  type={showApiKey ? "text" : "password"}
+                  value={userApiKey}
+                  readOnly
+                  className="pr-20 font-mono text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 px-2"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                >
+                  {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={copyApiKey}
+                className="shrink-0"
+              >
+                {apiKeyCopied ? (
+                  <>
+                    <Check className="mr-2 h-4 w-4 text-green-500" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copy
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Keep this key secret. Use it as the <code className="bg-muted px-1 py-0.5 rounded">RYUMEM_API_KEY</code> environment variable.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Danger Zone */}
       <Card className="mt-8 border-red-500/50 bg-red-500/5">

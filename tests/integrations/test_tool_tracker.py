@@ -282,8 +282,8 @@ class TestOutputSummarization:
 
             # If summarization is working, it should be truncated
             if tracker.ryumem.config.tool_tracking.summarize_outputs and len(output) > tracker.ryumem.config.tool_tracking.max_output_chars:
-                # Allow some buffer for "..." and formatting
-                assert len(summary) <= tracker.ryumem.config.tool_tracking.max_output_chars + 20
+                # Allow buffer for "... [truncated, total length: N]" suffix (~34 chars for 100 length)
+                assert len(summary) <= tracker.ryumem.config.tool_tracking.max_output_chars + 35
         finally:
             tracker.ryumem.config.tool_tracking.max_output_chars = original_max
             tracker.ryumem.config.tool_tracking.summarize_outputs = original_summarize

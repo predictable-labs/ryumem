@@ -63,9 +63,21 @@ export interface Edge {
   score: number;
 }
 
+export interface SearchResultEpisode {
+  uuid: string;
+  name: string;
+  content: string;
+  source: string;
+  source_description: string;
+  kind?: string;
+  created_at: string;
+  score: number;
+}
+
 export interface SearchResult {
   entities: Entity[];
   edges: Edge[];
+  episodes: SearchResultEpisode[];
   query: string;
   strategy: string;
   count: number;
@@ -228,9 +240,11 @@ class RyumemAPI {
 
     if (response.status === 401) {
       if (typeof window !== 'undefined') {
-        // Clear invalid key and redirect
+        // Clear invalid key and redirect if not already on login
         localStorage.removeItem('ryumem_api_key');
-        window.location.href = '/login';
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login';
+        }
       }
       throw new Error('Unauthorized');
     }
@@ -382,7 +396,7 @@ class RyumemAPI {
     return response.users;
   }
 
-  async getCustomerMe(): Promise<{ customer_id: string }> {
+  async getCustomerMe(): Promise<{ customer_id: string; display_name?: string; github_username?: string }> {
     return this.request('/customer/me');
   }
 
@@ -549,6 +563,98 @@ export interface DeleteDatabaseResponse {
   message: string;
   customer_id: string;
   timestamp: string;
+}
+
+// ============================================================================
+// GitHub OAuth Types
+// ============================================================================
+
+export interface GitHubAuthResponse {
+  customer_id: string;
+  api_key: string;
+  github_username: string;
+  message: string;
+}
+
+export interface AuthApiKeyResponse {
+  api_key: string;
+  customer_id: string;
+  github_username?: string;
+}
+
+// ============================================================================
+// GitHub OAuth Functions (standalone, not part of RyumemAPI class)
+// ============================================================================
+
+/**
+ * Exchange GitHub OAuth code for API key
+ * This is used after the OAuth redirect from GitHub
+ */
+export async function exchangeGitHubCode(
+  code: string,
+  redirectUri?: string
+): Promise<GitHubAuthResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/github/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, redirect_uri: redirectUri }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'GitHub authentication failed');
+  }
+
+  return response.json();
+}
+
+export interface GitHubAuthUrlResponse {
+  auth_url: string;
+  configured: boolean;
+}
+
+/**
+ * Get the GitHub OAuth authorization URL from the server
+ */
+export async function getGitHubAuthUrl(): Promise<GitHubAuthUrlResponse> {
+  const redirectUri = typeof window !== 'undefined'
+    ? `${window.location.origin}/login`
+    : '/login';
+
+  const response = await fetch(
+    `${API_BASE_URL}/auth/github/url?redirect_uri=${encodeURIComponent(redirectUri)}`
+  );
+
+  if (!response.ok) {
+    throw new Error('Failed to get GitHub auth URL');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get full API key for authenticated user (requires existing auth)
+ */
+export async function getFullApiKey(): Promise<AuthApiKeyResponse> {
+  const apiKey = typeof window !== 'undefined' ? localStorage.getItem('ryumem_api_key') : null;
+
+  if (!apiKey) {
+    throw new Error('Not authenticated');
+  }
+
+  const response = await fetch(`${API_BASE_URL}/auth/api-key`, {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': apiKey,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to get API key');
+  }
+
+  return response.json();
 }
 
 export const api = new RyumemAPI();

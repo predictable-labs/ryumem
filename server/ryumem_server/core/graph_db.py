@@ -3,16 +3,21 @@ Ryugraph database layer.
 Ryugraph is a renamed version of kuzu, so the API should be identical.
 """
 
+import json
 import logging
-from datetime import datetime
+import math
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
+import pandas as pd
 import ryugraph
 
 from ryumem_server.core.models import (
     EntityEdge,
     EntityNode,
     EpisodeNode,
+    EpisodeType,
     EpisodicEdge,
 )
 
@@ -48,8 +53,6 @@ class RyugraphDB:
 
                 # Delete WAL file for this specific database
                 # WAL file is named {db_path}.wal (e.g., admin.db.wal for admin.db)
-                import os
-
                 wal_file = f"{db_path}.wal"
 
                 if os.path.exists(wal_file):
@@ -210,7 +213,11 @@ class RyugraphDB:
 
         logger.info("Graph schema created successfully")
 
-    def execute(self, query: str, parameters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def execute(
+        self,
+        query: str,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query and return results as dictionaries.
 
@@ -223,9 +230,22 @@ class RyugraphDB:
         """
         try:
             results = self.conn.execute(query, parameters or {})
-            return [dict(row) for row in results.get_as_df().to_dict('records')]
+            records = results.get_as_df().to_dict('records')
+            # Convert NaN values to None for JSON compatibility
+            cleaned_records = []
+            for row in records:
+                cleaned_row = {}
+                for k, v in row.items():
+                    if isinstance(v, float) and math.isnan(v):
+                        v = None
+                    cleaned_row[k] = v
+                cleaned_records.append(cleaned_row)
+            return cleaned_records
         except Exception as e:
-            logger.error(f"Error executing query: {e}\nQuery: {query}\nParameters: {parameters}")
+            logger.error(f"Query failed: {str(e)}")
+            logger.debug(f"Query: {query}")
+            if parameters:
+                logger.debug(f"Parameters: {parameters}")
             raise
 
     def save_episode(self, episode: EpisodeNode) -> Dict[str, Any]:
@@ -238,7 +258,6 @@ class RyugraphDB:
         Returns:
             Result dictionary
         """
-        import json
 
         query = """
         MERGE (e:Episode {uuid: $uuid})
@@ -291,7 +310,6 @@ class RyugraphDB:
         Returns:
             Result dictionary
         """
-        import json
 
         # Build dynamic query based on whether name_embedding is provided
         # Only update embedding if explicitly provided (not None)
@@ -369,7 +387,6 @@ class RyugraphDB:
         Returns:
             Result dictionary
         """
-        import json
 
         query = f"""
         MATCH (source:Entity {{uuid: $source_uuid}})
@@ -463,20 +480,27 @@ class RyugraphDB:
         self,
         episode_uuids: List[str],
         time_cutoff: Any,
+        user_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Helper to filter episode UUIDs by time cutoff, returns most recent."""
+        """Helper to filter episode UUIDs by time cutoff and optionally user_id, returns most recent."""
         if not episode_uuids:
             return None
 
-        results = self.execute(
-            """
+        # Build user_id filter if provided
+        user_filter = "AND e.user_id = $user_id" if user_id else ""
+
+        query = f"""
             MATCH (e:Episode)
-            WHERE e.uuid IN $uuids AND e.created_at > $time_cutoff
+            WHERE e.uuid IN $uuids AND e.created_at > $time_cutoff {user_filter}
             RETURN e.uuid AS uuid, e.content AS content, e.created_at AS created_at, e.user_id AS user_id
             ORDER BY e.created_at DESC LIMIT 1
-            """,
-            {"uuids": episode_uuids, "time_cutoff": time_cutoff}
-        )
+        """
+
+        params = {"uuids": episode_uuids, "time_cutoff": time_cutoff}
+        if user_id:
+            params["user_id"] = user_id
+
+        results = self.execute(query, params)
         return results[0] if results else None
 
     def find_similar_episode(
@@ -503,7 +527,6 @@ class RyugraphDB:
         Returns:
             Existing episode dict if found, None otherwise
         """
-        from datetime import datetime, timedelta, timezone
 
         time_cutoff = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
 
@@ -532,7 +555,6 @@ class RyugraphDB:
         similarity_threshold: float = 0.7,
     ) -> Optional[Dict[str, Any]]:
         """Find similar episode using BM25 keyword search (for when embeddings are disabled)."""
-        from datetime import datetime, timedelta, timezone
 
         time_cutoff = datetime.now(timezone.utc) - timedelta(hours=time_window_hours)
 
@@ -555,9 +577,8 @@ class RyugraphDB:
         # Get candidate UUIDs from BM25 results
         candidate_uuids = [uuid for uuid, score in results]
 
-        # TODO: BM25 search doesn't filter by user_id - need to add user_id filtering to BM25Index
-        # Use helper to filter by time_cutoff (handles datetime comparison in DB)
-        return self._filter_episodes_by_time_cutoff(candidate_uuids, time_cutoff)
+        # Filter by user_id and time_cutoff in the database query
+        return self._filter_episodes_by_time_cutoff(candidate_uuids, time_cutoff, user_id=user_id)
 
     def get_episode_by_session_id(self, session_id: str) -> Optional[EpisodeNode]:
         """
@@ -569,7 +590,6 @@ class RyugraphDB:
         Returns:
             EpisodeNode if found, None otherwise
         """
-        import json
 
         query = """
         MATCH (e:Episode)
@@ -598,8 +618,7 @@ class RyugraphDB:
                 sessions = metadata.get('sessions', {})
                 if session_id in sessions:
                     # Convert to EpisodeNode
-                    from ryumem_server.core.models import EpisodeNode, EpisodeType
-                    import math
+                    # Use EpisodeNode and math already imported at top
 
                     # Helper to clean nan/None values
                     def clean_value(val):
@@ -679,8 +698,7 @@ class RyugraphDB:
 
         for row in results:
             try:
-                from ryumem_server.core.models import EpisodeType
-                import math
+                # Use EpisodeType and math already imported at top
 
                 # Helper to clean nan/None values
                 def clean_value(val):
@@ -719,7 +737,7 @@ class RyugraphDB:
     def search_similar_entities(
         self,
         embedding: List[float],
-        user_id: str,
+        user_id: Optional[str],
         threshold: float = 0.7,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
@@ -728,17 +746,20 @@ class RyugraphDB:
 
         Args:
             embedding: Query embedding vector
-            user_id: User ID (required)
+            user_id: User ID (None for all users)
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
 
         Returns:
             List of similar entities with similarity scores
         """
+        # Build user_id filter (None means all users)
+        user_filter = "AND e.user_id = $user_id" if user_id else ""
+
         query = f"""
         MATCH (e:Entity)
         WHERE e.name_embedding IS NOT NULL
-          AND e.user_id = $user_id
+          {user_filter}
         WITH e, array_cosine_similarity(e.name_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
         WHERE similarity >= $threshold
         RETURN
@@ -764,7 +785,7 @@ class RyugraphDB:
     def search_similar_episodes(
         self,
         embedding: List[float],
-        user_id: str,
+        user_id: Optional[str],
         threshold: float = 0.7,
         limit: int = 10,
         kinds: Optional[List[str]] = None,
@@ -777,7 +798,7 @@ class RyugraphDB:
 
         Args:
             embedding: Query embedding vector
-            user_id: User ID (required)
+            user_id: User ID (None for all users)
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
             kinds: Filter by episode kinds (e.g., ['query'], ['memory'], or None for all)
@@ -788,6 +809,9 @@ class RyugraphDB:
         Returns:
             List of similar episodes with similarity scores
         """
+        # Build user_id filter (None means all users)
+        user_filter = "AND ep.user_id = $user_id" if user_id else ""
+
         # Build kind filter
         kind_filter = ""
         if kinds:
@@ -802,7 +826,7 @@ class RyugraphDB:
         query = f"""
         MATCH (ep:Episode)
         WHERE ep.content_embedding IS NOT NULL
-          AND ep.user_id = $user_id
+          {user_filter}
           {kind_filter}
           {time_filter}
         WITH ep, array_cosine_similarity(ep.content_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
@@ -839,7 +863,6 @@ class RyugraphDB:
 
         # Application-level tag filtering
         if tags:
-            import json
             query_tags = {tag.lower() for tag in tags}
             filtered_results = []
 
@@ -871,7 +894,7 @@ class RyugraphDB:
     def search_similar_edges(
         self,
         embedding: List[float],
-        user_id: str,
+        user_id: Optional[str],
         threshold: float = 0.8,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
@@ -880,19 +903,21 @@ class RyugraphDB:
 
         Args:
             embedding: Query embedding vector
-            user_id: User ID (required)
+            user_id: User ID (None for all users)
             threshold: Minimum similarity threshold (0.0-1.0)
             limit: Maximum number of results
 
         Returns:
             List of similar edges with similarity scores
         """
+        # Build user_id filter (None means all users)
+        user_filter = "AND source.user_id = $user_id AND target.user_id = $user_id" if user_id else ""
+
         query = f"""
         MATCH (source:Entity)-[r:RELATES_TO]->(target:Entity)
         WHERE r.fact_embedding IS NOT NULL
           AND (r.expired_at IS NULL OR r.expired_at > current_timestamp())
-          AND source.user_id = $user_id
-          AND target.user_id = $user_id
+          {user_filter}
         WITH source, r, target,
              array_cosine_similarity(r.fact_embedding, CAST($embedding, 'FLOAT[{self.embedding_dimensions}]')) AS similarity
         WHERE similarity >= $threshold
@@ -1234,7 +1259,6 @@ class RyugraphDB:
         Returns:
             Result dictionary
         """
-        import json
 
         query = """
         MATCH (e:Episode {uuid: $uuid})
@@ -1392,9 +1416,7 @@ class RyugraphDB:
         Returns:
             Result dictionary
         """
-        from datetime import datetime, timezone
-        from uuid import uuid4
-        import hashlib
+        # Use imports from top of file
 
         # Generate deterministic UUID from tool_name for consistency
         tool_uuid = str(uuid4())  # Will be used only if creating

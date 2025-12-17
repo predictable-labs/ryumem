@@ -64,6 +64,7 @@ class BM25Index:
         self.episode_corpus: List[List[str]] = []
         self.episode_bm25: Optional[BM25Okapi] = None
         self.episode_tags: Dict[str, set] = {}  # uuid → set of tags
+        self.episode_map: Dict[str, EpisodeNode] = {}  # uuid → full episode object
 
         logger.info("BM25Index initialized")
 
@@ -148,11 +149,10 @@ class BM25Index:
             if 'tags' in metadata_dict and isinstance(metadata_dict['tags'], list):
                 # Normalize tags to lowercase for case-insensitive matching
                 tags = {str(tag).lower() for tag in metadata_dict['tags'] if tag}
-                logger.info(f"[TAG-DEBUG] Extracted tags for episode {episode.uuid[:8]}: {tags}")
 
             # Check if metadata has sessions with query runs
             if 'sessions' in metadata_dict:
-                for session_id, runs in metadata_dict['sessions'].items():
+                for _, runs in metadata_dict['sessions'].items():
                     if isinstance(runs, list):
                         for run in runs:
                             # Add LLM saved memory if present
@@ -164,6 +164,7 @@ class BM25Index:
         tokens = tokenize(combined_text)
 
         self.episode_tags[episode.uuid] = tags
+        self.episode_map[episode.uuid] = episode  # Store full episode object
         self.episode_uuids.append(episode.uuid)
         self.episode_corpus.append(tokens)
 
@@ -269,6 +270,8 @@ class BM25Index:
         min_score: float = 0.0,
         tags: Optional[List[str]] = None,
         tag_match_mode: str = 'any',
+        kinds: Optional[List[str]] = None,
+        user_id: Optional[str] = None,
     ) -> List[Tuple[str, float]]:
         """
         Search episodes using BM25 keyword matching with optional tag pre-filtering.
@@ -303,13 +306,9 @@ class BM25Index:
         if tags:
             # Normalize query tags to lowercase
             query_tags = {tag.lower() for tag in tags}
-            logger.info(f"[TAG-DEBUG] Tag filtering - Query tags: {query_tags}, Total episodes: {len(self.episode_uuids)}, episode_tags dict size: {len(self.episode_tags)}")
 
             for idx, episode_uuid in enumerate(self.episode_uuids):
                 episode_tag_set = self.episode_tags.get(episode_uuid, set())
-                if idx < 3:  # Log first 3 for debugging
-                    logger.info(f"[TAG-DEBUG]   Episode {idx} ({episode_uuid[:8]}): tags={episode_tag_set}")
-
                 if tag_match_mode == 'all':
                     # All query tags must be present in episode tags
                     if query_tags.issubset(episode_tag_set):
@@ -327,6 +326,52 @@ class BM25Index:
             logger.debug(f"No episodes match tag filter: {tags} (mode: {tag_match_mode})")
             return []
 
+        # KINDS FILTERING: Further filter by episode kind if specified
+        if kinds:
+            # Normalize kinds to lowercase
+            query_kinds = {kind.lower() for kind in kinds}
+            logger.info(f"[KINDS-DEBUG] Filtering by kinds: {query_kinds}, valid_indices before filter: {len(valid_indices)}")
+
+            # Filter valid_indices to only include episodes with matching kinds
+            kinds_filtered_indices = []
+            for idx in valid_indices:
+                episode_uuid = self.episode_uuids[idx]
+                episode = self.episode_map.get(episode_uuid)
+                if episode and hasattr(episode, 'kind'):
+                    episode_kind = episode.kind.value if hasattr(episode.kind, 'value') else str(episode.kind)
+                    if idx < 3:  # Log first 3 for debugging
+                        logger.info(f"[KINDS-DEBUG]   Episode {idx} ({episode_uuid[:8]}): kind={episode_kind}, matches={episode_kind.lower() in query_kinds}")
+                    if episode_kind.lower() in query_kinds:
+                        kinds_filtered_indices.append(idx)
+                else:
+                    if idx < 3:
+                        logger.info(f"[KINDS-DEBUG]   Episode {idx} ({episode_uuid[:8]}): NO KIND ATTRIBUTE")
+
+            valid_indices = kinds_filtered_indices
+            logger.info(f"[KINDS-DEBUG] After kinds filter: {len(valid_indices)} episodes remain")
+
+            if not valid_indices:
+                logger.info(f"No episodes match kinds filter: {kinds}")
+                return []
+
+        # USER_ID FILTERING: Filter by user_id if specified
+        if user_id:
+            logger.info(f"[USER-DEBUG] Filtering by user_id: {user_id}, valid_indices before filter: {len(valid_indices)}")
+
+            user_filtered_indices = []
+            for idx in valid_indices:
+                episode_uuid = self.episode_uuids[idx]
+                episode = self.episode_map.get(episode_uuid)
+                if episode and hasattr(episode, 'user_id') and episode.user_id == user_id:
+                    user_filtered_indices.append(idx)
+
+            valid_indices = user_filtered_indices
+            logger.info(f"[USER-DEBUG] After user_id filter: {len(valid_indices)} episodes remain")
+
+            if not valid_indices:
+                logger.info(f"No episodes match user_id filter: {user_id}")
+                return []
+
         # Tokenize query
         query_tokens = tokenize(query)
 
@@ -340,8 +385,8 @@ class BM25Index:
             if all_scores[idx] >= min_score
         ]
 
-        # Sort by score descending
-        results.sort(key=lambda x: x[1], reverse=True)
+        # Sort by score descending, then by recency (created_at) descending for tie-breaking
+        results.sort(key=lambda x: (x[1], self.episode_map[x[0]].created_at), reverse=True)
 
         # Return top_k
         return results[:top_k]
@@ -430,6 +475,7 @@ class BM25Index:
             "episode_uuids": self.episode_uuids,
             "episode_corpus": self.episode_corpus,
             "episode_tags": {uuid: list(tags) for uuid, tags in self.episode_tags.items()},
+            "episode_map": self.episode_map,
         }
 
         with open(path, "wb") as f:
@@ -473,6 +519,9 @@ class BM25Index:
             episode_tags_data = data.get("episode_tags", {})
             self.episode_tags = {uuid: set(tags) for uuid, tags in episode_tags_data.items()}
 
+            # Load episode map (with backward compatibility - will be empty for old pickle files)
+            self.episode_map = data.get("episode_map", {})
+
             # Rebuild BM25 indices
             self._rebuild_entity_index()
             self._rebuild_edge_index()
@@ -502,6 +551,7 @@ class BM25Index:
         self.episode_corpus = []
         self.episode_bm25 = None
         self.episode_tags = {}
+        self.episode_map = {}
 
         logger.info("BM25 index cleared")
 

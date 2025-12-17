@@ -3,6 +3,10 @@
 /**
  * Ryumem MCP Server
  * TypeScript implementation using MCP SDK
+ *
+ * Usage:
+ *   npx @ryumem/mcp-server              - Run the MCP server (for Claude)
+ *   npx @ryumem/mcp-server install      - Install/configure for Claude Code
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -12,7 +16,25 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { RyumemClient } from './client.js';
+import { RyumemAuth } from './auth.js';
 import { TOOLS } from './tools.js';
+import { runInstaller, runUninstaller } from './install.js';
+
+// Check for install/uninstall command before anything else
+const args = process.argv.slice(2);
+if (args[0] === 'install') {
+  runInstaller(args.slice(1)).catch((error) => {
+    console.error('Installation failed:', error);
+    process.exit(1);
+  });
+} else if (args[0] === 'uninstall') {
+  runUninstaller(args.slice(1)).catch((error) => {
+    console.error('Uninstallation failed:', error);
+    process.exit(1);
+  });
+} else {
+  // Continue with normal MCP server startup (handled at bottom of file)
+}
 
 const DEFAULT_API_URL = 'https://api.ryumem.io';
 
@@ -29,9 +51,9 @@ Determine project name from working directory (e.g., "myapp", "ryumem").
 Use user_id = project_name.
 
 🚨 REQUIRED - Run these 3 searches at the START of EVERY conversation:
-1. search_memory("project summary", {user_id, tags: ["project"], limit: 1})
-2. search_memory("user preferences", {user_id, tags: ["preferences"], limit: 3})
-3. search_memory("recent decisions", {user_id, tags: ["decision"], limit: 2})
+1. search_memory({user_id, tags: ["project"], limit: 1})
+2. search_memory({user_id, tags: ["preferences"], limit: 3})
+3. search_memory({user_id, tags: ["decision"], limit: 2})
 
 If you skip these searches, you will:
 - Miss critical user preferences and waste their time
@@ -62,22 +84,26 @@ add_episode({
 WHY: Re-reading files bloats context. Summaries are 10x more efficient.
 
 ═══════════════════════════════════════════════════════════
-2. WHEN TO SEARCH MEMORY - Use Aggressively
+2. WHEN TO SEARCH & SEARCH VOLUME CONTROL
 ═══════════════════════════════════════════════════════════
 
 Search memory BEFORE:
-✓ Reading any file
-✓ Making implementation decisions
-✓ Answering questions about the codebase
-✓ Updating user preferences
-✓ Starting any multi-step task
+✓ Reading files (check for code summaries)
 ✓ Exploring unfamiliar code areas
+✓ Starting multi-step tasks
 
-Search limits:
+Search volume limits:
 - Code summaries: limit: 1
 - Preferences: limit: 3
 - Decisions: limit: 2
 - General queries: limit: 5
+- Max 5 search results before starting work
+
+🚨 STOP if search returns too much data:
+- If search returns >5 results, query is too broad
+- Refine with more specific tags or query
+- Don't search repeatedly if you keep finding data
+- If need more context, read files instead
 
 Strategy: "bm25" (default) | "hybrid" | "semantic"
 
@@ -153,17 +179,18 @@ NEVER:
 class RyumemMCPServer {
   private server: Server;
   private client: RyumemClient;
+  private auth: RyumemAuth;
+  private apiUrl: string;
   private instructions: string;
 
   constructor() {
-    const apiUrl = process.env.RYUMEM_API_URL || DEFAULT_API_URL;
-    const apiKey = process.env.RYUMEM_API_KEY;
+    this.apiUrl = process.env.RYUMEM_API_URL || DEFAULT_API_URL;
 
-    if (!apiKey) {
-      throw new Error('RYUMEM_API_KEY environment variable is required');
-    }
+    // Initialize auth module (will handle API key or device flow)
+    this.auth = new RyumemAuth({ apiUrl: this.apiUrl });
 
-    this.client = new RyumemClient({ apiUrl, apiKey });
+    // Initialize client without API key (will be set after auth)
+    this.client = new RyumemClient({ apiUrl: this.apiUrl });
     this.instructions = INSTRUCTIONS; // Default instructions
 
     this.server = new Server(
@@ -180,6 +207,20 @@ class RyumemMCPServer {
     );
 
     this.setupHandlers();
+  }
+
+  /**
+   * Initialize authentication (get API key via env var, cache, or device flow)
+   */
+  private async initAuth(): Promise<void> {
+    try {
+      const apiKey = await this.auth.getApiKey();
+      this.client.setApiKey(apiKey);
+      console.error('Authentication successful');
+    } catch (error) {
+      console.error('Authentication failed:', error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
 
   /**
@@ -360,6 +401,9 @@ class RyumemMCPServer {
   }
 
   async run(): Promise<void> {
+    // Initialize authentication first
+    await this.initAuth();
+
     // Fetch instructions before starting the server
     await this.fetchInstructions();
     await this.saveDefaultInstructions();
@@ -370,8 +414,11 @@ class RyumemMCPServer {
   }
 }
 
-const server = new RyumemMCPServer();
-server.run().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+// Only start the MCP server if not running install/uninstall command
+if (args[0] !== 'install' && args[0] !== 'uninstall') {
+  const server = new RyumemMCPServer();
+  server.run().catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
+}
