@@ -7,13 +7,10 @@ storing usage patterns, success rates, and task associations in the knowledge gr
 Example:
     ```python
     from google import genai
-    from ryumem.integrations import add_memory_to_agent, enable_tool_tracking
+    from ryumem.integrations import add_memory_to_agent
 
     agent = genai.Agent(name="assistant", model="gemini-2.0-flash")
-    memory = add_memory_to_agent(agent, ryumem_customer_id="my_company")
-
-    # One line to enable automatic tool tracking!
-    enable_tool_tracking(agent, ryumem=memory.ryumem)
+    memory = add_memory_to_agent(agent, ryumem_instance=ryumem, track_tools=True)
 
     # All non-Ryumem tools are now automatically tracked
     # Query later: "Which tools work best for data analysis?"
@@ -673,49 +670,3 @@ Make it user-friendly and avoid technical jargon. Just return the description te
         tool.run_async = tracking_run_async
 
 
-def enable_tool_tracking(
-    agent,
-    ryumem: Ryumem,
-    **tracker_kwargs
-) -> ToolTracker:
-    """
-    Enable automatic tool tracking for a Google ADK agent.
-
-    DEPRECATED: Use add_memory_to_agent(..., track_tools=True) instead for simpler API.
-
-    This function wraps all non-Ryumem tools in the agent to automatically
-    track their executions in the knowledge graph.
-
-    Args:
-        agent: Google ADK Agent instance
-        ryumem: Ryumem instance for storage
-        **tracker_kwargs: Additional arguments for ToolTracker
-
-    Returns:
-        ToolTracker instance for advanced usage
-
-    Recommended (NEW):
-        ```python
-        from ryumem.integrations import add_memory_to_agent
-
-        # New simpler way - one function call!
-        memory = add_memory_to_agent(
-            agent,
-            track_tools=True,
-            sampling_rate=0.1
-        )
-        ```
-    """
-
-    # Create tracker
-    tracker = ToolTracker(
-        ryumem=ryumem,
-        **tracker_kwargs
-    )
-
-    # Use the new wrap_agent_tools method
-    tracker.wrap_agent_tools(
-        agent,
-    )
-
-    return tracker
