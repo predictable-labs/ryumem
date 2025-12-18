@@ -112,7 +112,7 @@ ryumem = Ryumem(api_key="ryu_...")
 memory = add_memory_to_agent(
     agent,
     ryumem_instance=ryumem,
-    enable_tool_tracking=True,  # Automatically track all tool calls
+    track_tools=True,  # Automatically track all tool calls
 )
 ```
 
@@ -285,7 +285,7 @@ ryumem = Ryumem(api_key="ryu_...")
 memory = add_memory_to_agent(
     agent,
     ryumem_instance=ryumem,
-    enable_tool_tracking=True,
+    track_tools=True,
 )
 
 async def main():

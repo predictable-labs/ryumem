@@ -51,9 +51,11 @@ Determine project name from working directory (e.g., "myapp", "ryumem").
 Use user_id = project_name.
 
 🚨 REQUIRED - Run these 3 searches at the START of EVERY conversation:
-1. search_memory({user_id, tags: ["project"], limit: 1})
-2. search_memory({user_id, tags: ["preferences"], limit: 3})
-3. search_memory({user_id, tags: ["decision"], limit: 2})
+1. search_memory({user_id, tags: ["project"], limit: 1})        // NO query parameter
+2. search_memory({user_id, tags: ["preferences"], limit: 3})    // NO query parameter
+3. search_memory({user_id, tags: ["decision"], limit: 2})       // NO query parameter
+
+IMPORTANT: Use ONLY tags for startup searches - do NOT include query parameter.
 
 If you skip these searches, you will:
 - Miss critical user preferences and waste their time

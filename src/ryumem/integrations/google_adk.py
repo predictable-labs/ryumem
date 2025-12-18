@@ -35,13 +35,18 @@ Example - With Query Tracking:
     ```
 """
 
-from typing import Optional, Dict, Any, List
-import logging
+import datetime
 import json
-from google.adk.tools.tool_context import ToolContext
+import logging
+import uuid as uuid_module
+from typing import Optional, Dict, Any, List
 
+from google.adk.tools.tool_context import ToolContext
+from google.genai import types
 from ryumem import EpisodeType, Ryumem, RyumemConfig
 from ryumem.core.metadata_models import EpisodeMetadata, QueryRun
+
+from .tool_tracker import ToolTracker
 
 logger = logging.getLogger(__name__)
 
@@ -211,8 +216,8 @@ class RyumemGoogleADK:
                 strategy="hybrid",
                 limit=limit,
                 kinds=['memory'],  # Only search memory episodes
-                min_bm25_score=0.001,  # Very low threshold for BM25
-                min_rrf_score=0.0  # Disable RRF filtering
+                min_bm25_score=0.001,  # Very low threshold for BM25 #TODO Use config
+                min_rrf_score=0.0  # Disable RRF filtering #TODO Use config
             )
 
             # Collect all results: edges (facts), episodes (content), and entities
@@ -399,40 +404,6 @@ class RyumemGoogleADK:
 
         return tools
 
-def _register_and_track_tools(
-    agent,
-    ryumem: Ryumem,
-    memory: RyumemGoogleADK,
-    tool_tracking_kwargs: Dict[str, Any]
-):
-    """Setup tool tracking and register tools in database."""
-    from .tool_tracker import ToolTracker
-
-    tracker = ToolTracker(
-        ryumem=ryumem,
-        **tool_tracking_kwargs
-    )
-    tracker.wrap_agent_tools(agent)
-    logger.info(f"Tool tracking enabled for agent: {agent.name if hasattr(agent, 'name') else 'unnamed'}")
-
-    # Register all tools in database
-    tools_to_register = [
-        {
-            'name': getattr(tool, 'name', getattr(tool, '__name__', 'unknown')),
-            'description': getattr(tool, 'description', getattr(tool, '__doc__', '')) or f"Tool: {getattr(tool, 'name', 'unknown')}"
-        }
-        for tool in agent.tools
-    ]
-
-    if tools_to_register:
-        tracker.register_tools(tools_to_register)
-        logger.info(f"Registered {len(tools_to_register)} tools in database")
-
-    memory.tracker = tracker
-
-
-from typing import Optional
-
 def add_memory_to_agent(
     agent,
     ryumem_instance: Ryumem,
@@ -459,9 +430,6 @@ def add_memory_to_agent(
         agent = genai.Agent(model="gemini-2.0-flash")
         agent = add_memory_to_agent(agent, ryumem)
     """
-    import os
-    from .tool_tracker import ToolTracker
-
     # Initialize Tool Tracker if enabled
     tool_tracker = None
     if ryumem_instance.config.tool_tracking.track_tools:
@@ -627,31 +595,8 @@ def _find_similar_query_episodes(
     logger.info(f"Found {len(similar_queries)} similar queries above threshold {memory.ryumem.config.tool_tracking.similarity_threshold}")
     return similar_queries
 
-
-def _get_linked_tool_executions(query_uuid: str, memory: RyumemGoogleADK) -> List[Dict[str, Any]]:
-    """Query for tool executions linked to a query episode via API."""
-    try:
-        episodes = memory.ryumem.get_triggered_episodes(
-            source_uuid=query_uuid,
-            source_type='json',
-            limit=10
-        )
-        # Convert to dict format for backward compatibility
-        return [
-            {
-                "content": episode.content,
-                "metadata": episode.metadata
-            }
-            for episode in episodes
-        ]
-    except Exception as e:
-        logger.warning(f"Failed to query tool executions: {e}")
-        return []
-
-
 def _get_last_session_details(similar_queries: List[Dict[str, Any]]) -> str:
     """Extract details from the most recent session across all similar queries."""
-    from datetime import datetime
 
     most_recent_session = None
     most_recent_timestamp = None
@@ -675,7 +620,7 @@ def _get_last_session_details(similar_queries: List[Dict[str, Any]]) -> str:
 
                 # Get the latest timestamp from this session
                 latest_run = max(runs, key=lambda r: r.timestamp)
-                session_timestamp = datetime.fromisoformat(latest_run.timestamp)
+                session_timestamp = datetime.datetime.fromisoformat(latest_run.timestamp)
 
                 if most_recent_timestamp is None or session_timestamp > most_recent_timestamp:
                     most_recent_timestamp = session_timestamp
@@ -842,7 +787,6 @@ def _insert_run_information_in_episode(
     memory: RyumemGoogleADK
 ):
     """Check for duplicate episodes and append run if needed."""
-    import json
 
     existing_episode = memory.ryumem.get_episode_by_uuid(query_episode_id)
 
@@ -880,7 +824,6 @@ def _create_query_episode(
     memory: RyumemGoogleADK
 ) -> str:
     """Create episode for user query with metadata."""
-    import datetime
 
     # Create query run using Pydantic model
     query_run = QueryRun(
@@ -935,10 +878,6 @@ def _prepare_query_and_episode(
         Tuple of (original_query_text, augmented_message, query_episode_id, run_id)
         Returns (None, new_message, None, None) if no query text found
     """
-    import uuid as uuid_module
-    import datetime
-    from google.genai import types
-
     # Extract query text
     query_text = _extract_query_text(new_message)
     if not query_text:
@@ -1028,8 +967,6 @@ def _save_agent_response_to_episode(
     if not query_episode_id or not agent_response_parts:
         return
 
-    import json
-
     try:
         agent_response = ' '.join(agent_response_parts)
         logger.debug(f"Captured agent response ({len(agent_response)} chars) for query {query_episode_id}")
@@ -1056,9 +993,6 @@ def _save_agent_response_to_episode(
                 logger.info(f"Saved agent response to episode {query_episode_id} session {session_id[:8]}")
     except Exception as e:
         logger.warning(f"Failed to save agent response: {e}")
-
-
-
 
 
 def wrap_runner_with_tracking(
