@@ -205,7 +205,7 @@ NEVER:
 ═══════════════════════════════════════════════════════════`;
 
 class RyumemMCPServer {
-  private server: Server;
+  private server!: Server;
   private client: RyumemClient;
   private auth: RyumemAuth;
   private apiUrl: string;
@@ -219,20 +219,7 @@ class RyumemMCPServer {
     // Initialize client without API key (will be set after auth)
     this.client = new RyumemClient({ apiUrl: this.apiUrl });
 
-    this.server = new Server(
-      {
-        name: 'ryumem',
-        version: '0.1.0',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-        instructions: INSTRUCTIONS,
-      }
-    );
-
-    this.setupHandlers();
+    // Server will be created after fetching instructions
   }
 
   /**
@@ -252,14 +239,16 @@ class RyumemMCPServer {
   /**
    * Fetch agent instructions from the database using current_instruction pattern.
    * Server handles resolution and returns matching instruction or saves if not found.
+   * Returns the enhanced_instruction to use (or defaults to INSTRUCTIONS).
    */
-  private async fetchInstructions(): Promise<void> {
+  private async fetchInstructions(): Promise<string> {
     try {
       console.error('Fetching MCP agent instructions...');
 
       // Fetch using current_instruction pattern - server handles everything
       const instructions = await this.client.listAgentInstructions({
         current_instruction: INSTRUCTIONS,
+        agent_type: "mcp",
         enhance: false,  // No enhancement for MCP
         memory_enabled: false,  // No memory blocks
         tool_tracking_enabled: false,  // No tool tracking
@@ -268,16 +257,38 @@ class RyumemMCPServer {
 
       if (instructions && instructions.length > 0) {
         const instruction = instructions[0];
+        const instructionText = instruction.enhanced_instruction || instruction.base_instruction;
         console.error(`✓ Loaded MCP instructions from database (ID: ${instruction.instruction_id})`);
-        return;
+        return instructionText;
       }
 
       console.error('✓ Using default MCP instructions');
+      return INSTRUCTIONS;
     } catch (error) {
       console.error('Failed to fetch instructions, using defaults:', error instanceof Error ? error.message : String(error));
+      return INSTRUCTIONS;
     }
   }
 
+  /**
+   * Initialize the MCP server with the given instructions
+   */
+  private initializeServer(instructions: string): void {
+    this.server = new Server(
+      {
+        name: 'ryumem',
+        version: '0.1.0',
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+        instructions,
+      }
+    );
+
+    this.setupHandlers();
+  }
 
   private setupHandlers(): void {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -344,8 +355,11 @@ class RyumemMCPServer {
     // Initialize authentication first
     await this.initAuth();
 
-    // Fetch instructions before starting the server
-    await this.fetchInstructions();
+    // Fetch instructions from database (or use defaults)
+    const instructions = await this.fetchInstructions();
+
+    // Initialize server with the fetched/default instructions
+    this.initializeServer(instructions);
 
     const transport = new StdioServerTransport();
     await this.server.connect(transport);

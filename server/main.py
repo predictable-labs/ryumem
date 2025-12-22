@@ -2461,44 +2461,46 @@ async def list_agent_instructions(
                 ]
             else:
                 # No match - user modified or library updated
-                # Enhance the current instruction, save it to DB, and return it
+                # Save instruction to DB (with or without enhancement)
                 if enhance:
                     enhanced = enhance_instruction(
                         base_instruction=current_instruction,
                         memory_enabled=memory_enabled,
                         tool_tracking_enabled=tool_tracking_enabled
                     )
+                else:
+                    # No enhancement - use base instruction as-is
+                    enhanced = current_instruction
 
-                    # Determine query_augmentation_template
-                    query_template = ""
-                    if track_queries and augment_queries:
-                        query_template = DEFAULT_AUGMENTATION_TEMPLATE
+                # Determine query_augmentation_template
+                query_template = ""
+                if track_queries and augment_queries:
+                    query_template = DEFAULT_AUGMENTATION_TEMPLATE
 
-                    # Save to database so future queries can find it
-                    instruction_id = ryumem.save_agent_instruction(
+                # Save to database so future queries can find it
+                instruction_id = ryumem.save_agent_instruction(
+                    base_instruction=current_instruction,
+                    agent_type=agent_type or "google_adk",
+                    enhanced_instruction=enhanced,
+                    query_augmentation_template=query_template,
+                    memory_enabled=memory_enabled,
+                    tool_tracking_enabled=tool_tracking_enabled
+                )
+
+                # Return the saved instruction response
+                return [
+                    AgentInstructionResponse(
+                        instruction_id=instruction_id,
                         base_instruction=current_instruction,
-                        agent_type=agent_type or "google_adk",
                         enhanced_instruction=enhanced,
                         query_augmentation_template=query_template,
+                        agent_type=agent_type or "google_adk",
                         memory_enabled=memory_enabled,
-                        tool_tracking_enabled=tool_tracking_enabled
+                        tool_tracking_enabled=tool_tracking_enabled,
+                        created_at=datetime.utcnow().isoformat(),
+                        updated_at=datetime.utcnow().isoformat()
                     )
-
-                    # Return the saved instruction response
-                    return [
-                        AgentInstructionResponse(
-                            instruction_id=instruction_id,
-                            base_instruction=current_instruction,
-                            enhanced_instruction=enhanced,
-                            query_augmentation_template=query_template,
-                            agent_type=agent_type or "google_adk",
-                            memory_enabled=memory_enabled,
-                            tool_tracking_enabled=tool_tracking_enabled,
-                            created_at=datetime.utcnow().isoformat(),
-                            updated_at=datetime.utcnow().isoformat()
-                        )
-                    ]
-                return []
+                ]
 
         # Normal list behavior (no current_instruction provided)
         return [

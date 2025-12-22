@@ -69,6 +69,7 @@ export interface PruneMemoriesParams {
 
 export interface ListAgentInstructionsParams {
   current_instruction?: string;
+  agent_type?: string;
   enhance?: boolean;
   memory_enabled?: boolean;
   tool_tracking_enabled?: boolean;
@@ -195,6 +196,9 @@ export class RyumemClient {
     const queryParams = new URLSearchParams();
     if (params.current_instruction) {
       queryParams.append('current_instruction', params.current_instruction);
+    }
+    if (params.agent_type) {
+      queryParams.append('agent_type', params.agent_type);
     }
     if (params.enhance !== undefined) {
       queryParams.append('enhance', String(params.enhance));
