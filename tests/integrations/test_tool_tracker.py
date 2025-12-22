@@ -364,6 +364,61 @@ class TestAgentToolsWrapping:
         # Tools should still be in the list
         assert len(agent.tools) >= 2
 
+    def test_langchain_tool_name_extraction(self, tracker):
+        """
+        Test that LangChain tools converted to FunctionTool are tracked with correct name.
+
+        Bug: When LangChain tools (which use _run method) are converted to FunctionTool,
+        they get tracked as "_run" instead of the actual tool name if we only check func.__name__.
+
+        This happens because:
+        - FunctionTool.name = "simple_tool" (correct)
+        - FunctionTool.func.__name__ = "_run" (wrong - from LangChain's _run method)
+        - Tool tracker must check tool.name first, then func.__name__
+        """
+        try:
+            from google.adk.tools import FunctionTool
+        except ImportError:
+            pytest.skip("google.adk not available")
+
+        # Simulate how client converts LangChain tool to FunctionTool
+        def _run(message: str) -> str:
+            """The actual _run method from LangChain tool."""
+            return f"Processed: {message}"
+
+        # Client creates FunctionTool with correct .name attribute
+        # but the underlying func still has __name__ = "_run"
+        tool = FunctionTool(func=_run)
+        tool.name = "simple_tool"  # Client sets the name correctly here
+
+        # Verify the setup
+        assert tool.name == "simple_tool"  # FunctionTool.name is correct
+        assert tool.func.__name__ == "_run"  # But func.__name__ is wrong!
+
+        # Create mock agent
+        from unittest.mock import MagicMock
+        mock_agent = MagicMock()
+        mock_agent.tools = [tool]
+        mock_agent.instruction = ""
+
+        # Spy on _wrap_run_async to capture what tool_name it receives
+        captured_tool_name = None
+
+        original_wrap = tracker._wrap_run_async
+        def spy_wrap(tool, tool_name, tool_description):
+            nonlocal captured_tool_name
+            captured_tool_name = tool_name
+            return original_wrap(tool, tool_name, tool_description)
+
+        tracker._wrap_run_async = spy_wrap
+
+        # Wrap agent tools
+        tracker.wrap_agent_tools(mock_agent)
+
+        # Verify tool is tracked with correct name from tool.name, not func.__name__
+        assert captured_tool_name == "simple_tool", \
+            f"Expected tool to be tracked as 'simple_tool', but got '{captured_tool_name}'"
+
 
 class TestErrorHandling:
     """Test error handling in various scenarios."""

@@ -557,7 +557,15 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             # Get the actual function to inspect
             func = tool.func if is_function_tool else tool
-            tool_name = getattr(func, '__name__', f'tool_{i}')
+
+            # Extract tool name using same logic as registration:
+            # For FunctionTool objects, check tool.name first (handles LangChain tools with _run)
+            # This matches how registration works in google_adk.py
+            if is_function_tool:
+                tool_name = getattr(tool, 'name', getattr(func, '__name__', f'tool_{i}'))
+            else:
+                tool_name = getattr(func, '__name__', f'tool_{i}')
+
             tool_description = getattr(func, '__doc__', None)
 
             # Update the agent's tool list based on type
