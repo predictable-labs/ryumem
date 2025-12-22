@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+.DS_Store
+npm-debug.log*
+.eslintcache

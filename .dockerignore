@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.pytest_cache
+.mypy_cache
+venv
+.venv
+server/venv
+
+# Data
+server/data
+data
+
+# Docs
+*.md
+docs
+
+# Dashboard (not needed for server build)
+dashboard
+
+# Other
+.DS_Store
+dist
+*.egg
