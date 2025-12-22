@@ -366,32 +366,55 @@ vercel
 
 ### Docker
 
-```dockerfile
-FROM node:18-alpine
+The dashboard uses a multi-stage build for optimized production images.
 
-WORKDIR /app
+**1. Configure environment:**
 
-# Install dependencies
-COPY package*.json ./
-RUN npm ci
-
-# Copy app
-COPY . .
-
-# Build
-RUN npm run build
-
-EXPOSE 3000
-
-CMD ["npm", "start"]
+Create a `.env` file from the template before building:
+```bash
+cp env.template .env
+# Edit .env with your configuration
 ```
 
-Build and run:
+Required `.env` variables:
 ```bash
+NEXT_PUBLIC_API_URL=http://your-server:8000
+NEXT_PUBLIC_GITHUB_REDIRECT_URI=http://your-domain/login
+```
+
+> **Note:** `NEXT_PUBLIC_*` variables are baked into the build at compile time, so you must rebuild when changing them.
+
+**2. Build:**
+```bash
+cd dashboard
 docker build -t ryumem-dashboard .
-docker run -p 3000:3000 \
-  -e NEXT_PUBLIC_API_URL=http://api:8000 \
-  ryumem-dashboard
+```
+
+**3. Run:**
+```bash
+docker run -p 3000:3000 ryumem-dashboard
+```
+
+**Docker Compose example:**
+```yaml
+services:
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - server/.env
+    volumes:
+      - ./data:/data
 ```
 
 ### Other Platforms

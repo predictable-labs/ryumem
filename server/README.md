@@ -279,37 +279,48 @@ pm2 restart ryumem-server
 
 ### Docker Deployment
 
-```dockerfile
-FROM python:3.11-slim
+The server Dockerfile must be built from the **project root** (not from `server/`) because it depends on the `ryumem` SDK package.
 
-WORKDIR /app
-
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application
-COPY . .
-
-# Install ryumem SDK
-WORKDIR /app/..
-RUN pip install -e .
-
-WORKDIR /app
-
-# Run server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+**Build:**
+```bash
+# From project root
+cd /path/to/ryumem
+docker build -t ryumem-server -f server/Dockerfile .
 ```
 
-Build and run:
+**Run with environment variables:**
 ```bash
-docker build -t ryumem-server .
 docker run -p 8000:8000 \
   -e OPENAI_API_KEY=sk-... \
   -e RYUMEM_DB_FOLDER=/data \
+  -e GITHUB_CLIENT_ID=your_client_id \
+  -e GITHUB_CLIENT_SECRET=your_secret \
   -v ./data:/data \
   ryumem-server
 ```
+
+**Run with env file:**
+```bash
+# Create .env file with your configuration
+docker run -p 8000:8000 \
+  --env-file server/.env \
+  -v ./data:/data \
+  ryumem-server
+```
+
+**Required environment variables:**
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` or `GOOGLE_API_KEY` | LLM provider API key |
+| `RYUMEM_DB_FOLDER` | Database storage path (mount as volume) |
+
+**Optional environment variables:**
+| Variable | Description |
+|----------|-------------|
+| `GITHUB_CLIENT_ID` | GitHub OAuth client ID |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth client secret |
+| `RYUMEM_LLM_PROVIDER` | LLM provider (openai, gemini, ollama) |
+| `RYUMEM_LLM_MODEL` | Model name |
 
 ### Production Considerations
 
