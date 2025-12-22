@@ -548,7 +548,7 @@ class Ryumem:
             # Returns: {"success_rate": 0.95, "usage_count": 100, "avg_duration_ms": 250, ...}
         """
         import json
-        from ryumem_server.core.metadata_models import EpisodeMetadata
+        from ryumem.core.metadata_models import EpisodeMetadata
 
         # Query query episodes (source='message') and extract tools_used from metadata
         query = """
@@ -634,7 +634,7 @@ class Ryumem:
             # Returns: [{"tool_name": "web_search", "usage_count": 50, ...}, ...]
         """
         import json
-        from ryumem_server.core.metadata_models import EpisodeMetadata
+        from ryumem.core.metadata_models import EpisodeMetadata
 
         # Query query episodes (source='message') and extract tools_used from metadata
         query = """
