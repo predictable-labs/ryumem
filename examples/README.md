@@ -2,13 +2,65 @@
 
 This directory contains examples demonstrating various features and integrations of Ryumem.
 
+## Prerequisites
+
+### 1. Running Server
+
+All examples require a running Ryumem API server:
+
+```bash
+# Start the server
+cd server
+cp .env.example .env
+# Edit .env and add your LLM API key
+uvicorn main:app --reload
+```
+
+### 2. Get an API Key
+
+Register a customer to get an API key:
+
+```bash
+curl -X POST http://localhost:8000/register \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id": "my_company"}'
+```
+
+### 3. Install SDK
+
+```bash
+# From PyPI
+pip install ryumem
+
+# Or from source (project root)
+pip install -e .
+```
+
+### 4. Configure Environment
+
+```bash
+cd examples
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+**Required environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `RYUMEM_API_URL` | API server URL (e.g., `http://localhost:8000`) |
+| `RYUMEM_API_KEY` | Your API key (starts with `ryu_`) |
+| `GOOGLE_API_KEY` | Google Gemini API key (for ADK examples) |
+
 ## Getting Started
 
 Start with these examples to learn the basics:
 
-- **[basic_usage.py](getting-started/basic_usage.py)** - Standalone local usage with in-memory graph
-- **[client_usage.py](getting-started/client_usage.py)** - Connect to a Ryumem server via API
-- **[advanced_usage.py](getting-started/advanced_usage.py)** - Advanced SDK features and configurations
+| Example | Description |
+|---------|-------------|
+| [basic_usage.py](getting-started/basic_usage.py) | Standalone local usage with in-memory graph |
+| [client_usage.py](getting-started/client_usage.py) | Connect to a Ryumem server via API |
+| [advanced_usage.py](getting-started/advanced_usage.py) | Advanced SDK features and configurations |
 
 ## Framework Integrations
 
@@ -16,66 +68,37 @@ Start with these examples to learn the basics:
 
 Zero-boilerplate memory integration for Google ADK agents:
 
-- **[google_adk_usage.py](integrations/google-adk/google_adk_usage.py)** - Complete integration example with multi-user isolation
-- **[simple_tool_tracking_demo.py](integrations/google-adk/simple_tool_tracking_demo.py)** - Automatic tool tracking and query augmentation
-- **[async_tool_tracking_demo.py](integrations/google-adk/async_tool_tracking_demo.py)** - Async tool tracking with concurrent operations
-- **[password_guessing_game.py](integrations/google-adk/password_guessing_game.py)** - Advanced query augmentation demo
+| Example | Description |
+|---------|-------------|
+| [google_adk_usage.py](integrations/google-adk/google_adk_usage.py) | Complete integration with multi-user isolation |
+| [simple_tool_tracking_demo.py](integrations/google-adk/simple_tool_tracking_demo.py) | Automatic tool tracking and query augmentation |
+| [async_tool_tracking_demo.py](integrations/google-adk/async_tool_tracking_demo.py) | Async tool tracking with concurrent operations |
+| [password_guessing_game.py](integrations/google-adk/password_guessing_game.py) | Advanced query augmentation demo |
 
-### LiteLLM
-
-Use any LLM provider (100+ providers supported):
-
-- **[litellm_usage.py](integrations/litellm/litellm_usage.py)** - Basic LiteLLM integration
-- **[litellm_simple_tool_tracking.py](integrations/litellm/litellm_simple_tool_tracking.py)** - Tool tracking with LiteLLM
-
-### Ollama
-
-Local LLM usage with Ollama:
-
-- **[ollama_usage.py](integrations/ollama/ollama_usage.py)** - Run Ryumem with local Ollama models
-
-## Tests
-
-Example test files demonstrating testing patterns:
-
-- **[test_async_wrapper.py](tests/test_async_wrapper.py)** - Testing async operations
-- **[test_deduplication.py](tests/test_deduplication.py)** - Testing duplicate detection
-
-## Prerequisites
-
-### Basic Installation
-
-All examples require:
-
-```bash
-pip install ryumem
-```
-
-### Google ADK Examples
-
-For Google ADK integration examples:
-
+**Additional setup:**
 ```bash
 pip install ryumem[google-adk]
 export GOOGLE_API_KEY="your-google-api-key"
 ```
 
-Optional (for better embeddings):
-```bash
-export OPENAI_API_KEY="your-openai-api-key"
-```
+### LiteLLM
 
-### LiteLLM Examples
+Use any LLM provider (100+ providers supported):
 
-```bash
-export OPENAI_API_KEY="your-api-key"
-# OR set credentials for your preferred provider
-```
+| Example | Description |
+|---------|-------------|
+| [litellm_usage.py](integrations/litellm/litellm_usage.py) | Basic LiteLLM integration |
+| [litellm_simple_tool_tracking.py](integrations/litellm/litellm_simple_tool_tracking.py) | Tool tracking with LiteLLM |
 
-### Ollama Examples
+### Ollama
 
-Requires Ollama running locally:
+Local LLM usage with Ollama:
 
+| Example | Description |
+|---------|-------------|
+| [ollama_usage.py](integrations/ollama/ollama_usage.py) | Run Ryumem with local Ollama models |
+
+**Additional setup:**
 ```bash
 # Install Ollama from https://ollama.ai
 ollama pull llama2  # or your preferred model
@@ -83,40 +106,51 @@ ollama pull llama2  # or your preferred model
 
 ## Running Examples
 
-Each example is self-contained and can be run directly:
+Each example is self-contained:
 
 ```bash
 cd examples
 python getting-started/basic_usage.py
 ```
 
-For client examples, ensure a Ryumem server is running:
+For client examples, ensure the server is running:
 
 ```bash
-# In one terminal - start the server
+# Terminal 1 - Start server
 cd server
-python main.py
+uvicorn main:app --reload
 
-# In another terminal - run the client example
+# Terminal 2 - Run example
 cd examples
 python getting-started/client_usage.py
 ```
 
-## Example Structure
+## Directory Structure
 
 ```
 examples/
-├── README.md                          # This file
-├── getting-started/                   # Basic SDK usage
-├── integrations/                      # Framework-specific examples
-│   ├── google-adk/                   # Google ADK integration
-│   ├── litellm/                      # LiteLLM integration
-│   └── ollama/                       # Ollama integration
-└── tests/                             # Testing examples
+├── README.md                      # This file
+├── .env.example                   # Environment template
+├── getting-started/               # Basic SDK usage
+│   ├── basic_usage.py
+│   ├── client_usage.py
+│   └── advanced_usage.py
+├── integrations/                  # Framework integrations
+│   ├── google-adk/
+│   │   ├── google_adk_usage.py
+│   │   ├── simple_tool_tracking_demo.py
+│   │   ├── async_tool_tracking_demo.py
+│   │   └── password_guessing_game.py
+│   ├── litellm/
+│   │   ├── litellm_usage.py
+│   │   └── litellm_simple_tool_tracking.py
+│   └── ollama/
+│       └── ollama_usage.py
+└── tests/                         # Testing examples
+    ├── test_async_wrapper.py
+    └── test_deduplication.py
 ```
 
-## Need Help?
+## License
 
-- [Main README](../README.md) - Full documentation
-- [GitHub Issues](https://github.com/predictable-labs/ryumem/issues) - Report bugs or request features
-- [PyPI Package](https://pypi.org/project/ryumem/) - Latest release information
+Apache License 2.0 - See [LICENSE](../LICENSE) for details.
