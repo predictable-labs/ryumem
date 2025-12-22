@@ -1,6 +1,6 @@
 {
-  "name": "@ryumem/mcp-server",
-  "version": "0.1.0",
+  "name": "@predictable/ryumem-mcp-server",
+  "version": "0.2.0",
   "description": "Ryumem MCP Server",
   "type": "module",
   "bin": {
