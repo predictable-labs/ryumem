@@ -512,98 +512,16 @@ class Ryumem:
 
     def get_all_tools(self) -> List[Dict]:
         """
-        Get all tools that have been tracked in episodes (including nested tools).
-
-        This scans episode metadata to find all tools that have been actually used,
-        including nested tools like "parent_tool.child_tool" that may not be explicitly registered.
-        Tools are enriched with registration info from the Tool table if available.
-
-        Args:
-            user_id: Optional user ID to filter by
+        Get all registered tools.
 
         Returns:
-            List of tool dictionaries with name, usage_count, and description
+            List of tool dictionaries with name and description
 
         Example:
             tools = ryumem.get_all_tools()
-            # Returns: [
-            #   {"tool_name": "parent_tool", "usage_count": 5, "mentions": 1, "description": "..."},
-            #   {"tool_name": "parent_tool.child_tool", "usage_count": 3, "mentions": 0, "description": "Auto-tracked nested tool"}
-            # ]
+            # Returns: [{"tool_name": "search_database", "description": "...", ...}]
         """
-        import json
-        from ryumem_server.core.metadata_models import EpisodeMetadata
-
-        # Get all tool usage from episode metadata
-        query = """
-            MATCH (e:Episode)
-            WHERE e.source = 'message'
-              AND e.metadata IS NOT NULL
-        """
-
-        params = {}
-
-        query += " RETURN e.metadata"
-
-        result = self.db.conn.execute(query, params)
-
-        tool_usage = {}
-
-        # Extract all tool names from episode metadata
-        while result.has_next():
-            metadata_str = result.get_next()[0]
-            if not metadata_str:
-                continue
-
-            metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-
-            try:
-                episode_metadata = EpisodeMetadata(**metadata_dict)
-                episode_tool_usage = episode_metadata.get_all_tool_usage()
-
-                # Merge into overall tool_usage
-                for tool_name, usage in episode_tool_usage.items():
-                    if tool_name not in tool_usage:
-                        tool_usage[tool_name] = {
-                            'tool_name': tool_name,
-                            'usage_count': 0,
-                        }
-
-                    tool_usage[tool_name]['usage_count'] += usage['usage_count']
-            except Exception:
-                continue
-
-        # Enrich with registration info from Tool table
-        result_list = []
-        for tool_name, usage in tool_usage.items():
-            # Try to get tool from database
-            registered_tool = self.db.get_tool_by_name(tool_name)
-
-            if registered_tool:
-                # Tool is registered - use its description and mentions
-                result_list.append({
-                    'tool_name': tool_name,
-                    'usage_count': usage['usage_count'],
-                    'mentions': registered_tool.get('mentions', 0),
-                    'description': registered_tool.get('description', ''),
-                    'uuid': registered_tool.get('uuid'),
-                    'created_at': registered_tool.get('created_at'),
-                })
-            else:
-                # Tool is tracked but not registered (e.g., nested tool)
-                result_list.append({
-                    'tool_name': tool_name,
-                    'usage_count': usage['usage_count'],
-                    'mentions': 0,  # Not registered, so 0 mentions
-                    'description': f'Auto-tracked: {tool_name}',
-                    'uuid': None,
-                    'created_at': None,
-                })
-
-        # Sort by usage count
-        result_list.sort(key=lambda x: x['usage_count'], reverse=True)
-
-        return result_list
+        return self.db.get_all_tools()
 
     def get_tool_success_rate(
         self,
