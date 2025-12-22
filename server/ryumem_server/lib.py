@@ -697,6 +697,7 @@ class Ryumem:
 
         return result_list[:limit]
 
+
     def get_instruction_by_text(
         self,
         instruction_text: str,
