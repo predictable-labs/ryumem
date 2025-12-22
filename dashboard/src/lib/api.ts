@@ -143,7 +143,6 @@ export interface AgentInstruction {
   memory_enabled?: boolean;
   tool_tracking_enabled?: boolean;
   instruction_text?: string; // Kept for backward compatibility if needed
-  instruction_type?: string;
   description?: string;
   user_id?: string;
   original_user_request?: string;

@@ -500,46 +500,38 @@ def add_memory_to_agent(
             if not ryumem_instance.config.tool_tracking.ignore_errors:
                 raise
 
-    # Build enhanced instruction
-    base_instruction = agent.instruction or ""
-    enhanced_instruction = base_instruction
-
-    if ryumem_instance.config.agent.enhance_agent_instruction:
-        instruction_parts = []
-        if base_instruction:
-            instruction_parts.append(base_instruction)
-
-        # Only add blocks if they're not already present
-        if ryumem_instance.config.agent.memory_enabled and DEFAULT_MEMORY_BLOCK not in base_instruction:
-            instruction_parts.append(DEFAULT_MEMORY_BLOCK)
-
-        if ryumem_instance.config.tool_tracking.track_tools and DEFAULT_TOOL_BLOCK not in base_instruction:
-            instruction_parts.append(DEFAULT_TOOL_BLOCK)
-
-        enhanced_instruction = "\n\n".join(instruction_parts)
-        agent.instruction = enhanced_instruction
-
-    # Register agent configuration
-    query_augmentation_template = DEFAULT_AUGMENTATION_TEMPLATE if (
-        ryumem_instance.config.tool_tracking.track_queries and
-        ryumem_instance.config.tool_tracking.augment_queries
-    ) else ""
-
+    # Resolve and enhance instruction using server-side logic
+    # The server handles all enhancement and will check if there's an updated instruction in the DB
+    current_instruction = agent.instruction or ""
     try:
-        ryumem_instance.save_agent_instruction(
-            base_instruction=base_instruction,
+        resolved = ryumem_instance.list_agent_instructions(
             agent_type="google_adk",
-            enhanced_instruction=enhanced_instruction,
-            query_augmentation_template=query_augmentation_template,
-            memory_enabled=ryumem_instance.config.agent.memory_enabled,
-            tool_tracking_enabled=ryumem_instance.config.tool_tracking.track_tools
+            current_instruction=current_instruction,
+            limit=1
         )
-        logger.info("Registered agent configuration in database")
-    except Exception as e:
-        logger.warning(f"Failed to register agent configuration: {e}")
 
-    # Store augmentation prompt locally
-    memory._augmentation_prompt = query_augmentation_template or DEFAULT_AUGMENTATION_TEMPLATE
+        if resolved:
+            # Use enhanced instruction and query template from server
+            base_instruction = resolved[0].get("base_instruction", current_instruction)
+            enhanced_instruction = resolved[0].get("enhanced_instruction", base_instruction)
+            query_augmentation_template = resolved[0].get("query_augmentation_template", "")
+            agent.instruction = enhanced_instruction
+            logger.info(f"Resolved instruction from server: {base_instruction[:50]}...")
+        else:
+            # Fallback - should not happen if server is working
+            base_instruction = current_instruction
+            enhanced_instruction = current_instruction
+            query_augmentation_template = ""
+            logger.warning("Server returned no instructions, using current instruction as fallback")
+    except Exception as e:
+        # Fallback on error
+        logger.error(f"Failed to resolve instruction from server: {e}")
+        base_instruction = current_instruction
+        enhanced_instruction = current_instruction
+        query_augmentation_template = ""
+
+    # Store augmentation prompt from server
+    memory._augmentation_prompt = query_augmentation_template
 
     # Store memory interface on agent and return agent (builder pattern)
     agent._ryumem_memory = memory

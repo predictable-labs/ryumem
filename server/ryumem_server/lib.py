@@ -701,7 +701,6 @@ class Ryumem:
         self,
         instruction_text: str,
         agent_type: str,
-        instruction_type: str,
     ) -> Optional[str]:
         """
         Get instruction by key (original_user_request).
@@ -712,18 +711,16 @@ class Ryumem:
         Args:
             instruction_text: The key to search for (stored in original_user_request)
             agent_type: Type of agent (e.g., "google_adk")
-            instruction_type: Type of instruction (e.g., "memory_usage", "tool_tracking")
 
         Returns:
             The instruction_text content if found, None otherwise
         """
-        logger.info(f"[DB] get_instruction_by_text called: key={instruction_text}, agent_type={agent_type}, instruction_type={instruction_type}")
+        logger.info(f"[DB] get_instruction_by_text called: key={instruction_text}, agent_type={agent_type}")
 
         query = """
         MATCH (i:AgentInstruction)
         WHERE i.original_user_request = $instruction_text
           AND i.agent_type = $agent_type
-          AND i.instruction_type = $instruction_type
         RETURN i.instruction_text AS instruction_text
         ORDER BY i.created_at DESC
         LIMIT 1
@@ -732,7 +729,6 @@ class Ryumem:
         result = self.db.execute(query, {
             "instruction_text": instruction_text,
             "agent_type": agent_type,
-            "instruction_type": instruction_type
         })
 
         if result and len(result) > 0:
@@ -859,6 +855,7 @@ class Ryumem:
     def list_agent_instructions(
         self,
         agent_type: Optional[str] = None,
+        base_instruction: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict]:
         """
@@ -866,6 +863,7 @@ class Ryumem:
 
         Args:
             agent_type: Optional filter by agent type
+            base_instruction: Optional filter by exact base_instruction match
             limit: Maximum number of instructions to return
 
         Returns:
@@ -876,7 +874,7 @@ class Ryumem:
             for agent in agents:
                 print(f"Agent: {agent['base_instruction'][:50]}...")
         """
-        logger.info(f"[DB] list_agent_instructions called: agent_type={agent_type}, limit={limit}")
+        logger.info(f"[DB] list_agent_instructions called: agent_type={agent_type}, base_instruction={base_instruction[:50] if base_instruction else None}, limit={limit}")
 
         # Build query
         query = "MATCH (i:AgentInstruction) WHERE true"
@@ -885,6 +883,10 @@ class Ryumem:
         if agent_type:
             query += " AND i.agent_type = $agent_type"
             params["agent_type"] = agent_type
+
+        if base_instruction:
+            query += " AND i.base_instruction = $base_instruction"
+            params["base_instruction"] = base_instruction
 
         query += """
         RETURN i.uuid AS instruction_id,
