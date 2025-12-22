@@ -565,8 +565,30 @@ class TestAddMemoryToAgentReal:
         """Test updating agent instruction via API and loading it into a new agent."""
         import httpx
 
-        # Step 1: Create first agent with initial instruction and register it
+        # Step 0: Clean up any existing instructions to ensure test isolation
         initial_instruction = "You are a helpful assistant"
+        api_url = os.environ.get("RYUMEM_API_URL", "http://localhost:8000")
+        api_key = os.environ.get("RYUMEM_API_KEY")
+        headers = {"X-API-Key": api_key} if api_key else {}
+
+        async with httpx.AsyncClient() as client:
+            # Get existing instructions
+            response = await client.get(
+                f"{api_url}/agent-instructions",
+                params={"agent_type": "google_adk"},
+                headers=headers
+            )
+            if response.status_code == 200:
+                instructions = response.json()
+                # Delete any instruction with our test's base_instruction
+                for instr in instructions:
+                    if instr.get("base_instruction") == initial_instruction:
+                        await client.delete(
+                            f"{api_url}/agent-instructions/{instr['instruction_id']}",
+                            headers=headers
+                        )
+
+        # Step 1: Create first agent with initial instruction and register it
         agent1 = SimpleAgent(instruction=initial_instruction)
         add_memory_to_agent(agent1, ryumem)
 
@@ -610,9 +632,33 @@ class TestAddMemoryToAgentReal:
         import httpx
         import os
 
+        # Clean up any existing instructions to ensure test isolation
+        api_url = os.environ.get("RYUMEM_API_URL", "http://localhost:8000")
+        api_key = os.environ.get("RYUMEM_API_KEY")
+        headers = {"X-API-Key": api_key} if api_key else {}
+
+        agent1_instruction = "Agent 1: You are a helpful assistant"
+        agent2_instruction = "Agent 2: You are a code reviewer"
+
+        import requests
+        response = requests.get(
+            f"{api_url}/agent-instructions",
+            params={"agent_type": "google_adk"},
+            headers=headers
+        )
+        if response.status_code == 200:
+            instructions = response.json()
+            # Delete any instruction with our test's base_instructions
+            for instr in instructions:
+                if instr.get("base_instruction") in [agent1_instruction, agent2_instruction]:
+                    requests.delete(
+                        f"{api_url}/agent-instructions/{instr['instruction_id']}",
+                        headers=headers
+                    )
+
         # Create two agents with different instructions
-        agent1 = SimpleAgent(instruction="Agent 1: You are a helpful assistant")
-        agent2 = SimpleAgent(instruction="Agent 2: You are a code reviewer")
+        agent1 = SimpleAgent(instruction=agent1_instruction)
+        agent2 = SimpleAgent(instruction=agent2_instruction)
 
         # Verify initial instructions are different
         assert agent1.instruction != agent2.instruction

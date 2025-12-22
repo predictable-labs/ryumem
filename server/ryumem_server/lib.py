@@ -931,6 +931,44 @@ class Ryumem:
         logger.info(f"[DB] Returning {len(formatted_results)} formatted agent(s)")
         return formatted_results
 
+    def delete_agent_instruction(
+        self,
+        instruction_id: str,
+    ) -> bool:
+        """
+        Delete an agent instruction by its UUID.
+
+        Args:
+            instruction_id: UUID of the agent instruction to delete
+
+        Returns:
+            True if the instruction was deleted, False if not found
+
+        Example:
+            success = ryumem.delete_agent_instruction("some-uuid-here")
+        """
+        logger.info(f"[DB] delete_agent_instruction called: instruction_id={instruction_id}")
+
+        delete_query = """
+        MATCH (i:AgentInstruction {uuid: $uuid})
+        DELETE i
+        RETURN count(i) as deleted_count
+        """
+
+        try:
+            result = self.db.execute(delete_query, {"uuid": instruction_id})
+            deleted_count = result[0]["deleted_count"] if result else 0
+
+            if deleted_count > 0:
+                logger.info(f"[DB] Successfully deleted agent instruction: {instruction_id}")
+                return True
+            else:
+                logger.warning(f"[DB] Agent instruction not found: {instruction_id}")
+                return False
+        except Exception as e:
+            logger.error(f"[DB] Error deleting agent instruction: {e}", exc_info=True)
+            raise
+
     def prune_memories(
         self,
         user_id: str,

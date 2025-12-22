@@ -421,6 +421,12 @@ class RyumemAPI {
     return this.request(`/agent-instructions?${params}`);
   }
 
+  async deleteAgentInstruction(instructionId: string): Promise<{ message: string; success: boolean }> {
+    return this.request(`/agent-instructions/${instructionId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // ============================================================================
   // Tool Analytics
   // ============================================================================

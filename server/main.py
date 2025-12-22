@@ -2521,6 +2521,37 @@ async def list_agent_instructions(
         raise HTTPException(status_code=500, detail=f"Error listing agent configurations: {str(e)}")
 
 
+@app.delete("/agent-instructions/{instruction_id}", tags=["Agent Instructions"])
+async def delete_agent_instruction(
+    instruction_id: str,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Delete an agent instruction by its UUID.
+
+    Args:
+        instruction_id: UUID of the agent instruction to delete
+
+    Returns:
+        {"message": str, "success": bool}
+
+    Note: This endpoint requires write access to the database.
+    """
+    try:
+        success = ryumem.delete_agent_instruction(instruction_id)
+
+        if success:
+            return {"message": "Agent instruction deleted successfully", "success": True}
+        else:
+            raise HTTPException(status_code=404, detail=f"Agent instruction not found: {instruction_id}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting agent instruction: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting agent instruction: {str(e)}")
+
+
 @app.get("/agent-instructions/by-text", tags=["Agent Instructions"])
 async def get_instruction_by_text(
     instruction_text: str,
