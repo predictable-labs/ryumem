@@ -560,6 +560,160 @@ class TestAddMemoryToAgentReal:
         for tool in agent.tools:
             assert callable(tool)
 
+    @pytest.mark.asyncio
+    async def test_update_agent_instruction_via_api(self, ryumem):
+        """Test updating agent instruction via API and loading it into a new agent."""
+        import httpx
+
+        # Step 0: Clean up any existing instructions to ensure test isolation
+        initial_instruction = "You are a helpful assistant"
+        api_url = os.environ.get("RYUMEM_API_URL", "http://localhost:8000")
+        api_key = os.environ.get("RYUMEM_API_KEY")
+        headers = {"X-API-Key": api_key} if api_key else {}
+
+        async with httpx.AsyncClient() as client:
+            # Get existing instructions
+            response = await client.get(
+                f"{api_url}/agent-instructions",
+                params={"agent_type": "google_adk"},
+                headers=headers
+            )
+            if response.status_code == 200:
+                instructions = response.json()
+                # Delete any instruction with our test's base_instruction
+                for instr in instructions:
+                    if instr.get("base_instruction") == initial_instruction:
+                        await client.delete(
+                            f"{api_url}/agent-instructions/{instr['instruction_id']}",
+                            headers=headers
+                        )
+
+        # Step 1: Create first agent with initial instruction and register it
+        agent1 = SimpleAgent(instruction=initial_instruction)
+        add_memory_to_agent(agent1, ryumem)
+
+        # Verify agent1 has the initial instruction
+        assert initial_instruction in agent1.instruction
+
+        # Step 2: Update instruction via HTTP API (only 1 HTTP call)
+        new_instruction = "You are a specialized code reviewer with expertise in Python"
+        api_url = os.environ.get("RYUMEM_API_URL", "http://localhost:8000")
+        api_key = os.environ.get("RYUMEM_API_KEY")
+
+        async with httpx.AsyncClient() as client:
+            update_payload = {
+                "base_instruction": initial_instruction,
+                "enhanced_instruction": new_instruction,
+                "agent_type": "google_adk",
+                "memory_enabled": True,
+                "tool_tracking_enabled": True
+            }
+            headers = {"X-API-Key": api_key} if api_key else {}
+
+            response = await client.post(
+                f"{api_url}/agent-instructions",
+                json=update_payload,
+                headers=headers
+            )
+            assert response.status_code == 200, f"Failed to update instruction: {response.text}"
+
+        # Step 3: Create agent2 with the loaded instruction
+        agent2 = SimpleAgent(instruction=initial_instruction)
+        add_memory_to_agent(agent2, ryumem)
+
+        # Verify agent2 has the updated instruction (not the initial one)
+        assert new_instruction in agent2.instruction
+        assert agent2.instruction != agent1.instruction
+        assert hasattr(agent2, '_ryumem_memory')
+        assert isinstance(agent2._ryumem_memory, RyumemGoogleADK)
+
+    def test_two_agents_with_different_instructions(self, ryumem):
+        """Test adding memory to two agents with different instructions."""
+        import httpx
+        import os
+
+        # Clean up any existing instructions to ensure test isolation
+        api_url = os.environ.get("RYUMEM_API_URL", "http://localhost:8000")
+        api_key = os.environ.get("RYUMEM_API_KEY")
+        headers = {"X-API-Key": api_key} if api_key else {}
+
+        agent1_instruction = "Agent 1: You are a helpful assistant"
+        agent2_instruction = "Agent 2: You are a code reviewer"
+
+        import requests
+        response = requests.get(
+            f"{api_url}/agent-instructions",
+            params={"agent_type": "google_adk"},
+            headers=headers
+        )
+        if response.status_code == 200:
+            instructions = response.json()
+            # Delete any instruction with our test's base_instructions
+            for instr in instructions:
+                if instr.get("base_instruction") in [agent1_instruction, agent2_instruction]:
+                    requests.delete(
+                        f"{api_url}/agent-instructions/{instr['instruction_id']}",
+                        headers=headers
+                    )
+
+        # Create two agents with different instructions
+        agent1 = SimpleAgent(instruction=agent1_instruction)
+        agent2 = SimpleAgent(instruction=agent2_instruction)
+
+        # Verify initial instructions are different
+        assert agent1.instruction != agent2.instruction
+        assert "Agent 1" in agent1.instruction
+        assert "Agent 2" in agent2.instruction
+
+        # Add memory to both agents
+        add_memory_to_agent(agent1, ryumem)
+        add_memory_to_agent(agent2, ryumem)
+
+        # Verify both have memory interfaces
+        assert hasattr(agent1, '_ryumem_memory')
+        assert hasattr(agent2, '_ryumem_memory')
+        assert isinstance(agent1._ryumem_memory, RyumemGoogleADK)
+        assert isinstance(agent2._ryumem_memory, RyumemGoogleADK)
+
+        # Verify instructions still contain their original text
+        # (enhancement may have added text, but original should still be present)
+        assert "Agent 1" in agent1.instruction
+        assert "Agent 2" in agent2.instruction
+
+        # Verify instructions are still different
+        assert agent1.instruction != agent2.instruction
+
+        # Verify both agents have memory tools
+        assert len(agent1.tools) > 0
+        assert len(agent2.tools) > 0
+
+        # CRITICAL: Verify that both instructions are stored in the database
+        # Query the API to get all google_adk agent instructions
+        import requests
+        api_url = os.environ.get("RYUMEM_API_URL", "http://localhost:8000")
+        api_key = os.environ.get("RYUMEM_API_KEY")
+        headers = {"X-API-Key": api_key} if api_key else {}
+
+        response = requests.get(
+            f"{api_url}/agent-instructions",
+            params={"agent_type": "google_adk"},
+            headers=headers
+        )
+        assert response.status_code == 200, f"Failed to get instructions: {response.text}"
+
+        instructions = response.json()
+        assert isinstance(instructions, list), "Expected list of instructions"
+
+        # Should have at least 2 instructions stored
+        assert len(instructions) >= 2, f"Expected at least 2 instructions but found {len(instructions)}"
+
+        # Verify both base instructions are in the stored instructions
+        base_instructions = [instr.get("base_instruction") for instr in instructions]
+        assert "Agent 1: You are a helpful assistant" in base_instructions, \
+            f"Agent 1 instruction not found in stored instructions: {base_instructions}"
+        assert "Agent 2: You are a code reviewer" in base_instructions, \
+            f"Agent 2 instruction not found in stored instructions: {base_instructions}"
+
 
 class TestRunnerWrappingReal:
     """Test runner wrapping with real functionality."""

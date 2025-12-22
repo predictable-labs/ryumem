@@ -2276,6 +2276,77 @@ class AgentInstructionResponse(BaseModel):
     updated_at: str = Field(..., description="Last update timestamp")
 
 
+# Default instruction blocks for agent enhancement
+DEFAULT_MEMORY_BLOCK = """MEMORY USAGE:
+Use search_memory to find relevant context before answering questions.
+Use save_memory to store important information for future reference.
+"""
+
+DEFAULT_TOOL_BLOCK = """TOOL SELECTION:
+Before selecting which tool to use, search_memory for past tool usage patterns and success rates.
+Use queries like "tool execution for [task type]" to find which tools worked well for similar tasks.
+"""
+
+DEFAULT_AUGMENTATION_TEMPLATE = """[Previous Attempt Summary]
+
+Your previous approach was:
+{agent_response}
+
+Tools previously used:
+{simplified_tool_summary}
+
+Last Session Details:
+{last_session}
+
+Using this memory, improve your next attempt.
+
+***IMPORTANT — REQUIRED BEHAVIOR***
+You MUST reuse any **concrete facts, results, conclusions, or discovered information** from the previous attempt if they are relevant.
+Do NOT ignore previously known truths.
+Treat the previous attempt as authoritative memory, not optional context.
+
+In your response, briefly include:
+1. What you learned last time (1-2 bullets).
+2. How you're using that knowledge now.
+
+This demonstrates to the user that memory is working and you're building on past progress."""
+
+
+def enhance_instruction(
+    base_instruction: str,
+    memory_enabled: bool,
+    tool_tracking_enabled: bool
+) -> str:
+    """
+    Enhance instruction with memory and tool blocks.
+
+    This function centralizes instruction enhancement logic on the server side.
+    Previously this logic was in the client (google_adk.py).
+
+    Args:
+        base_instruction: The base instruction text
+        memory_enabled: Whether to add memory usage guidance
+        tool_tracking_enabled: Whether to add tool selection guidance
+
+    Returns:
+        Enhanced instruction with appropriate blocks added
+    """
+    if not base_instruction:
+        base_instruction = ""
+
+    instruction_parts = [base_instruction]
+
+    # Add memory block if enabled and not already present
+    if memory_enabled and DEFAULT_MEMORY_BLOCK.strip() not in base_instruction:
+        instruction_parts.append(DEFAULT_MEMORY_BLOCK)
+
+    # Add tool block if enabled and not already present
+    if tool_tracking_enabled and DEFAULT_TOOL_BLOCK.strip() not in base_instruction:
+        instruction_parts.append(DEFAULT_TOOL_BLOCK)
+
+    return "\n\n".join(instruction_parts)
+
+
 @app.post("/agent-instructions", response_model=AgentInstructionResponse, tags=["Agent Instructions"])
 async def create_agent_instruction(
     request: AgentInstructionRequest,
@@ -2332,20 +2403,106 @@ async def create_agent_instruction(
 @app.get("/agent-instructions", response_model=List[AgentInstructionResponse], tags=["Agent Instructions"])
 async def list_agent_instructions(
     agent_type: Optional[str] = None,
+    current_instruction: Optional[str] = None,
+    enhance: bool = True,
+    memory_enabled: Optional[bool] = None,
+    tool_tracking_enabled: Optional[bool] = None,
+    track_queries: Optional[bool] = None,
+    augment_queries: Optional[bool] = None,
     limit: int = 50,
     ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
-    List all agent configurations with optional filters.
+    List all agent configurations with optional filters and resolution logic.
+
+    If current_instruction is provided:
+    - Check if it matches any stored base_instruction
+    - If match: return latest enhanced_instruction from DB
+    - If no match: enhance the current_instruction and return it as new instruction
+
+    Config parameters can be overridden via API parameters. If not provided, falls back to ryumem.config defaults.
 
     Returns agents ordered by last update (newest first).
     """
     try:
+        # Apply config defaults if parameters not provided
+        if memory_enabled is None:
+            memory_enabled = ryumem.config.agent.memory_enabled
+        if tool_tracking_enabled is None:
+            tool_tracking_enabled = ryumem.config.tool_tracking.track_tools
+        if track_queries is None:
+            track_queries = ryumem.config.tool_tracking.track_queries
+        if augment_queries is None:
+            augment_queries = ryumem.config.tool_tracking.augment_queries
+
+        # Query database
         agents = ryumem.list_agent_instructions(
             agent_type=agent_type,
+            base_instruction=current_instruction,
             limit=limit
         )
 
+        # If current_instruction provided, do resolution logic
+        if current_instruction:
+            if agents:
+                # Match found in database - return the latest one
+                return [
+                    AgentInstructionResponse(
+                        instruction_id=agents[0]["instruction_id"],
+                        base_instruction=agents[0]["base_instruction"],
+                        enhanced_instruction=agents[0].get("enhanced_instruction", ""),
+                        query_augmentation_template=agents[0].get("query_augmentation_template", ""),
+                        agent_type=agents[0]["agent_type"],
+                        memory_enabled=agents[0].get("memory_enabled", False),
+                        tool_tracking_enabled=agents[0].get("tool_tracking_enabled", False),
+                        created_at=agents[0]["created_at"],
+                        updated_at=agents[0].get("updated_at", agents[0]["created_at"])
+                    )
+                ]
+            else:
+                # No match - user modified or library updated
+                # Save instruction to DB (with or without enhancement)
+                if enhance:
+                    enhanced = enhance_instruction(
+                        base_instruction=current_instruction,
+                        memory_enabled=memory_enabled,
+                        tool_tracking_enabled=tool_tracking_enabled
+                    )
+                else:
+                    # No enhancement - use base instruction as-is
+                    enhanced = current_instruction
+
+                # Determine query_augmentation_template
+                query_template = ""
+                if track_queries and augment_queries:
+                    query_template = DEFAULT_AUGMENTATION_TEMPLATE
+
+                # Save to database so future queries can find it
+                instruction_id = ryumem.save_agent_instruction(
+                    base_instruction=current_instruction,
+                    agent_type=agent_type or "google_adk",
+                    enhanced_instruction=enhanced,
+                    query_augmentation_template=query_template,
+                    memory_enabled=memory_enabled,
+                    tool_tracking_enabled=tool_tracking_enabled
+                )
+
+                # Return the saved instruction response
+                return [
+                    AgentInstructionResponse(
+                        instruction_id=instruction_id,
+                        base_instruction=current_instruction,
+                        enhanced_instruction=enhanced,
+                        query_augmentation_template=query_template,
+                        agent_type=agent_type or "google_adk",
+                        memory_enabled=memory_enabled,
+                        tool_tracking_enabled=tool_tracking_enabled,
+                        created_at=datetime.utcnow().isoformat(),
+                        updated_at=datetime.utcnow().isoformat()
+                    )
+                ]
+
+        # Normal list behavior (no current_instruction provided)
         return [
             AgentInstructionResponse(
                 instruction_id=agent["instruction_id"],
@@ -2366,21 +2523,50 @@ async def list_agent_instructions(
         raise HTTPException(status_code=500, detail=f"Error listing agent configurations: {str(e)}")
 
 
+@app.delete("/agent-instructions/{instruction_id}", tags=["Agent Instructions"])
+async def delete_agent_instruction(
+    instruction_id: str,
+    ryumem: Ryumem = Depends(get_write_ryumem)
+):
+    """
+    Delete an agent instruction by its UUID.
+
+    Args:
+        instruction_id: UUID of the agent instruction to delete
+
+    Returns:
+        {"message": str, "success": bool}
+
+    Note: This endpoint requires write access to the database.
+    """
+    try:
+        success = ryumem.delete_agent_instruction(instruction_id)
+
+        if success:
+            return {"message": "Agent instruction deleted successfully", "success": True}
+        else:
+            raise HTTPException(status_code=404, detail=f"Agent instruction not found: {instruction_id}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting agent instruction: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting agent instruction: {str(e)}")
+
+
 @app.get("/agent-instructions/by-text", tags=["Agent Instructions"])
 async def get_instruction_by_text(
     instruction_text: str,
     agent_type: str,
-    instruction_type: str,
     ryumem: Ryumem = Depends(get_ryumem)
 ):
     """
     Get instruction text by key (stored in original_user_request field).
-    
+
     Args:
         instruction_text: The key to search for (stored in original_user_request)
         agent_type: Type of agent (e.g., "google_adk")
-        instruction_type: Type of instruction (e.g., "memory_usage")
-    
+
     Returns:
         {"instruction_text": str} if found, 404 if not found
     """
@@ -2388,7 +2574,6 @@ async def get_instruction_by_text(
         result = ryumem.get_instruction_by_text(
             instruction_text=instruction_text,
             agent_type=agent_type,
-            instruction_type=instruction_type
         )
         
         if result is None:

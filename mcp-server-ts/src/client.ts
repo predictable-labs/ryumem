@@ -68,7 +68,11 @@ export interface PruneMemoriesParams {
 }
 
 export interface ListAgentInstructionsParams {
+  current_instruction?: string;
   agent_type?: string;
+  enhance?: boolean;
+  memory_enabled?: boolean;
+  tool_tracking_enabled?: boolean;
   limit?: number;
 }
 
@@ -190,8 +194,20 @@ export class RyumemClient {
 
   async listAgentInstructions(params: ListAgentInstructionsParams = {}): Promise<AgentInstruction[]> {
     const queryParams = new URLSearchParams();
+    if (params.current_instruction) {
+      queryParams.append('current_instruction', params.current_instruction);
+    }
     if (params.agent_type) {
       queryParams.append('agent_type', params.agent_type);
+    }
+    if (params.enhance !== undefined) {
+      queryParams.append('enhance', String(params.enhance));
+    }
+    if (params.memory_enabled !== undefined) {
+      queryParams.append('memory_enabled', String(params.memory_enabled));
+    }
+    if (params.tool_tracking_enabled !== undefined) {
+      queryParams.append('tool_tracking_enabled', String(params.tool_tracking_enabled));
     }
     if (params.limit !== undefined) {
       queryParams.append('limit', String(params.limit));

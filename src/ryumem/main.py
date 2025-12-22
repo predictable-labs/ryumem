@@ -677,7 +677,6 @@ class Ryumem:
         self,
         instruction_text: str,
         agent_type: str,
-        instruction_type: str,
     ) -> Optional[str]:
         """
         Get instruction text by key (stored in original_user_request field).
@@ -685,7 +684,6 @@ class Ryumem:
         Args:
             instruction_text: The key to search for (stored in original_user_request)
             agent_type: Type of agent (e.g., "google_adk")
-            instruction_type: Type of instruction (e.g., "memory_usage", "agent_instruction")
 
         Returns:
             The instruction text if found, None otherwise
@@ -694,7 +692,6 @@ class Ryumem:
             params = {
                 "instruction_text": instruction_text,
                 "agent_type": agent_type,
-                "instruction_type": instruction_type
             }
             response = self._get("/agent-instructions/by-text", params=params)
             return response.get("instruction_text")
@@ -706,15 +703,19 @@ class Ryumem:
     def list_agent_instructions(
         self,
         agent_type: Optional[str] = None,
-        instruction_type: Optional[str] = None,
+        current_instruction: Optional[str] = None,
         limit: int = 50,
     ) -> List[Dict]:
         """
-        List all agent instructions with optional filters.
+        List all agent instructions with optional filters and resolution logic.
+
+        If current_instruction is provided, the server will check if it matches
+        any stored base_instruction and return the appropriate instruction (from DB
+        or enhanced version of current).
 
         Args:
             agent_type: Optional filter by agent type
-            instruction_type: Optional filter by instruction type
+            current_instruction: Optional instruction to resolve/enhance
             limit: Maximum number of instructions to return
 
         Returns:
@@ -723,8 +724,8 @@ class Ryumem:
         params = {"limit": limit}
         if agent_type:
             params["agent_type"] = agent_type
-        if instruction_type:
-            params["instruction_type"] = instruction_type
+        if current_instruction:
+            params["current_instruction"] = current_instruction
 
         response = self._get("/agent-instructions", params=params)
         return response

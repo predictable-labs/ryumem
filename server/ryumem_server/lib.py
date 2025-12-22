@@ -701,7 +701,6 @@ class Ryumem:
         self,
         instruction_text: str,
         agent_type: str,
-        instruction_type: str,
     ) -> Optional[str]:
         """
         Get instruction by key (original_user_request).
@@ -712,18 +711,16 @@ class Ryumem:
         Args:
             instruction_text: The key to search for (stored in original_user_request)
             agent_type: Type of agent (e.g., "google_adk")
-            instruction_type: Type of instruction (e.g., "memory_usage", "tool_tracking")
 
         Returns:
             The instruction_text content if found, None otherwise
         """
-        logger.info(f"[DB] get_instruction_by_text called: key={instruction_text}, agent_type={agent_type}, instruction_type={instruction_type}")
+        logger.info(f"[DB] get_instruction_by_text called: key={instruction_text}, agent_type={agent_type}")
 
         query = """
         MATCH (i:AgentInstruction)
         WHERE i.original_user_request = $instruction_text
           AND i.agent_type = $agent_type
-          AND i.instruction_type = $instruction_type
         RETURN i.instruction_text AS instruction_text
         ORDER BY i.created_at DESC
         LIMIT 1
@@ -732,7 +729,6 @@ class Ryumem:
         result = self.db.execute(query, {
             "instruction_text": instruction_text,
             "agent_type": agent_type,
-            "instruction_type": instruction_type
         })
 
         if result and len(result) > 0:
@@ -754,8 +750,8 @@ class Ryumem:
         """
         Register or update an agent by its base instruction.
 
-        Uses base_instruction as the unique key. MERGE behavior means this will
-        update existing agent records instead of creating duplicates.
+        Uses (agent_type, base_instruction) as the composite unique key. MERGE behavior
+        means this will update existing agent records instead of creating duplicates.
 
         Args:
             base_instruction: The agent's original instruction text (used as unique key)
@@ -782,15 +778,19 @@ class Ryumem:
         logger.info(f"[DB] save_agent_instruction called: agent_type={agent_type}")
 
         # First, try to find existing agent - only return uuid to avoid property errors
+        # Use both agent_type AND base_instruction as the unique key
         find_query = """
         MATCH (i:AgentInstruction)
-        WHERE i.agent_type = $agent_type
+        WHERE i.agent_type = $agent_type AND i.base_instruction = $base_instruction
         RETURN i.uuid AS uuid
         LIMIT 1
         """
 
         try:
-            existing = self.db.execute(find_query, {"agent_type": agent_type})
+            existing = self.db.execute(find_query, {
+                "agent_type": agent_type,
+                "base_instruction": base_instruction
+            })
         except Exception as e:
             # If query fails, assume no existing nodes
             logger.warning(f"[DB] Could not query existing agents: {e}")
@@ -859,6 +859,7 @@ class Ryumem:
     def list_agent_instructions(
         self,
         agent_type: Optional[str] = None,
+        base_instruction: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict]:
         """
@@ -866,6 +867,7 @@ class Ryumem:
 
         Args:
             agent_type: Optional filter by agent type
+            base_instruction: Optional filter by exact base_instruction match
             limit: Maximum number of instructions to return
 
         Returns:
@@ -876,7 +878,7 @@ class Ryumem:
             for agent in agents:
                 print(f"Agent: {agent['base_instruction'][:50]}...")
         """
-        logger.info(f"[DB] list_agent_instructions called: agent_type={agent_type}, limit={limit}")
+        logger.info(f"[DB] list_agent_instructions called: agent_type={agent_type}, base_instruction={base_instruction[:50] if base_instruction else None}, limit={limit}")
 
         # Build query
         query = "MATCH (i:AgentInstruction) WHERE true"
@@ -885,6 +887,10 @@ class Ryumem:
         if agent_type:
             query += " AND i.agent_type = $agent_type"
             params["agent_type"] = agent_type
+
+        if base_instruction:
+            query += " AND i.base_instruction = $base_instruction"
+            params["base_instruction"] = base_instruction
 
         query += """
         RETURN i.uuid AS instruction_id,
@@ -924,6 +930,44 @@ class Ryumem:
 
         logger.info(f"[DB] Returning {len(formatted_results)} formatted agent(s)")
         return formatted_results
+
+    def delete_agent_instruction(
+        self,
+        instruction_id: str,
+    ) -> bool:
+        """
+        Delete an agent instruction by its UUID.
+
+        Args:
+            instruction_id: UUID of the agent instruction to delete
+
+        Returns:
+            True if the instruction was deleted, False if not found
+
+        Example:
+            success = ryumem.delete_agent_instruction("some-uuid-here")
+        """
+        logger.info(f"[DB] delete_agent_instruction called: instruction_id={instruction_id}")
+
+        delete_query = """
+        MATCH (i:AgentInstruction {uuid: $uuid})
+        DELETE i
+        RETURN count(i) as deleted_count
+        """
+
+        try:
+            result = self.db.execute(delete_query, {"uuid": instruction_id})
+            deleted_count = result[0]["deleted_count"] if result else 0
+
+            if deleted_count > 0:
+                logger.info(f"[DB] Successfully deleted agent instruction: {instruction_id}")
+                return True
+            else:
+                logger.warning(f"[DB] Agent instruction not found: {instruction_id}")
+                return False
+        except Exception as e:
+            logger.error(f"[DB] Error deleting agent instruction: {e}", exc_info=True)
+            raise
 
     def prune_memories(
         self,

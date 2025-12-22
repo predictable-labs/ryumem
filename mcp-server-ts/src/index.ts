@@ -175,15 +175,40 @@ NEVER:
 - Episode content: < 200 words
 
 ═══════════════════════════════════════════════════════════
+7. LOW CONTEXT - Save State and Ask User
+═══════════════════════════════════════════════════════════
+
+🚨 When context is running low (< 20% remaining):
+
+1. IMMEDIATELY store current state as a decision:
+   add_episode({
+     content: "Current task: {what you're working on}. Progress: {what's done}. Next steps: {what remains}. Files modified: {list}.",
+     user_id, session_id,
+     kind: "memory",
+     metadata: {type: "decision", tags: ["decision", "checkpoint", domain], status: "in_progress"}
+   })
+
+2. Ask user to take action:
+   "⚠️ Context is running low. I've saved our progress as a decision.
+
+   Please either:
+   - Clear context (/clear) and I'll resume from the saved state
+   - Ask me to compact by summarizing our work
+
+   What would you like to do?"
+
+3. NEVER continue working if context is critically low
+4. NEVER lose progress - always save state first
+
+═══════════════════════════════════════════════════════════
 🎯 GOLDEN RULE: Memory first, files last. Always.
 ═══════════════════════════════════════════════════════════`;
 
 class RyumemMCPServer {
-  private server: Server;
+  private server!: Server;
   private client: RyumemClient;
   private auth: RyumemAuth;
   private apiUrl: string;
-  private instructions: string;
 
   constructor() {
     this.apiUrl = process.env.RYUMEM_API_URL || DEFAULT_API_URL;
@@ -193,22 +218,8 @@ class RyumemMCPServer {
 
     // Initialize client without API key (will be set after auth)
     this.client = new RyumemClient({ apiUrl: this.apiUrl });
-    this.instructions = INSTRUCTIONS; // Default instructions
 
-    this.server = new Server(
-      {
-        name: 'ryumem',
-        version: '0.1.0',
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-        instructions: this.instructions,
-      }
-    );
-
-    this.setupHandlers();
+    // Server will be created after fetching instructions
   }
 
   /**
@@ -226,119 +237,57 @@ class RyumemMCPServer {
   }
 
   /**
-   * Fetch agent instructions from the database.
-   * Fallback hierarchy: API -> Memory -> Default instructions
+   * Fetch agent instructions from the database using current_instruction pattern.
+   * Server handles resolution and returns matching instruction or saves if not found.
+   * Returns the enhanced_instruction to use (or defaults to INSTRUCTIONS).
    */
-  private async fetchInstructions(): Promise<void> {
+  private async fetchInstructions(): Promise<string> {
     try {
       console.error('Fetching MCP agent instructions...');
 
-      // Step 1: Try to get instructions from the API
+      // Fetch using current_instruction pattern - server handles everything
       const instructions = await this.client.listAgentInstructions({
-        agent_type: 'mcp',
+        current_instruction: INSTRUCTIONS,
+        agent_type: "mcp",
+        enhance: false,  // No enhancement for MCP
+        memory_enabled: false,  // No memory blocks
+        tool_tracking_enabled: false,  // No tool tracking
         limit: 1,
       });
 
       if (instructions && instructions.length > 0) {
         const instruction = instructions[0];
-        // Use enhanced_instruction if available, otherwise use base_instruction
-        this.instructions = instruction.enhanced_instruction || instruction.base_instruction;
+        const instructionText = instruction.enhanced_instruction || instruction.base_instruction;
         console.error(`✓ Loaded MCP instructions from database (ID: ${instruction.instruction_id})`);
-        return;
-      }
-
-      console.error('No MCP instructions found in database');
-
-      // Step 2: Try to get instructions from memory (stored summaries)
-      try {
-        const memoryResults = await this.client.searchMemory({
-          query: 'mcp server instructions agent behavior',
-          user_id: 'ryumem-system',
-          strategy: 'bm25',
-          limit: 1,
-          tags: ['project', 'preferences'],
-        });
-
-        if (memoryResults && memoryResults.episodes && memoryResults.episodes.length > 0) {
-          this.instructions = memoryResults.episodes[0].content;
-          console.error('✓ Loaded MCP instructions from memory');
-          return;
-        }
-      } catch (memError) {
-        console.error('Failed to fetch from memory:', memError instanceof Error ? memError.message : String(memError));
+        return instructionText;
       }
 
       console.error('✓ Using default MCP instructions');
+      return INSTRUCTIONS;
     } catch (error) {
       console.error('Failed to fetch instructions, using defaults:', error instanceof Error ? error.message : String(error));
+      return INSTRUCTIONS;
     }
   }
 
   /**
-   * Save default instructions to the database for future use.
-   * This creates a persistent configuration that can be customized later.
+   * Initialize the MCP server with the given instructions
    */
-  private async saveDefaultInstructions(): Promise<void> {
-    // Only save if we're using default instructions (not loaded from database or memory)
-    if (this.instructions !== INSTRUCTIONS) {
-      return;
-    }
-
-    try {
-      // Check if instructions already exist
-      const existing = await this.client.listAgentInstructions({
-        agent_type: 'mcp',
-        limit: 1,
-      });
-
-      if (existing && existing.length > 0) {
-        // Instructions already exist, don't overwrite
-        return;
-      }
-
-      // Save default instructions to database
-      console.error('Saving default MCP instructions to database...');
-      await this.client.saveAgentInstruction({
-        base_instruction: INSTRUCTIONS,
-        agent_type: 'mcp',
-        enhanced_instruction: INSTRUCTIONS,
-        memory_enabled: true,
-        tool_tracking_enabled: false,
-      });
-
-      console.error('✓ Default MCP instructions saved to database');
-
-      // Also save to memory as a backup
-      await this.saveInstructionsToMemory();
-    } catch (error) {
-      // This is not critical - we can still run with default instructions
-      console.error('Note: Could not save default instructions (write access may be required):',
-        error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  /**
-   * Store instructions in memory for faster retrieval and redundancy.
-   */
-  private async saveInstructionsToMemory(): Promise<void> {
-    try {
-      await this.client.addEpisode({
-        content: this.instructions,
-        user_id: 'ryumem-system',
-        session_id: 'mcp-server-instructions',
-        kind: 'memory',
-        source: 'text',
-        metadata: {
-          type: 'agent_instruction',
-          agent_type: 'mcp',
-          tags: ['project', 'preferences'],
+  private initializeServer(instructions: string): void {
+    this.server = new Server(
+      {
+        name: 'ryumem',
+        version: '0.1.0',
+      },
+      {
+        capabilities: {
+          tools: {},
         },
-      });
-      console.error('✓ MCP instructions backed up to memory');
-    } catch (error) {
-      console.error('Note: Could not save instructions to memory:',
-        error instanceof Error ? error.message : String(error));
-    }
+        instructions,
+      }
+    );
+
+    this.setupHandlers();
   }
 
   private setupHandlers(): void {
@@ -406,9 +355,11 @@ class RyumemMCPServer {
     // Initialize authentication first
     await this.initAuth();
 
-    // Fetch instructions before starting the server
-    await this.fetchInstructions();
-    await this.saveDefaultInstructions();
+    // Fetch instructions from database (or use defaults)
+    const instructions = await this.fetchInstructions();
+
+    // Initialize server with the fetched/default instructions
+    this.initializeServer(instructions);
 
     const transport = new StdioServerTransport();
     await this.server.connect(transport);

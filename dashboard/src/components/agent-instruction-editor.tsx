@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Database, Edit2, X, Save } from "lucide-react"
+import { Loader2, Database, Edit2, X, Save, Trash2 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -38,6 +38,8 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
   const [editedEnhancedInstruction, setEditedEnhancedInstruction] = useState("")
   const [editedQueryTemplate, setEditedQueryTemplate] = useState("")
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
 
   const loadInstructions = useCallback(async () => {
     setLoading(true)
@@ -109,6 +111,39 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
       console.error("Error saving configuration:", err)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!selectedInstruction) return
+
+    // First click: ask for confirmation
+    if (!deleteConfirm) {
+      setDeleteConfirm(true)
+      setTimeout(() => setDeleteConfirm(false), 3000)
+      return
+    }
+
+    setDeleting(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      await api.deleteAgentInstruction(selectedInstruction.instruction_id)
+      setSuccess("Agent instruction deleted successfully!")
+      setDialogOpen(false)
+
+      // Reload instructions
+      await loadInstructions()
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete instruction")
+      console.error("Error deleting instruction:", err)
+    } finally {
+      setDeleting(false)
+      setDeleteConfirm(false)
     }
   }
 
@@ -316,18 +351,29 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                 {selectedInstruction.updated_at && ` • Updated: ${new Date(selectedInstruction.updated_at).toLocaleString()}`}
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-between gap-2 pt-2">
                 <Button
-                  variant="outline"
-                  onClick={() => setDialogOpen(false)}
-                  disabled={saving}
+                  variant={deleteConfirm ? "destructive" : "outline"}
+                  onClick={handleDelete}
+                  disabled={deleting || saving}
                 >
-                  Cancel
+                  {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {!deleting && <Trash2 className="mr-2 h-4 w-4" />}
+                  {deleteConfirm ? "Click again to confirm" : "Delete"}
                 </Button>
-                <Button onClick={handleSave} disabled={saving}>
-                  {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save Changes
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setDialogOpen(false)}
+                    disabled={saving || deleting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSave} disabled={saving || deleting}>
+                    {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Save Changes
+                  </Button>
+                </div>
               </div>
             </div>
           )}
