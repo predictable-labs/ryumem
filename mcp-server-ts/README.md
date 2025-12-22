@@ -101,8 +101,6 @@ For Claude Code (CLI), add to your configuration:
 | `list_episodes` | Paginated episode listing with filters |
 | `get_episode` | Retrieve specific episode by UUID |
 | `update_episode_metadata` | Update metadata on existing episode |
-| `prune_memories` | Clean up expired and low-value memories |
-| `execute_cypher` | Execute custom Cypher queries |
 
 ### Tool Examples
 

@@ -10,10 +10,6 @@ FastAPI server providing RESTful API endpoints for Ryumem - Bi-temporal Knowledg
 - **Advanced Search** - Hybrid search with multiple strategies
 - **Entity & Relationship Queries** - Rich knowledge graph exploration
 - **Dynamic Configuration** - Hot-reload settings without restart
-- **Statistics & Analytics** - Real-time system metrics
-- **Community Detection** - Automatic entity clustering
-- **Memory Maintenance** - Pruning and compaction
-- **Custom Cypher Queries** - Direct graph database access
 - **Health Monitoring** - Service health checks
 - **GitHub OAuth** - Optional OAuth authentication
 
@@ -137,7 +133,6 @@ curl -H "X-API-Key: ryu_your_api_key" http://localhost:8000/episodes
 | `GET` | `/episodes/{uuid}` | Get specific episode |
 | `POST` | `/search` | Hybrid search (semantic + BM25 + graph) |
 | `GET` | `/entity/{name}` | Get entity context and relationships |
-| `GET` | `/stats` | System statistics |
 | `GET` | `/health` | Health check |
 
 ### Configuration Endpoints
@@ -149,15 +144,6 @@ curl -H "X-API-Key: ryu_your_api_key" http://localhost:8000/episodes
 | `PUT` | `/api/settings` | Update settings (hot-reload) |
 | `POST` | `/api/settings/validate` | Validate before saving |
 | `POST` | `/api/settings/reset-defaults` | Reset to defaults |
-
-### Advanced Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/communities/update` | Run community detection |
-| `POST` | `/prune` | Prune expired memories |
-| `POST` | `/cypher/execute` | Execute custom Cypher |
-| `GET` | `/users` | List all users |
 
 ### Quick Examples
 
@@ -314,7 +300,6 @@ uvicorn main:app --reload --log-level debug
 - Try `/api/settings/reset-defaults` to reset
 
 **Slow search performance**
-- Run `/prune` endpoint periodically
 - Use appropriate search strategy
 - Filter by `user_id` for multi-tenant
 

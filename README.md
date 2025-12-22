@@ -15,8 +15,6 @@ Ryumem is an open-source memory system for building intelligent agents with pers
 - **Bi-temporal data model** - Track when facts were valid and when they were recorded
 - **Advanced hybrid retrieval** - Combines semantic search, BM25 keyword search, and graph traversal
 - **Temporal decay scoring** - Recent facts automatically score higher with configurable decay
-- **Community detection** - Automatic clustering of related entities using Louvain algorithm
-- **Memory pruning & compaction** - Keep graphs efficient by removing obsolete data
 - **Full multi-tenancy** - Support for user_id, agent_id, session_id, group_id
 - **Automatic contradiction handling** - Detects and invalidates outdated facts
 - **Incremental updates** - No batch reprocessing required
@@ -234,8 +232,6 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 - `get_entity_context` - Explore entity relationships
 - `batch_add_episodes` - Bulk memory operations
 - `list_episodes`, `get_episode`, `update_episode_metadata` - Episode management
-- `prune_memories` - Memory cleanup
-- `execute_cypher` - Advanced graph queries
 
 See [MCP Server Documentation](mcp-server-ts/README.md) for details.
 
