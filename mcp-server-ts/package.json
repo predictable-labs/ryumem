@@ -1,5 +1,5 @@
 {
-  "name": "@ryumem/mcp-server",
+  "name": "@predictable/ryumem-mcp-server",
   "version": "0.1.0",
   "description": "Ryumem MCP Server",
   "type": "module",
