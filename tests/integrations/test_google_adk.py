@@ -607,6 +607,9 @@ class TestAddMemoryToAgentReal:
 
     def test_two_agents_with_different_instructions(self, ryumem):
         """Test adding memory to two agents with different instructions."""
+        import httpx
+        import os
+
         # Create two agents with different instructions
         agent1 = SimpleAgent(instruction="Agent 1: You are a helpful assistant")
         agent2 = SimpleAgent(instruction="Agent 2: You are a code reviewer")
@@ -637,6 +640,33 @@ class TestAddMemoryToAgentReal:
         # Verify both agents have memory tools
         assert len(agent1.tools) > 0
         assert len(agent2.tools) > 0
+
+        # CRITICAL: Verify that both instructions are stored in the database
+        # Query the API to get all google_adk agent instructions
+        import requests
+        api_url = os.environ.get("RYUMEM_API_URL", "http://localhost:8000")
+        api_key = os.environ.get("RYUMEM_API_KEY")
+        headers = {"X-API-Key": api_key} if api_key else {}
+
+        response = requests.get(
+            f"{api_url}/agent-instructions",
+            params={"agent_type": "google_adk"},
+            headers=headers
+        )
+        assert response.status_code == 200, f"Failed to get instructions: {response.text}"
+
+        instructions = response.json()
+        assert isinstance(instructions, list), "Expected list of instructions"
+
+        # Should have at least 2 instructions stored
+        assert len(instructions) >= 2, f"Expected at least 2 instructions but found {len(instructions)}"
+
+        # Verify both base instructions are in the stored instructions
+        base_instructions = [instr.get("base_instruction") for instr in instructions]
+        assert "Agent 1: You are a helpful assistant" in base_instructions, \
+            f"Agent 1 instruction not found in stored instructions: {base_instructions}"
+        assert "Agent 2: You are a code reviewer" in base_instructions, \
+            f"Agent 2 instruction not found in stored instructions: {base_instructions}"
 
 
 class TestRunnerWrappingReal:

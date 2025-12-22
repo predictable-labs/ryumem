@@ -750,8 +750,8 @@ class Ryumem:
         """
         Register or update an agent by its base instruction.
 
-        Uses base_instruction as the unique key. MERGE behavior means this will
-        update existing agent records instead of creating duplicates.
+        Uses (agent_type, base_instruction) as the composite unique key. MERGE behavior
+        means this will update existing agent records instead of creating duplicates.
 
         Args:
             base_instruction: The agent's original instruction text (used as unique key)
@@ -778,15 +778,19 @@ class Ryumem:
         logger.info(f"[DB] save_agent_instruction called: agent_type={agent_type}")
 
         # First, try to find existing agent - only return uuid to avoid property errors
+        # Use both agent_type AND base_instruction as the unique key
         find_query = """
         MATCH (i:AgentInstruction)
-        WHERE i.agent_type = $agent_type
+        WHERE i.agent_type = $agent_type AND i.base_instruction = $base_instruction
         RETURN i.uuid AS uuid
         LIMIT 1
         """
 
         try:
-            existing = self.db.execute(find_query, {"agent_type": agent_type})
+            existing = self.db.execute(find_query, {
+                "agent_type": agent_type,
+                "base_instruction": base_instruction
+            })
         except Exception as e:
             # If query fails, assume no existing nodes
             logger.warning(f"[DB] Could not query existing agents: {e}")
