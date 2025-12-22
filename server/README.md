@@ -292,10 +292,10 @@ docker build -t ryumem-server -f server/Dockerfile .
 ```bash
 docker run -p 8000:8000 \
   -e OPENAI_API_KEY=sk-... \
-  -e RYUMEM_DB_FOLDER=/data \
+  -e RYUMEM_DB_FOLDER=/app/data \
   -e GITHUB_CLIENT_ID=your_client_id \
   -e GITHUB_CLIENT_SECRET=your_secret \
-  -v ./data:/data \
+  -v ./server/data:/app/data \
   ryumem-server
 ```
 
@@ -304,7 +304,8 @@ docker run -p 8000:8000 \
 # Create .env file with your configuration
 docker run -p 8000:8000 \
   --env-file server/.env \
-  -v ./data:/data \
+  -e RYUMEM_DB_FOLDER=/app/data \
+  -v ./server/data:/app/data \
   ryumem-server
 ```
 

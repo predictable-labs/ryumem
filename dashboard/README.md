@@ -413,8 +413,10 @@ services:
       - "8000:8000"
     env_file:
       - server/.env
+    environment:
+      - RYUMEM_DB_FOLDER=/app/data
     volumes:
-      - ./data:/data
+      - ./server/data:/app/data
 ```
 
 ### Other Platforms
