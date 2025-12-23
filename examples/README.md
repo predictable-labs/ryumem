@@ -125,32 +125,6 @@ cd examples
 python getting-started/client_usage.py
 ```
 
-## Directory Structure
-
-```
-examples/
-├── README.md                      # This file
-├── .env.example                   # Environment template
-├── getting-started/               # Basic SDK usage
-│   ├── basic_usage.py
-│   ├── client_usage.py
-│   └── advanced_usage.py
-├── integrations/                  # Framework integrations
-│   ├── google-adk/
-│   │   ├── google_adk_usage.py
-│   │   ├── simple_tool_tracking_demo.py
-│   │   ├── async_tool_tracking_demo.py
-│   │   └── password_guessing_game.py
-│   ├── litellm/
-│   │   ├── litellm_usage.py
-│   │   └── litellm_simple_tool_tracking.py
-│   └── ollama/
-│       └── ollama_usage.py
-└── tests/                         # Testing examples
-    ├── test_async_wrapper.py
-    └── test_deduplication.py
-```
-
 ## License
 
-Apache License 2.0 - See [LICENSE](../LICENSE) for details.
+GNU Affero General Public License v3.0 (AGPL-3.0) - See [LICENSE](../LICENSE) for details.

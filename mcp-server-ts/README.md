@@ -16,7 +16,10 @@ npm install -g @predictable/ryumem-mcp-server
 cd mcp-server-ts
 npm install
 npm run build
+npm link
 ```
+
+This will make the `ryumem-mcp` command available globally on your system.
 
 ## Configuration
 
@@ -69,11 +72,45 @@ Add to your Claude Desktop configuration:
 }
 ```
 
+### Using npm link (Global command)
+
+If you ran `npm link` in the `mcp-server-ts` directory:
+
+```json
+{
+  "mcpServers": {
+    "ryumem": {
+      "command": "ryumem-mcp",
+      "env": {
+        "RYUMEM_API_URL": "http://localhost:8000",
+        "RYUMEM_API_KEY": "ryu_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
 After updating the config, restart Claude Desktop.
 
 ## Claude Code Setup
 
 For Claude Code (CLI), add to your configuration:
+
+```json
+{
+  "mcpServers": {
+    "ryumem": {
+      "command": "ryumem-mcp",
+      "env": {
+        "RYUMEM_API_URL": "http://localhost:8000",
+        "RYUMEM_API_KEY": "ryu_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+Alternatively, use the absolute path to the build:
 
 ```json
 {
@@ -183,4 +220,4 @@ This is a thin wrapper that makes HTTP API calls to the Ryumem backend. It does 
 
 ## License
 
-Apache License 2.0 - See [LICENSE](../LICENSE) for details.
+GNU Affero General Public License v3.0 (AGPL-3.0) - See [LICENSE](../LICENSE) for details.

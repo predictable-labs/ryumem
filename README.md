@@ -1,6 +1,6 @@
 # Ryumem
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://badge.fury.io/py/ryumem.svg)](https://badge.fury.io/py/ryumem)
 
@@ -304,7 +304,7 @@ mypy src/
 
 ## License
 
-Apache License 2.0 - See [LICENSE](LICENSE) for details.
+GNU Affero General Public License v3.0 (AGPL-3.0) - See [LICENSE](LICENSE) for details.
 
 ---
 

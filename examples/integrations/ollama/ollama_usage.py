@@ -65,7 +65,7 @@ def main():
         db_path="./data/memory.db",
         llm_provider="ollama",  # Use Ollama instead of OpenAI
         llm_model=model_name,  # Local Ollama model
-        ollama_base_url=os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://100.108.18.43:11434"),  # Default Ollama URL
+        ollama_base_url=os.getenv("RYUMEM_OLLAMA_BASE_URL", "http://localhost:11434"),  # Default Ollama URL
         openai_api_key=os.getenv("OPENAI_API_KEY"),  # Still needed for embeddings
         embedding_model="text-embedding-3-large",
     )
