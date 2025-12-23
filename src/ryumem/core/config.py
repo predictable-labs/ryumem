@@ -97,6 +97,10 @@ class ToolTrackingConfig(BaseSettings):
         default=True,
         description="Enable tool call tracking"
     )
+    track_mcp_toolsets: bool = Field(
+        default=True,
+        description="Enable tracking for MCP toolset executions"
+    )
     track_queries: bool = Field(
         default=True,
         description="Enable query tracking"

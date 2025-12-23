@@ -30,6 +30,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 from ryumem import Ryumem
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 
 logger = logging.getLogger(__name__)
 
@@ -318,14 +319,14 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             episode = self.ryumem.get_episode_by_session_id(session_id)
             if episode is None:
-                logger.error("Failed to find episode related to session {session_id} to store tool execution")
+                logger.error(f"Failed to find episode related to session {session_id} to store tool execution for tool {tool_name}")
                 return
 
             # Build tool execution record
             tool_execution = {
                 "tool_name": tool_name,  # Already in dot notation
                 "input_params": sanitized_params,
-                "output_summary": output_summary,
+                "output_summary": output_summary or "",  # Ensure string, not None
                 "success": success,
                 "error": error,
                 "duration_ms": duration_ms,
@@ -518,6 +519,29 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
         return sync_wrapper
 
+    def _wrap_mcp_toolset(self, toolset: McpToolset) -> None:
+        """
+        Wrap McpToolset.get_tools() to track all MCP tool executions.
+
+        Args:
+            toolset: McpToolset instance to wrap
+        """
+        original_get_tools = toolset.get_tools
+
+        async def tracked_get_tools(readonly_context=None):
+            # Get original tools from MCP server
+            tools = await original_get_tools(readonly_context)
+
+            # Wrap each individual MCP tool's run_async for tracking
+            for tool in tools:
+                self._wrap_run_async(tool, tool.name, tool.description)
+
+            return tools
+
+        # Replace get_tools with tracked version
+        toolset.get_tools = tracked_get_tools
+        logger.debug("Wrapped McpToolset.get_tools() for tracking")
+
     def wrap_agent_tools(
         self,
         agent,
@@ -552,6 +576,15 @@ Make it user-friendly and avoid technical jargon. Just return the description te
         # Wrap each tool
         wrapped_count = 0
         for i, tool in enumerate(agent.tools):
+            # Handle McpToolset
+            if isinstance(tool, McpToolset):
+                if self.ryumem.config.tool_tracking.track_mcp_toolsets:
+                    self._wrap_mcp_toolset(tool)
+                    logger.debug(f"Wrapped McpToolset at index {i} for tracking")
+                else:
+                    logger.debug(f"Skipping McpToolset at index {i} (tracking disabled)")
+                continue
+
             # Determine if this is a FunctionTool object or raw function
             is_function_tool = has_function_tool and isinstance(tool, FunctionTool)
 
@@ -610,6 +643,7 @@ Make it user-friendly and avoid technical jargon. Just return the description te
         original_run_async = tool.run_async
 
         # Create tracking wrapper
+        # Both FunctionTool and MCPTool have identical keyword-only signatures
         async def tracking_run_async(*, args, tool_context):
             # Check if there's a parent tool currently executing
             parent_tool = _get_parent_tool()
@@ -626,7 +660,8 @@ Make it user-friendly and avoid technical jargon. Just return the description te
             output = None
 
             try:
-                # Call original run_async
+                # Both FunctionTool and MCPTool have identical signatures
+                # Just forward the parameters as-is
                 output = await original_run_async(args=args, tool_context=tool_context)
                 return output
             except Exception as e:
@@ -639,40 +674,44 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
                 duration_ms = int((time.time() - start_time) * 1000)
 
-                # Extract user_id and session_id from tool_context (with override support)
-                if not hasattr(self, '_memory_ref') or not self._memory_ref:
-                    raise ValueError(
-                        f"ToolTracker requires _memory_ref to be set for tool '{tool_name}'. "
-                        f"Use add_memory_to_agent() instead of directly instantiating ToolTracker."
-                    )
+                # Extract user_id and session_id using simple heuristic
+                # Both tools have the same signature, only difference is where user_id comes from
+                user_id = None
+                session_id = None
 
-                # Use memory's helper to get user_id with override support
-                user_id, session_id = self._memory_ref._get_user_id_from_context(tool_context)
+                # Simple heuristic: Check if user_id is in args dict
+                if 'user_id' in args:
+                    # MCP tools pass user_id/session_id as parameters
+                    user_id = args.get('user_id')
+                    session_id = args.get('session_id')
+                else:
+                    # FunctionTools: extract from tool_context
+                    if tool_context and hasattr(self, '_memory_ref') and self._memory_ref:
+                        user_id, session_id = self._memory_ref._get_user_id_from_context(tool_context)
 
-                if not user_id:
-                    raise ValueError(f"tool_context.session.user_id is required but was None for tool '{tool_name}'")
-                if not session_id:
-                    raise ValueError(f"tool_context.session.id is required but was None for tool '{tool_name}'")
+                input_params = args
 
-                try:
-                    # Store tracking data with parent info
-                    await self._store_tool_execution_async(
-                        tool_name=display_name,  # Use dot notation
-                        tool_description=tool_description,
-                        input_params=args,
-                        output=output,
-                        success=success,
-                        error=error,
-                        duration_ms=duration_ms,
-                        user_id=user_id,
-                        session_id=session_id,
-                        context=None,
-                        parent_tool_name=parent_tool  # NEW parameter
-                    )
-                except Exception as track_error:
-                    logger.error(f"Tracking failed for {display_name}: {track_error}")
-                    if not self.ryumem.config.tool_tracking.ignore_errors:
-                        raise
+                # Only track if we have user_id (skip if not available)
+                if user_id:
+                    try:
+                        # Store tracking data using track_execution method
+                        self.track_execution(
+                            tool_name=display_name,  # Use dot notation
+                            tool_description=tool_description,
+                            input_params=input_params,
+                            output=output,
+                            success=success,
+                            error=error,
+                            duration_ms=duration_ms,
+                            user_id=user_id,
+                            session_id=session_id,
+                            context=None,
+                            parent_tool_name=parent_tool  # NEW parameter
+                        )
+                    except Exception as track_error:
+                        logger.error(f"Tracking failed for {display_name}: {track_error}")
+                        if not self.ryumem.config.tool_tracking.ignore_errors:
+                            raise
 
         # Replace the method
         tool.run_async = tracking_run_async
