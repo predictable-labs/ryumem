@@ -188,9 +188,9 @@ class ConfigService:
         import os
 
         # Get ollama_base_url, ensure it's never None (use default if empty/None)
-        ollama_url = get_value("llm.ollama_base_url", "http://100.108.18.43:11434")
+        ollama_url = get_value("llm.ollama_base_url", "http://localhost:11434")
         if not ollama_url or ollama_url == "":
-            ollama_url = "http://100.108.18.43:11434"
+            ollama_url = "http://localhost:11434"
 
         llm_config = LLMConfig(
             provider=get_value("llm.provider", "ollama"),
@@ -217,9 +217,9 @@ class ConfigService:
             llm_config.gemini_api_key = gemini_key
 
         # Get embedding ollama_base_url, ensure it's never None
-        embedding_ollama_url = get_value("embedding.ollama_base_url", "http://100.108.18.43:11434")
+        embedding_ollama_url = get_value("embedding.ollama_base_url", "http://localhost:11434")
         if not embedding_ollama_url or embedding_ollama_url == "":
-            embedding_ollama_url = "http://100.108.18.43:11434"
+            embedding_ollama_url = "http://localhost:11434"
 
         embedding_config = EmbeddingConfig(
             provider=get_value("embedding.provider", "ollama"),

@@ -18,7 +18,7 @@
     "ryumem"
   ],
   "author": "Predictable Labs, Inc.",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4"
   },

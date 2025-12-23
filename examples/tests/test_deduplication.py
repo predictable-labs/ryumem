@@ -37,7 +37,7 @@ def main():
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         llm_provider="ollama",
         llm_model="qwen2.5:7b",
-        ollama_base_url="http://100.108.18.43:11434/",
+        ollama_base_url="http://localhost:11434/",
     )
     print(f"   ✓ Initialized")
 

@@ -168,15 +168,15 @@ export default function SettingsPage() {
       });
 
       if (updates['llm.provider'] && updates['llm.provider'] !== 'ollama') {
-        updates['llm.ollama_base_url'] = 'http://100.108.18.43:11434';
+        updates['llm.ollama_base_url'] = 'http://localhost:11434';
       } else if (localSettings['llm.provider'] !== 'ollama' && !updates['llm.ollama_base_url']) {
-        updates['llm.ollama_base_url'] = 'http://100.108.18.43:11434';
+        updates['llm.ollama_base_url'] = 'http://localhost:11434';
       }
 
       if (updates['embedding.provider'] && updates['embedding.provider'] !== 'ollama') {
-        updates['embedding.ollama_base_url'] = 'http://100.108.18.43:11434';
+        updates['embedding.ollama_base_url'] = 'http://localhost:11434';
       } else if (localSettings['embedding.provider'] !== 'ollama' && !updates['embedding.ollama_base_url']) {
-        updates['embedding.ollama_base_url'] = 'http://100.108.18.43:11434';
+        updates['embedding.ollama_base_url'] = 'http://localhost:11434';
       }
 
       if (Object.keys(updates).length === 0) {
