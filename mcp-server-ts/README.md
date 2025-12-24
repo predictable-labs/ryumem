@@ -1,44 +1,39 @@
 # Ryumem MCP Server
 
-A TypeScript MCP (Model Context Protocol) server for integrating Ryumem with Claude Desktop and other AI coding agents.
+MCP server for integrating Ryumem memory with Claude and AI coding agents.
 
-## Installation
+## Quick Start
 
-### From npm
-
-```bash
-npm install -g @predictable/ryumem-mcp-server
-```
-
-### From Source
+### Install for Claude Code
 
 ```bash
-cd mcp-server-ts
-npm install
-npm run build
-npm link
+npx @predictable/ryumem-mcp-server install --oauth
 ```
 
-This will make the `ryumem-mcp` command available globally on your system.
+This will:
+1. Authenticate with your Ryumem account via GitHub (opens browser)
+2. Configure Claude Code automatically
 
-## Configuration
+### Install for Claude Desktop
 
-The server requires environment variables to connect to your Ryumem API:
+```bash
+npx @predictable/ryumem-mcp-server install --oauth --client claude-desktop
+```
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `RYUMEM_API_URL` | Yes | `http://localhost:8000` | Ryumem API server URL |
-| `RYUMEM_API_KEY` | Yes | - | Your API key (starts with `ryu_`) |
+### Uninstall
 
-## Claude Desktop Setup
+```bash
+npx @predictable/ryumem-mcp-server uninstall
+```
 
-Add to your Claude Desktop configuration:
+## Manual Configuration
 
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-**Linux:** `~/.config/Claude/claude_desktop_config.json`
+If you prefer manual setup, add to your Claude configuration file:
 
-### Using npm package
+**Claude Code:** `~/.claude/claude_code_config.json`
+**Claude Desktop (macOS):** `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Claude Desktop (Windows):** `%APPDATA%\Claude\claude_desktop_config.json`
+**Claude Desktop (Linux):** `~/.config/Claude/claude_desktop_config.json`
 
 ```json
 {
@@ -47,7 +42,6 @@ Add to your Claude Desktop configuration:
       "command": "npx",
       "args": ["@predictable/ryumem-mcp-server"],
       "env": {
-        "RYUMEM_API_URL": "http://localhost:8000",
         "RYUMEM_API_KEY": "ryu_your_api_key_here"
       }
     }
@@ -55,76 +49,33 @@ Add to your Claude Desktop configuration:
 }
 ```
 
-### Using local build
+## CLI Options
 
-```json
-{
-  "mcpServers": {
-    "ryumem": {
-      "command": "node",
-      "args": ["/path/to/ryumem/mcp-server-ts/build/index.js"],
-      "env": {
-        "RYUMEM_API_URL": "http://localhost:8000",
-        "RYUMEM_API_KEY": "ryu_your_api_key_here"
-      }
-    }
-  }
-}
+```bash
+npx @predictable/ryumem-mcp-server install [options]
 ```
 
-### Using npm link (Global command)
+| Option | Description |
+|--------|-------------|
+| `--oauth` | Authenticate via GitHub OAuth (default, recommended) |
+| `--api-key <key>` | Use a specific API key instead of OAuth |
+| `--api-url <url>` | Custom API URL (default: `https://api.ryumem.io`) |
+| `--client <name>` | Target client: `claude-code` (default) or `claude-desktop` |
 
-If you ran `npm link` in the `mcp-server-ts` directory:
+### Examples
 
-```json
-{
-  "mcpServers": {
-    "ryumem": {
-      "command": "ryumem-mcp",
-      "env": {
-        "RYUMEM_API_URL": "http://localhost:8000",
-        "RYUMEM_API_KEY": "ryu_your_api_key_here"
-      }
-    }
-  }
-}
-```
+```bash
+# OAuth authentication (recommended)
+npx @predictable/ryumem-mcp-server install --oauth
 
-After updating the config, restart Claude Desktop.
+# Use existing API key
+npx @predictable/ryumem-mcp-server install --api-key ryu_xxxxx
 
-## Claude Code Setup
+# Configure for Claude Desktop
+npx @predictable/ryumem-mcp-server install --oauth --client claude-desktop
 
-For Claude Code (CLI), add to your configuration:
-
-```json
-{
-  "mcpServers": {
-    "ryumem": {
-      "command": "ryumem-mcp",
-      "env": {
-        "RYUMEM_API_URL": "http://localhost:8000",
-        "RYUMEM_API_KEY": "ryu_your_api_key_here"
-      }
-    }
-  }
-}
-```
-
-Alternatively, use the absolute path to the build:
-
-```json
-{
-  "mcpServers": {
-    "ryumem": {
-      "command": "node",
-      "args": ["/path/to/ryumem/mcp-server-ts/build/index.js"],
-      "env": {
-        "RYUMEM_API_URL": "http://localhost:8000",
-        "RYUMEM_API_KEY": "ryu_your_api_key_here"
-      }
-    }
-  }
-}
+# Use custom API server
+npx @predictable/ryumem-mcp-server install --oauth --api-url http://localhost:8000
 ```
 
 ## Available Tools
@@ -134,90 +85,11 @@ Alternatively, use the absolute path to the build:
 | `search_memory` | Multi-strategy semantic search across the knowledge graph |
 | `add_episode` | Save new episodic memory |
 | `get_entity_context` | Retrieve entity details and relationships |
-| `batch_add_episodes` | Add multiple episodes at once |
 | `list_episodes` | Paginated episode listing with filters |
 | `get_episode` | Retrieve specific episode by UUID |
 | `update_episode_metadata` | Update metadata on existing episode |
-
-### Tool Examples
-
-**Search Memory:**
-```
-Search for information about Alice's work history
-```
-
-**Add Episode:**
-```
-Remember that Alice joined Google as a software engineer in 2023
-```
-
-**Get Entity Context:**
-```
-Get all information about the entity "Alice"
-```
-
-## Development
-
-### Build
-
-```bash
-npm run build
-```
-
-### Watch Mode
-
-```bash
-npm run watch
-```
-
-### Project Structure
-
-```
-mcp-server-ts/
-├── src/
-│   └── index.ts       # MCP server implementation
-├── build/             # Compiled JavaScript
-├── package.json
-└── tsconfig.json
-```
-
-## Architecture
-
-This is a thin wrapper that makes HTTP API calls to the Ryumem backend. It does not contain any business logic - all memory operations are handled by the Ryumem API server.
-
-```
-+------------------+     +------------------+     +------------------+
-| Claude Desktop   | --> | MCP Server       | --> | Ryumem API       |
-| or Claude Code   |     | (This package)   |     | (FastAPI)        |
-+------------------+     +------------------+     +------------------+
-```
-
-## Getting an API Key
-
-1. Start the Ryumem API server (see [server/README.md](../server/README.md))
-2. Register a customer:
-   ```bash
-   curl -X POST http://localhost:8000/register \
-     -H "Content-Type: application/json" \
-     -d '{"customer_id": "my_company"}'
-   ```
-3. Use the returned API key in your configuration
-
-## Troubleshooting
-
-**"Connection refused"**
-- Ensure the Ryumem API server is running
-- Check `RYUMEM_API_URL` is correct
-
-**"Unauthorized"**
-- Verify your `RYUMEM_API_KEY` is correct
-- Register a new customer if needed
-
-**MCP server not appearing in Claude**
-- Check JSON syntax in config file
-- Restart Claude Desktop
-- Check Claude logs for errors
+| `prune_memories` | Clean up old or redundant memories |
 
 ## License
 
-GNU Affero General Public License v3.0 (AGPL-3.0) - See [LICENSE](../LICENSE) for details.
+Apache 2.0 - See [LICENSE](../LICENSE) for details.
