@@ -1,7 +1,7 @@
 {
   "name": "@predictable/ryumem-mcp-server",
   "version": "0.2.0",
-  "description": "Ryumem MCP Server",
+  "description": "MCP server for integrating Ryumem memory with Claude and AI coding agents",
   "type": "module",
   "bin": {
     "ryumem-mcp": "./build/index.js"
