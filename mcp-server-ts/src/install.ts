@@ -147,7 +147,7 @@ async function install(options: {
   config.mcpServers.ryumem = {
     type: 'stdio',
     command: 'npx',
-    args: ['-y', '@ryumem/mcp-server'],
+    args: ['-y', '@predictable/ryumem-mcp-server'],
     env: {
       RYUMEM_API_URL: options.apiUrl,
       RYUMEM_API_KEY: apiKey,
@@ -167,12 +167,12 @@ function printHelp(): void {
 🧠 Ryumem MCP Server Installer
 
 Usage:
-  npx @ryumem/mcp-server install [options]
-  npx @ryumem/mcp-server uninstall [options]
+  npx @predictable/ryumem-mcp-server install [options]
+  npx @predictable/ryumem-mcp-server uninstall [options]
 
 Commands:
   install             Install and configure ryumem MCP server
-  uninstall           Remove ryumem from Claude config and clear credentials
+  uninstall           Remove predictable/ryumem-mcp-server from Claude config and clear credentials
 
 Options:
   --client <name>     Claude client to configure (default: claude-code)
@@ -183,10 +183,10 @@ Options:
   --help              Show this help message
 
 Examples:
-  npx @ryumem/mcp-server install --oauth
-  npx @ryumem/mcp-server install --api-key ryu_xxxxx
-  npx @ryumem/mcp-server install --api-url http://localhost:8000 --oauth
-  npx @ryumem/mcp-server uninstall
+  npx @predictable/ryumem-mcp-server install --oauth
+  npx @predictable/ryumem-mcp-server install --api-key ryu_xxxxx
+  npx @predictable/ryumem-mcp-server install --api-url http://localhost:8000 --oauth
+  npx @predictable/ryumem-mcp-server uninstall
 `);
 }
 

@@ -5,8 +5,8 @@
  * TypeScript implementation using MCP SDK
  *
  * Usage:
- *   npx @ryumem/mcp-server              - Run the MCP server (for Claude)
- *   npx @ryumem/mcp-server install      - Install/configure for Claude Code
+ *   npx @predictable/ryumem-mcp-server              - Run the MCP server (for Claude)
+ *   npx @predictable/ryumem-mcp-server install      - Install/configure for Claude Code
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
