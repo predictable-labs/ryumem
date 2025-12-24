@@ -1,0 +1,26 @@
+name: Unpublish MCP Server from npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to unpublish (e.g., 0.2.0)'
+        required: true
+        type: string
+
+jobs:
+  unpublish:
+    name: Unpublish Version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Unpublish from npm
+        run: npm unpublish @predictable/ryumem-mcp-server@${{ inputs.version }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
