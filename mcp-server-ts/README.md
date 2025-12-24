@@ -14,6 +14,12 @@ This will:
 1. Authenticate with your Ryumem account via GitHub (opens browser)
 2. Configure Claude Code automatically
 
+### Install for Cursor
+
+```bash
+npx @predictable/ryumem-mcp-server install --oauth --client cursor
+```
+
 ### Install for Claude Desktop
 
 ```bash
@@ -28,9 +34,10 @@ npx @predictable/ryumem-mcp-server uninstall
 
 ## Manual Configuration
 
-If you prefer manual setup, add to your Claude configuration file:
+If you prefer manual setup, add to your configuration file:
 
-**Claude Code:** `~/.claude/claude_code_config.json`
+**Claude Code:** `~/.claude.json`
+**Cursor:** `~/.cursor/mcp.json`
 **Claude Desktop (macOS):** `~/Library/Application Support/Claude/claude_desktop_config.json`
 **Claude Desktop (Windows):** `%APPDATA%\Claude\claude_desktop_config.json`
 **Claude Desktop (Linux):** `~/.config/Claude/claude_desktop_config.json`
@@ -60,7 +67,7 @@ npx @predictable/ryumem-mcp-server install [options]
 | `--oauth` | Authenticate via GitHub OAuth (default, recommended) |
 | `--api-key <key>` | Use a specific API key instead of OAuth |
 | `--api-url <url>` | Custom API URL (default: `https://api.ryumem.io`) |
-| `--client <name>` | Target client: `claude-code` (default) or `claude-desktop` |
+| `--client <name>` | Target client: `claude-code` (default), `cursor`, or `claude-desktop` |
 
 ### Examples
 
@@ -68,14 +75,14 @@ npx @predictable/ryumem-mcp-server install [options]
 # OAuth authentication (recommended)
 npx @predictable/ryumem-mcp-server install --oauth
 
-# Use existing API key
-npx @predictable/ryumem-mcp-server install --api-key ryu_xxxxx
+# Configure for Cursor
+npx @predictable/ryumem-mcp-server install --oauth --client cursor
 
 # Configure for Claude Desktop
 npx @predictable/ryumem-mcp-server install --oauth --client claude-desktop
 
 # Use custom API server
-npx @predictable/ryumem-mcp-server install --oauth --api-url http://localhost:8000
+npx @predictable/ryumem-mcp-server install --api-key ryu_api_key --api-url http://localhost:8000
 ```
 
 ## Available Tools
