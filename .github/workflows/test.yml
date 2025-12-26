@@ -33,6 +33,8 @@ jobs:
           cp server/.env.example server/.env
           echo "ADMIN_API_KEY=test_admin_key_for_ci" >> server/.env
           echo "RYUMEM_DB_FOLDER=./test_data" >> server/.env
+          echo "GITHUB_CLIENT_ID=${{ secrets.OAUTH_CLIENT_ID }}" >> server/.env
+          echo "GITHUB_CLIENT_SECRET=${{ secrets.OAUTH_CLIENT_SECRET }}" >> server/.env
           # Generate random port between 8000-9000
           RANDOM_PORT=$((8000 + RANDOM % 1000))
           echo "PORT=$RANDOM_PORT" >> $GITHUB_OUTPUT
