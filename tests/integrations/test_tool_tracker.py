@@ -562,3 +562,197 @@ class TestIntegrationWithRyumem:
         assert hasattr(tracker.ryumem, 'embed')
         assert hasattr(tracker.ryumem, 'save_tool')
         assert hasattr(tracker.ryumem, 'get_tool_by_name')
+
+
+class TestMcpToolsetTracking:
+    """Test McpToolset tracking with real MCP server."""
+
+    @pytest.mark.asyncio
+    async def test_wrap_mcp_toolset_with_real_server(self, tracker, unique_user, ryumem):
+        """Test McpToolset tracking with a real MCP server connection."""
+        try:
+            from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, StdioServerParameters
+        except ImportError:
+            pytest.skip("google.adk.tools not available")
+
+        import subprocess
+        import json
+        import os
+
+        # Path to MCP server
+        mcp_server_path = os.path.join(
+            os.path.dirname(__file__),
+            "../../mcp-server-ts/build/index.js"
+        )
+
+        if not os.path.exists(mcp_server_path):
+            pytest.skip("MCP server not built - run 'npm run build' in mcp-server-ts/")
+
+        # Get API URL and key from environment
+        api_url = os.getenv("RYUMEM_API_URL", "http://localhost:8000")
+        api_key = os.getenv("RYUMEM_API_KEY")
+
+        if not api_key:
+            pytest.skip("RYUMEM_API_KEY not set")
+
+        # Create MCP server connection parameters
+        connection_params = StdioServerParameters(
+            command="node",
+            args=[mcp_server_path],
+            env={
+                "RYUMEM_API_URL": api_url,
+                "RYUMEM_API_KEY": api_key
+            }
+        )
+
+        # Create McpToolset with real server connection
+        toolset = McpToolset(connection_params=connection_params)
+
+        # Initialize the toolset connection
+        try:
+            # Get tools from the real MCP server
+            tools = await toolset.get_tools()
+
+            # Should have some tools (search_memory, add_episode, etc.)
+            assert len(tools) > 0, "MCP server should provide tools"
+
+            # Store original get_tools for comparison
+            original_get_tools = toolset.get_tools
+
+            # Wrap the toolset with tracker
+            tracker._wrap_mcp_toolset(toolset)
+
+            # Verify get_tools was wrapped
+            assert toolset.get_tools != original_get_tools, "get_tools should be wrapped"
+
+            # Get tools again through wrapped version
+            wrapped_tools = await toolset.get_tools()
+
+            # Should still return the same tools
+            assert len(wrapped_tools) == len(tools), "Wrapped version should return same tools"
+
+            # Find search_memory tool
+            search_tool = None
+            for tool in wrapped_tools:
+                if tool.name == "search_memory":
+                    search_tool = tool
+                    break
+
+            assert search_tool is not None, "Should have search_memory tool"
+
+            # Enable full sampling for this test
+            original_rate = tracker.ryumem.config.tool_tracking.sample_rate
+            try:
+                tracker.ryumem.config.tool_tracking.sample_rate = 1.0
+
+                # Execute the search_memory tool
+                session_id = f"mcp_test_{uuid.uuid4().hex[:8]}"
+                
+                # Create an episode for this session first
+                ryumem.add_episode(
+                    content="Test session for MCP tool tracking",
+                    user_id=unique_user,
+                    session_id=session_id,
+                    kind="query"
+                )
+
+                # Call the tool with valid parameters (keyword arguments required)
+                result = await search_tool.run_async(
+                    args={
+                        "user_id": unique_user,
+                        "session_id": session_id,
+                        "query": "test query",
+                        "limit": 5
+                    },
+                    tool_context=None  # MCP tools can work with None tool_context
+                )
+
+                # Verify the tool executed successfully
+                assert result is not None, "Tool should return a result"
+
+                # Verify execution was tracked
+                assert tracker._execution_count > 0, "Tool execution should be tracked"
+
+            finally:
+                tracker.ryumem.config.tool_tracking.sample_rate = original_rate
+
+        finally:
+            # Cleanup: close the MCP connection
+            if hasattr(toolset, 'close'):
+                await toolset.close()
+
+    @pytest.mark.asyncio
+    async def test_wrap_agent_with_mcp_toolset(self, tracker, unique_user):
+        """Test wrapping an agent that has McpToolset in its tools."""
+        try:
+            from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, StdioServerParameters
+            from google.adk.tools import FunctionTool
+        except ImportError:
+            pytest.skip("google.adk.tools not available")
+
+        import os
+
+        # Create a simple regular tool
+        async def my_custom_tool(text: str) -> str:
+            """Process some text."""
+            return f"Processed: {text}"
+
+        custom_tool = FunctionTool(func=my_custom_tool)
+        custom_tool.name = "custom_tool"
+
+        # Get MCP server config
+        mcp_server_path = os.path.join(
+            os.path.dirname(__file__),
+            "../../mcp-server-ts/build/index.js"
+        )
+
+        if not os.path.exists(mcp_server_path):
+            pytest.skip("MCP server not built")
+
+        api_url = os.getenv("RYUMEM_API_URL", "http://localhost:8000")
+        api_key = os.getenv("RYUMEM_API_KEY")
+
+        if not api_key:
+            pytest.skip("RYUMEM_API_KEY not set")
+
+        # Create MCP server connection parameters
+        connection_params = StdioServerParameters(
+            command="node",
+            args=[mcp_server_path],
+            env={
+                "RYUMEM_API_URL": api_url,
+                "RYUMEM_API_KEY": api_key
+            }
+        )
+
+        # Create McpToolset
+        mcp_toolset = McpToolset(connection_params=connection_params)
+
+        # Create mock agent with both regular tool and MCP toolset
+        mock_agent = Mock()
+        mock_agent.tools = [custom_tool, mcp_toolset]
+
+        # Enable MCP tracking
+        original_track_mcp = tracker.ryumem.config.tool_tracking.track_mcp_toolsets
+        try:
+            tracker.ryumem.config.tool_tracking.track_mcp_toolsets = True
+
+            # Wrap agent tools
+            wrapped_count = tracker.wrap_agent_tools(mock_agent)
+
+            # Should have wrapped the custom tool (count = 1)
+            # McpToolset doesn't increment count
+            assert wrapped_count == 1, "Should wrap custom tool"
+
+            # Verify McpToolset get_tools was wrapped
+            mcp_tools = await mcp_toolset.get_tools()
+            assert len(mcp_tools) > 0, "MCP toolset should provide tools"
+
+        finally:
+            tracker.ryumem.config.tool_tracking.track_mcp_toolsets = original_track_mcp
+            if hasattr(mcp_toolset, 'close'):
+                await mcp_toolset.close()
+
+    def test_mcp_toolset_config_defaults_to_true(self, ryumem):
+        """Test that track_mcp_toolsets config option defaults to True."""
+        assert ryumem.config.tool_tracking.track_mcp_toolsets is True
