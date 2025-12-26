@@ -1,35 +1,207 @@
 # Ryumem
 
+[![License](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](https://opensource.org/licenses/AGPL-3.0)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI version](https://badge.fury.io/py/ryumem.svg)](https://badge.fury.io/py/ryumem)
+
 **Bi-temporal Knowledge Graph Memory System**
 
-Ryumem is a production-ready memory system for building intelligent agents with persistent, queryable memory using a bi-temporal knowledge graph architecture.
+Ryumem is an open-source memory system for building intelligent agents with persistent, queryable memory using a bi-temporal knowledge graph architecture.
 
 ## Features
 
-✨ **Key Capabilities**:
-- 📝 **Episode-first ingestion** - Every piece of information starts as an episode
-- 🧠 **Automatic entity & relationship extraction** - Powered by LLM (OpenAI, Gemini, Ollama, or LiteLLM)
-- ⏰ **Bi-temporal data model** - Track when facts were valid and when they were recorded
-- 🔍 **Advanced hybrid retrieval** - Combines semantic search, BM25 keyword search, and graph traversal
-- ⏱️ **Temporal decay scoring** - Recent facts automatically score higher with configurable decay
-- 🌐 **Community detection** - Automatic clustering of related entities using Louvain algorithm
-- 🧹 **Memory pruning & compaction** - Keep graphs efficient by removing obsolete data
-- 👥 **Full multi-tenancy** - Support for user_id, agent_id, session_id, group_id
-- ♻️ **Automatic contradiction handling** - Detects and invalidates outdated facts
-- 📊 **Incremental updates** - No batch reprocessing required
-- 🔧 **Automatic tool tracking** - Track all tool executions and query patterns
-- 🔄 **Query augmentation** - Enrich queries with historical context from similar past queries
-- ⚙️ **Dynamic configuration** - Hot-reload settings without server restart
-- 🎨 **Beautiful web dashboard** - Modern Next.js UI with graph visualization
-- 🤖 **MCP Server** - Model Context Protocol integration for Claude Desktop and other coding agents
+- **Episode-first ingestion** - Every piece of information starts as an episode
+- **Automatic entity & relationship extraction** - Powered by LLM (OpenAI, Gemini, Ollama, or LiteLLM)
+- **Bi-temporal data model** - Track when facts were valid and when they were recorded
+- **Advanced hybrid retrieval** - Combines semantic search, BM25 keyword search, and graph traversal
+- **Temporal decay scoring** - Recent facts automatically score higher with configurable decay
+- **Full multi-tenancy** - Support for user_id, agent_id, session_id, group_id
+- **Automatic contradiction handling** - Detects and invalidates outdated facts
+- **Incremental updates** - No batch reprocessing required
+- **Automatic tool tracking** - Track all tool executions and query patterns
+- **Query augmentation** - Enrich queries with historical context from similar past queries
+- **Dynamic configuration** - Hot-reload settings without server restart
+- **Web dashboard** - Modern Next.js UI with graph visualization
+- **MCP Server** - Model Context Protocol integration for Claude Desktop and coding agents
+
+## Architecture
+
+```
+                    +------------------+
+                    |   Dashboard      |
+                    |   (Next.js)      |
+                    +--------+---------+
+                             |
+                             v
++-------------+     +------------------+     +------------------+
+|  MCP Server | --> |   API Server     | --> |   Graph DB       |
+| (TypeScript)|     |   (FastAPI)      |     |   (ryugraph)     |
++-------------+     +--------+---------+     +------------------+
+                             |
+                             v
+                    +------------------+
+                    |   Python SDK     |
+                    |   (ryumem)       |
+                    +------------------+
+```
+
+**Components:**
+- **API Server** (`/server`) - FastAPI backend with REST API
+- **Dashboard** (`/dashboard`) - Next.js web UI for visualization
+- **MCP Server** (`/mcp-server-ts`) - Model Context Protocol server for AI agents
+- **Python SDK** (`/src/ryumem`) - Client library for Python applications
+
+## Quick Start
+
+### Option 1: Docker Compose (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/predictable-labs/ryumem.git
+cd ryumem
+
+# Configure environment
+cp server/.env.example server/.env
+# Edit server/.env and add your LLM API key (GOOGLE_API_KEY or OPENAI_API_KEY)
+
+cp dashboard/env.template dashboard/.env
+# Edit dashboard/.env if needed
+
+# Start all services
+docker-compose up -d
+
+# Dashboard: http://localhost:3000
+# API: http://localhost:8000
+# API Docs: http://localhost:8000/docs
+```
+
+### Option 2: Local Development
+
+**Prerequisites:**
+- Python 3.10+
+- Node.js 18+
+- An LLM API key (Google Gemini, OpenAI, or local Ollama)
+
+**1. Start the API Server:**
+
+```bash
+# Install SDK
+pip install -e .
+
+# Install server dependencies
+cd server
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Edit .env and set your LLM API key
+
+# Start server
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**2. Start the Dashboard:**
+
+```bash
+cd dashboard
+npm install
+cp env.template .env
+npm run dev
+```
+
+**3. Register and Get API Key:**
+
+```bash
+# Register a customer
+curl -X POST "http://localhost:8000/register" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id": "my_company"}'
+
+# Response includes your API key (ryu_...)
+```
+
+## Python SDK
+
+### Installation
+
+```bash
+pip install ryumem
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/predictable-labs/ryumem.git
+cd ryumem
+pip install -e .
+```
+
+### Basic Usage
+
+```python
+from ryumem import Ryumem
+
+# Initialize client
+ryumem = Ryumem(
+    api_url="http://localhost:8000",
+    api_key="ryu_your_api_key_here"
+)
+
+# Add an episode
+ryumem.add_episode(
+    content="Alice joined Google as a software engineer in 2023",
+    user_id="user_123"
+)
+
+# Search memories
+results = ryumem.search(
+    query="Where does Alice work?",
+    user_id="user_123",
+    strategy="hybrid"
+)
+```
+
+### Google ADK Integration
+
+```python
+from google.adk.agents import Agent
+from ryumem import Ryumem
+from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+
+# Initialize Ryumem
+ryumem = Ryumem(
+    api_url="http://localhost:8000",
+    api_key="ryu_your_api_key_here",
+    augment_queries=True,
+    similarity_threshold=0.3,
+)
+
+# Create your agent
+agent = Agent(
+    model="gemini-2.0-flash-exp",
+    name="my_agent",
+    instruction="You are a helpful assistant with memory.",
+    tools=[...]
+)
+
+# Add memory to agent - creates search_memory() and save_memory() tools
+agent = add_memory_to_agent(agent, ryumem)
+
+# Wrap runner for automatic tool tracking
+runner = wrap_runner_with_tracking(runner, agent)
+```
 
 ## MCP Server for Coding Agents
 
-Ryumem includes an MCP (Model Context Protocol) server that exposes all memory operations to coding agents like Claude Desktop.
+Ryumem includes an MCP (Model Context Protocol) server for integration with Claude Desktop and other AI coding agents.
 
-### Quick Setup
+### Installation
 
 ```bash
+# From npm (when published)
+npm install -g @predictable/ryumem-mcp-server
+
+# Or from source
 cd mcp-server-ts
 npm install
 npm run build
@@ -37,23 +209,7 @@ npm run build
 
 ### Configure for Claude Desktop
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "ryumem": {
-      "command": "node",
-      "args": ["/path/to/ryumem/mcp-server-ts/build/index.js"],
-      "env": {
-        "RYUMEM_API_KEY": "ryu_your_api_key_here"
-      }
-    }
-  }
-}
-```
-
-For local development, add `RYUMEM_API_URL`:
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
 ```json
 {
@@ -63,251 +219,93 @@ For local development, add `RYUMEM_API_URL`:
       "args": ["/path/to/ryumem/mcp-server-ts/build/index.js"],
       "env": {
         "RYUMEM_API_URL": "http://localhost:8000",
-        "RYUMEM_API_KEY": "ryu_your_local_api_key"
+        "RYUMEM_API_KEY": "ryu_your_api_key_here"
       }
     }
   }
 }
 ```
 
-Restart Claude Desktop, and you'll have access to 9 memory tools:
+**Available MCP Tools:**
 - `search_memory` - Multi-strategy semantic search
 - `add_episode` - Save new memories
 - `get_entity_context` - Explore entity relationships
 - `batch_add_episodes` - Bulk memory operations
 - `list_episodes`, `get_episode`, `update_episode_metadata` - Episode management
-- `prune_memories` - Memory cleanup
-- `execute_cypher` - Advanced graph queries
 
-See [MCP Server Documentation](mcp-server-ts/README.md) for full details.
+See [MCP Server Documentation](mcp-server-ts/README.md) for details.
 
-## Quick Start
+## Environment Variables
 
-### Getting Access
+### Server (`server/.env`)
 
-To use Ryumem, request API access from **contact@predictable.sh**. You'll receive:
-- API endpoint URL
-- API key (starts with `ryu_`)
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GOOGLE_API_KEY` | Yes* | - | Google Gemini API key |
+| `OPENAI_API_KEY` | Yes* | - | OpenAI API key |
+| `RYUMEM_DB_FOLDER` | Yes | `./data` | Database storage path |
+| `ADMIN_API_KEY` | Yes | - | Admin key for registration |
+| `LLM_PROVIDER` | No | `gemini` | LLM provider (gemini, openai, ollama, litellm) |
+| `LLM_MODEL` | No | `gemini-2.0-flash-exp` | LLM model name |
+| `EMBEDDING_PROVIDER` | No | `gemini` | Embedding provider |
+| `EMBEDDING_MODEL` | No | `text-embedding-004` | Embedding model |
+| `GITHUB_CLIENT_ID` | No | - | GitHub OAuth (optional) |
+| `GITHUB_CLIENT_SECRET` | No | - | GitHub OAuth (optional) |
+| `CORS_ORIGINS` | No | `http://localhost:3000` | Allowed CORS origins |
 
-### Installation
+*At least one LLM API key is required
 
-```bash
-pip install ryumem
-```
+### Dashboard (`dashboard/.env`)
 
-### Basic Usage with Google ADK
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `NEXT_PUBLIC_API_URL` | Yes | `http://localhost:8000` | Ryumem API server URL |
+| `NEXT_PUBLIC_GITHUB_REDIRECT_URI` | No | - | GitHub OAuth redirect |
 
-```python
-from google.adk.agents import Agent
-from google.adk.tools import FunctionTool
-from ryumem import Ryumem
-from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+### MCP Server
 
-# Initialize Ryumem - auto-loads from environment variables
-# RYUMEM_API_URL and RYUMEM_API_KEY
-ryumem = Ryumem(
-    augment_queries=True,      # Enable query augmentation
-    similarity_threshold=0.3,  # Match queries with 30%+ similarity
-    top_k_similar=5,           # Use top 5 similar queries for context
-)
-
-# Create your agent with tools
-agent = Agent(
-    model="gemini-2.0-flash-exp",
-    name="my_agent",
-    instruction="You are a helpful assistant with memory.",
-    tools=[...]  # Your tools here
-)
-
-# Add memory to agent - automatically creates search_memory() and save_memory() tools
-agent = add_memory_to_agent(agent, ryumem)
-
-# Wrap runner for automatic tool tracking and query augmentation
-runner = wrap_runner_with_tracking(runner, agent)
-```
-
-### Environment Setup
-
-```bash
-# Required - Get from contact@predictable.sh
-export RYUMEM_API_URL="https://api.ryumem.io"  # Your endpoint
-export RYUMEM_API_KEY="ryu_..."                # Your API key
-```
-
-
-## Python SDK Usage
-
-### Initialization
-
-The Ryumem client automatically loads configuration from environment variables:
-
-```python
-from ryumem import Ryumem
-
-# Basic initialization - loads RYUMEM_API_URL and RYUMEM_API_KEY from env
-ryumem = Ryumem()
-
-# With query augmentation enabled
-ryumem = Ryumem(
-    augment_queries=True,      # Enable augmentation with historical context
-    similarity_threshold=0.3,  # Match queries with 30%+ similarity
-    top_k_similar=5,           # Use top 5 similar queries
-)
-
-# With tool tracking enabled
-ryumem = Ryumem(
-    track_tools=True,          # Automatically track all tool executions
-    augment_queries=True,      # Augment with historical tool usage
-)
-```
-
-### Configuration Options
-
-```python
-ryumem = Ryumem(
-    # Query Augmentation
-    augment_queries=True,            # Enable query augmentation (default: False)
-    similarity_threshold=0.3,        # Similarity threshold for augmentation (default: 0.5)
-    top_k_similar=5,                 # Number of similar queries to use (default: 3)
-
-    # Tool Tracking
-    track_tools=True,                # Enable automatic tool tracking (default: False)
-
-    # Entity Extraction
-    extract_entities=True,           # Enable entity extraction (default: True)
-
-    # Search Settings
-    default_strategy="hybrid",       # Default search strategy
-)
-```
-
-### Core Operations
-
-```python
-# The SDK provides auto-generated tools when integrated with agents:
-# - search_memory(query: str) -> results
-# - save_memory(content: str) -> confirmation
-
-# These tools are automatically available to your agent after:
-agent = add_memory_to_agent(agent, ryumem)
-```
-
-## Google ADK Integration
-
-### Complete Example
-
-```python
-import asyncio
-from google.adk.agents import Agent
-from google.adk.tools import FunctionTool
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.genai import types
-from ryumem import Ryumem
-from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
-
-# App configuration
-APP_NAME = "my_app"
-USER_ID = "user_123"
-SESSION_ID = "session_456"
-
-# Define your tools
-def get_weather(city: str) -> dict:
-    """Get weather for a city."""
-    return {"status": "success", "report": f"Weather in {city} is sunny"}
-
-weather_tool = FunctionTool(func=get_weather)
-
-# Create agent
-agent = Agent(
-    model="gemini-2.0-flash-exp",
-    name="weather_agent",
-    instruction="You are a helpful weather assistant with memory.",
-    tools=[weather_tool]
-)
-
-# Add memory + tool tracking + query augmentation in ONE line!
-ryumem = Ryumem(
-    augment_queries=True,
-    similarity_threshold=0.3,
-    top_k_similar=5,
-)
-
-agent = add_memory_to_agent(agent, ryumem)
-
-# Setup session and runner
-async def main():
-    session_service = InMemorySessionService()
-    await session_service.create_session(
-        app_name=APP_NAME,
-        user_id=USER_ID,
-        session_id=SESSION_ID
-    )
-
-    runner = Runner(
-        agent=agent,
-        app_name=APP_NAME,
-        session_service=session_service
-    )
-
-    # Wrap runner to automatically track queries and augment with history
-    runner = wrap_runner_with_tracking(runner, agent)
-
-    # Use the runner
-    content = types.Content(
-        role='user',
-        parts=[types.Part(text="What's the weather in London?")]
-    )
-
-    events = runner.run(
-        user_id=USER_ID,
-        session_id=SESSION_ID,
-        new_message=content
-    )
-
-    # Process response
-    for event in events:
-        if event.is_final_response():
-            print(event.content.parts[0].text)
-
-asyncio.run(main())
-```
-
-### Features Demonstrated
-
-- **Automatic Tool Tracking**: All tool executions are logged with:
-  - Tool name and parameters
-  - Execution results
-  - Timestamp and user context
-  - Hierarchical episode tracking (queries link to tool executions)
-
-- **Query Augmentation**: Similar past queries enrich new queries with:
-  - Historical tool usage patterns
-  - Previous results and context
-  - Learned patterns and relationships
-
-- **Memory Integration**: Agent automatically gets two new tools:
-  - `search_memory(query)` - Search the knowledge graph
-  - `save_memory(content)` - Store new information
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `RYUMEM_API_URL` | Yes | `http://localhost:8000` | API server URL |
+| `RYUMEM_API_KEY` | Yes | - | Your API key |
 
 ## Examples
 
 See the [examples/](examples/) directory for complete working examples:
 
-### Key Examples
+- **Getting Started** - Basic SDK usage
+- **Google ADK Integration** - Memory for ADK agents
+- **LiteLLM Integration** - Multiple LLM providers
+- **Ollama Integration** - Local LLM usage
 
-1. **[simple_tool_tracking_demo.py](examples/simple_tool_tracking_demo.py)**
-   - Demonstrates automatic tool tracking and query augmentation
-   - Weather + sentiment analysis agent
-   - Shows how similar queries share context
+## Documentation
 
-2. **[password_guessing_game.py](examples/password_guessing_game.py)**
-   - Tests query augmentation with a password guessing game
-   - Agent learns from previous attempts
-   - Demonstrates pattern recognition across similar queries
+- [Server Documentation](server/README.md) - API server setup and endpoints
+- [Dashboard Documentation](dashboard/README.md) - Web UI setup
+- [MCP Server Documentation](mcp-server-ts/README.md) - Claude integration
+- [Examples](examples/README.md) - Usage examples
 
-### Other Examples
+## Development
 
-- [basic_usage.py](examples/basic_usage.py) - Core features walkthrough
-- [ollama_usage.py](examples/ollama_usage.py) - Local Ollama models
-- [litellm_usage.py](examples/litellm_usage.py) - Multiple LLM providers
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Format code
+black src/
+ruff check src/
+
+# Type checking
+mypy src/
+```
+
+## License
+
+GNU Affero General Public License v3.0 (AGPL-3.0) - See [LICENSE](LICENSE) for details.
+
+---
+
+**Built by [Predictable Labs](https://github.com/predictable-labs)**

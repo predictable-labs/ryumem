@@ -58,7 +58,7 @@ class LLMConfig(BaseSettings):
 
     # Ollama settings
     ollama_base_url: str = Field(
-        default="http://100.108.18.43:11434",
+        default="http://localhost:11434",
         description="Ollama server URL"
     )
 
@@ -131,7 +131,7 @@ class EmbeddingConfig(BaseSettings):
 
     # Ollama settings
     ollama_base_url: str = Field(
-        default="http://100.108.18.43:11434",
+        default="http://localhost:11434",
         description="Ollama server URL for embeddings"
     )
 

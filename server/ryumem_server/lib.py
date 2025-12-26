@@ -70,28 +70,26 @@ class Ryumem:
         # Load or create config
         if config is None:
             # Load from environment by default
-            config = RyumemConfig()
+            self.config = RyumemConfig()
 
         # Override db_path if provided
         if db_path:
-            config.database.db_path = db_path
-
-        self.config = config
+            self.config.database.db_path = db_path
 
         # Ensure database directory exists
-        db_path_obj = Path(config.database.db_path)
+        db_path_obj = Path(self.config.database.db_path)
         db_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
         # Validate API keys are present for configured providers
-        config.validate_api_keys()
+        self.config.validate_api_keys()
 
         # Initialize core components
         logger.info("Initializing Ryumem...")
-        logger.info(f"DEBUG: db_path={config.database.db_path}")
+        logger.info(f"DEBUG: db_path={self.config.database.db_path}")
 
         self.db = RyugraphDB(
-            db_path=config.database.db_path,
-            embedding_dimensions=config.embedding.dimensions,
+            db_path=self.config.database.db_path,
+            embedding_dimensions=self.config.embedding.dimensions,
         )
 
         # Initialize ConfigService and load configs
@@ -103,93 +101,88 @@ class Ryumem:
 
         # Load config from database (now guaranteed to have values)
         # This ensures we use the database as the source of truth
-        db_config = self.config_service.load_config_from_database()
-        
-        # Merge DB config with runtime overrides (like db_path)
-        # We keep the db_path from the initial config as it's not stored in DB
-        db_config.database.db_path = config.database.db_path
-        self.config = db_config
+        self.config = self.config_service.load_config_from_database()
 
         # Initialize LLM client based on provider
-        if config.llm.provider == "litellm":
-            logger.info(f"Using LiteLLM for LLM inference: {config.llm.model}")
+        if self.config.llm.provider == "litellm":
+            logger.info(f"Using LiteLLM for LLM inference: {self.config.llm.model}")
             self.llm_client = LiteLLMClient(
-                model=config.llm.model,
-                max_retries=config.llm.max_retries,
-                timeout=config.llm.timeout_seconds,
+                model=self.config.llm.model,
+                max_retries=self.config.llm.max_retries,
+                timeout=self.config.llm.timeout_seconds,
             )
-        elif config.llm.provider == "ollama":
-            logger.info(f"Using Ollama for LLM inference: {config.llm.model}")
+        elif self.config.llm.provider == "ollama":
+            logger.info(f"Using Ollama for LLM inference: {self.config.llm.model}")
             self.llm_client = OllamaClient(
-                model=config.llm.model,
-                base_url=config.llm.ollama_base_url,
-                max_retries=config.llm.max_retries,
-                timeout=config.llm.timeout_seconds,
+                model=self.config.llm.model,
+                base_url=self.config.llm.ollama_base_url,
+                max_retries=self.config.llm.max_retries,
+                timeout=self.config.llm.timeout_seconds,
             )
-        elif config.llm.provider == "gemini":
-            if not config.llm.gemini_api_key:
+        elif self.config.llm.provider == "gemini":
+            if not self.config.llm.gemini_api_key:
                 raise ValueError("gemini_api_key is required when llm_provider='gemini'")
-            logger.info(f"Using Gemini for LLM inference: {config.llm.model}")
+            logger.info(f"Using Gemini for LLM inference: {self.config.llm.model}")
             self.llm_client = GeminiClient(
-                api_key=config.llm.gemini_api_key,
-                model=config.llm.model,
-                max_retries=config.llm.max_retries,
-                timeout=config.llm.timeout_seconds,
+                api_key=self.config.llm.gemini_api_key,
+                model=self.config.llm.model,
+                max_retries=self.config.llm.max_retries,
+                timeout=self.config.llm.timeout_seconds,
             )
         else:  # openai
-            if not config.llm.openai_api_key:
+            if not self.config.llm.openai_api_key:
                 raise ValueError("openai_api_key is required when llm_provider='openai'")
-            logger.info(f"Using OpenAI for LLM inference: {config.llm.model}")
+            logger.info(f"Using OpenAI for LLM inference: {self.config.llm.model}")
             self.llm_client = LLMClient(
-                api_key=config.llm.openai_api_key,
-                model=config.llm.model,
-                max_retries=config.llm.max_retries,
-                timeout=config.llm.timeout_seconds,
+                api_key=self.config.llm.openai_api_key,
+                model=self.config.llm.model,
+                max_retries=self.config.llm.max_retries,
+                timeout=self.config.llm.timeout_seconds,
             )
 
         # Initialize embedding client based on provider
-        if config.embedding.provider == "ollama":
-            logger.info(f"Using Ollama for embeddings: {config.embedding.model}")
+        if self.config.embedding.provider == "ollama":
+            logger.info(f"Using Ollama for embeddings: {self.config.embedding.model} {self.config.embedding.ollama_base_url}")
             self.embedding_client = OllamaClient(
-                model=config.embedding.model,
-                base_url=config.embedding.ollama_base_url,
-                timeout=config.embedding.timeout_seconds,
+                model=self.config.embedding.model,
+                base_url=self.config.embedding.ollama_base_url,
+                timeout=self.config.embedding.timeout_seconds,
             )
-        elif config.embedding.provider == "litellm":
-            logger.info(f"Using LiteLLM for embeddings: {config.embedding.model}")
+        elif self.config.embedding.provider == "litellm":
+            logger.info(f"Using LiteLLM for embeddings: {self.config.embedding.model} {self.config.embedding.ollama_base_url}")
             self.embedding_client = LiteLLMClient(
-                model=config.embedding.model,
-                max_retries=config.llm.max_retries,
-                timeout=config.embedding.timeout_seconds,
+                model=self.config.embedding.model,
+                max_retries=self.config.llm.max_retries,
+                timeout=self.config.embedding.timeout_seconds,
             )
-        elif config.embedding.provider == "gemini":
-            if not config.llm.gemini_api_key:
+        elif self.config.embedding.provider == "gemini":
+            if not self.config.llm.gemini_api_key:
                 raise ValueError("gemini_api_key is required when embedding_provider='gemini'")
-            logger.info(f"Using Gemini for embeddings: {config.embedding.model}")
+            logger.info(f"Using Gemini for embeddings: {self.config.embedding.model}")
             # Use GeminiClient for embeddings
             self.embedding_client = GeminiClient(
-                api_key=config.llm.gemini_api_key,
-                model=config.embedding.model,
-                max_retries=config.llm.max_retries,
-                timeout=config.embedding.timeout_seconds,
+                api_key=self.config.llm.gemini_api_key,
+                model=self.config.embedding.model,
+                max_retries=self.config.llm.max_retries,
+                timeout=self.config.embedding.timeout_seconds,
             )
         else:  # openai
-            if not config.llm.openai_api_key:
+            if not self.config.llm.openai_api_key:
                 raise ValueError("openai_api_key is required when embedding_provider='openai'")
-            logger.info(f"Using OpenAI for embeddings: {config.embedding.model}")
+            logger.info(f"Using OpenAI for embeddings: {self.config.embedding.model}")
             self.embedding_client = EmbeddingClient(
-                api_key=config.llm.openai_api_key,
-                model=config.embedding.model,
-                dimensions=config.embedding.dimensions,
-                batch_size=config.embedding.batch_size,
-                timeout=config.embedding.timeout_seconds,
+                api_key=self.config.llm.openai_api_key,
+                model=self.config.embedding.model,
+                dimensions=self.config.embedding.dimensions,
+                batch_size=self.config.embedding.batch_size,
+                timeout=self.config.embedding.timeout_seconds,
             )
 
         # Initialize search engine first (creates BM25 index)
         self.search_engine = SearchEngine(
             db=self.db,
             embedding_client=self.embedding_client,
-            episode_config=config.episode,
+            episode_config=self.config.episode,
         )
 
         # Try to load existing BM25 index from disk
@@ -214,18 +207,18 @@ class Ryumem:
             db=self.db,
             llm_client=self.llm_client,
             embedding_client=self.embedding_client,
-            entity_similarity_threshold=config.entity_extraction.entity_similarity_threshold,
-            relationship_similarity_threshold=config.entity_extraction.relationship_similarity_threshold,
-            max_context_episodes=config.entity_extraction.max_context_episodes,
+            entity_similarity_threshold=self.config.entity_extraction.entity_similarity_threshold,
+            relationship_similarity_threshold=self.config.entity_extraction.relationship_similarity_threshold,
+            max_context_episodes=self.config.entity_extraction.max_context_episodes,
             bm25_index=self.search_engine.bm25_index,
-            enable_entity_extraction=config.entity_extraction.enabled,
-            episode_config=config.episode,
+            enable_entity_extraction=self.config.entity_extraction.enabled,
+            episode_config=self.config.episode,
         )
 
         # Initialize memory pruner
         self.memory_pruner = MemoryPruner(db=self.db)
 
-        logger.info(f"Ryumem initialized successfully (db: {config.database.db_path})")
+        logger.info(f"Ryumem initialized successfully (db: {self.config.database.db_path})")
 
     def add_episode(
         self,

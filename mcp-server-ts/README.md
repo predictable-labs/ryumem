@@ -1,81 +1,117 @@
-# Ryumem MCP Server (TypeScript)
+# Ryumem MCP Server
 
-A thin TypeScript wrapper MCP server for the Ryumem API.
+MCP server for integrating Ryumem memory with Claude and AI coding agents.
 
-## Installation
+## Quick Start
 
-```bash
-npm install
-npm run build
-```
-
-## Configuration
-
-The server requires an API key to connect to the Ryumem API:
+### Install for Claude Code
 
 ```bash
-export RYUMEM_API_KEY="your-api-key-here"
+npx @predictable/ryumem-mcp-server install --oauth
 ```
 
-By default, the server connects to `https://api.ryumem.io`. To use a different endpoint:
+This will:
+1. Authenticate with your Ryumem account via GitHub (opens browser)
+2. Configure Claude Code automatically
+
+### Install for Cursor
 
 ```bash
-export RYUMEM_API_URL="http://localhost:8000"
+npx @predictable/ryumem-mcp-server install --oauth --client cursor
 ```
 
-## Usage with Claude Desktop
+### Install for Claude Desktop
 
-Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+```bash
+npx @predictable/ryumem-mcp-server install --oauth --client claude-desktop
+```
+
+### Uninstall
+
+```bash
+npx @predictable/ryumem-mcp-server uninstall
+```
+
+## Manual Configuration
+
+If you prefer manual setup, add to your configuration file:
+
+**Claude Code:** `~/.claude.json`
+**Cursor:** `~/.cursor/mcp.json`
+**Claude Desktop (macOS):** `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Claude Desktop (Windows):** `%APPDATA%\Claude\claude_desktop_config.json`
+**Claude Desktop (Linux):** `~/.config/Claude/claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
     "ryumem": {
-      "command": "node",
-      "args": ["/path/to/ryumem/mcp-server-ts/build/index.js"],
+      "command": "npx",
+      "args": ["@predictable/ryumem-mcp-server"],
       "env": {
-        "RYUMEM_API_KEY": "your-api-key-here"
+        "RYUMEM_API_KEY": "ryu_your_api_key_here"
       }
     }
   }
 }
 ```
 
-Or if you want to use a local API:
+## CLI Options
 
-```json
-{
-  "mcpServers": {
-    "ryumem": {
-      "command": "node",
-      "args": ["/path/to/ryumem/mcp-server-ts/build/index.js"],
-      "env": {
-        "RYUMEM_API_URL": "http://localhost:8000",
-        "RYUMEM_API_KEY": "your-api-key-here"
-      }
-    }
-  }
-}
+```bash
+npx @predictable/ryumem-mcp-server install [options]
 ```
+
+| Option | Description |
+|--------|-------------|
+| `--oauth` | Authenticate via GitHub OAuth (default, recommended) |
+| `--api-key <key>` | Use a specific API key instead of OAuth |
+| `--api-url <url>` | Custom API URL (default: `https://api.ryumem.io`) |
+| `--client <name>` | Target client: `claude-code` (default), `cursor`, or `claude-desktop` |
+
+### Examples
+
+```bash
+# OAuth authentication (recommended)
+npx @predictable/ryumem-mcp-server install --oauth
+
+# Configure for Cursor
+npx @predictable/ryumem-mcp-server install --oauth --client cursor
+
+# Configure for Claude Desktop
+npx @predictable/ryumem-mcp-server install --oauth --client claude-desktop
+
+# Use custom API server
+npx @predictable/ryumem-mcp-server install --api-key ryu_api_key --api-url http://localhost:8000
+```
+
+## Cursor Configuration
+
+Cursor's MCP implementation doesn't automatically load server instructions. To enable Ryumem's memory-first behavior, add the following to your project's `.cursorrules` file:
+
+<details>
+<summary>📋 Click to expand .cursorrules content</summary>
+
+```
+Always search and follow Ryumem's memory-first instructions.
+```
+
+</details>
+
+**Alternative:** You can also add these instructions to Cursor's global "Rules for AI" in Settings → General → Rules for AI.
 
 ## Available Tools
 
-- `search_memory` - Multi-strategy semantic search across the knowledge graph
-- `add_episode` - Save new episodic memory
-- `get_entity_context` - Retrieve entity details and relationships
-- `list_episodes` - Paginated episode listing with filters
-- `get_episode` - Retrieve specific episode by UUID
-- `update_episode_metadata` - Update metadata on existing episode
-- `prune_memories` - Clean up expired and low-value memories
+| Tool | Description |
+|------|-------------|
+| `search_memory` | Multi-strategy semantic search across the knowledge graph |
+| `add_episode` | Save new episodic memory |
+| `get_entity_context` | Retrieve entity details and relationships |
+| `list_episodes` | Paginated episode listing with filters |
+| `get_episode` | Retrieve specific episode by UUID |
+| `update_episode_metadata` | Update metadata on existing episode |
+| `prune_memories` | Clean up old or redundant memories |
 
-## Development
+## License
 
-Watch mode for development:
-
-```bash
-npm run watch
-```
-
-## Architecture
-
-This is a thin wrapper that makes HTTP API calls to the Ryumem backend. It does not contain any business logic - all memory operations are handled by the Ryumem API server.
+Apache 2.0 - See [LICENSE](../LICENSE) for details.

@@ -1,7 +1,7 @@
 {
   "name": "@predictable/ryumem-mcp-server",
-  "version": "0.2.0",
-  "description": "Ryumem MCP Server",
+  "version": "0.5.0",
+  "description": "MCP server for integrating Ryumem memory with Claude and AI coding agents",
   "type": "module",
   "bin": {
     "ryumem-mcp": "./build/index.js"
@@ -18,7 +18,7 @@
     "ryumem"
   ],
   "author": "Predictable Labs, Inc.",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4"
   },

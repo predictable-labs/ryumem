@@ -24,7 +24,7 @@ interface ClaudeConfig {
   [key: string]: unknown;
 }
 
-function getClaudeConfigPath(client: string): string {
+function getConfigPath(client: string): string {
   const home = os.homedir();
 
   switch (client) {
@@ -41,8 +41,11 @@ function getClaudeConfigPath(client: string): string {
       } else {
         return path.join(home, '.config', 'claude', 'claude_desktop_config.json');
       }
+    case 'cursor':
+      // Cursor uses ~/.cursor/mcp.json on all platforms
+      return path.join(home, '.cursor', 'mcp.json');
     default:
-      throw new Error(`Unknown client: ${client}. Supported: claude-code, claude-desktop`);
+      throw new Error(`Unknown client: ${client}. Supported: claude-code, claude-desktop, cursor`);
   }
 }
 
@@ -66,19 +69,35 @@ function saveConfig(configPath: string, config: ClaudeConfig): void {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 }
 
+function getClientDisplayName(client: string): string {
+  switch (client) {
+    case 'claude-code':
+    case 'claude':
+      return 'Claude Code';
+    case 'claude-desktop':
+      return 'Claude Desktop';
+    case 'cursor':
+      return 'Cursor';
+    default:
+      return client;
+  }
+}
+
 async function uninstall(client: string): Promise<void> {
   console.log('\n🧠 Ryumem MCP Server Uninstaller\n');
 
-  const configPath = getClaudeConfigPath(client);
+  const configPath = getConfigPath(client);
   console.log(`📁 Config path: ${configPath}`);
 
   // Load existing config
   const config = loadConfig(configPath);
 
+  const clientName = getClientDisplayName(client);
+
   if (config.mcpServers && config.mcpServers.ryumem) {
     delete config.mcpServers.ryumem;
     saveConfig(configPath, config);
-    console.log('\n✅ Removed ryumem from Claude config');
+    console.log(`\n✅ Removed ryumem from ${clientName} config`);
   } else {
     console.log('\n⚠️  ryumem not found in config');
   }
@@ -94,7 +113,7 @@ async function uninstall(client: string): Promise<void> {
     // Ignore errors
   }
 
-  console.log('\n🔄 Restart Claude Code to apply changes.\n');
+  console.log(`\n🔄 Restart ${clientName} to apply changes.\n`);
 }
 
 async function install(options: {
@@ -105,7 +124,8 @@ async function install(options: {
 }): Promise<void> {
   console.log('\n🧠 Ryumem MCP Server Installer\n');
 
-  const configPath = getClaudeConfigPath(options.client);
+  const configPath = getConfigPath(options.client);
+  const clientName = getClientDisplayName(options.client);
   console.log(`📁 Config path: ${configPath}`);
 
   let apiKey = options.apiKey;
@@ -147,7 +167,7 @@ async function install(options: {
   config.mcpServers.ryumem = {
     type: 'stdio',
     command: 'npx',
-    args: ['-y', '@ryumem/mcp-server'],
+    args: ['-y', '@predictable/ryumem-mcp-server'],
     env: {
       RYUMEM_API_URL: options.apiUrl,
       RYUMEM_API_KEY: apiKey,
@@ -159,7 +179,7 @@ async function install(options: {
 
   console.log('\n✅ Ryumem MCP server configured successfully!');
   console.log(`\n📝 Added to: ${configPath}`);
-  console.log('\n🔄 Restart Claude Code to activate the server.\n');
+  console.log(`\n🔄 Restart ${clientName} to activate the server.\n`);
 }
 
 function printHelp(): void {
@@ -167,26 +187,27 @@ function printHelp(): void {
 🧠 Ryumem MCP Server Installer
 
 Usage:
-  npx @ryumem/mcp-server install [options]
-  npx @ryumem/mcp-server uninstall [options]
+  npx @predictable/ryumem-mcp-server install [options]
+  npx @predictable/ryumem-mcp-server uninstall [options]
 
 Commands:
   install             Install and configure ryumem MCP server
-  uninstall           Remove ryumem from Claude config and clear credentials
+  uninstall           Remove ryumem MCP server from config and clear credentials
 
 Options:
-  --client <name>     Claude client to configure (default: claude-code)
-                      Supported: claude-code, claude-desktop
+  --client <name>     Client to configure (default: claude-code)
+                      Supported: claude-code, claude-desktop, cursor
   --oauth             Authenticate via GitHub OAuth (recommended)
   --api-key <key>     Use a specific API key
   --api-url <url>     API URL (default: https://api.ryumem.io)
   --help              Show this help message
 
 Examples:
-  npx @ryumem/mcp-server install --oauth
-  npx @ryumem/mcp-server install --api-key ryu_xxxxx
-  npx @ryumem/mcp-server install --api-url http://localhost:8000 --oauth
-  npx @ryumem/mcp-server uninstall
+  npx @predictable/ryumem-mcp-server install --oauth
+  npx @predictable/ryumem-mcp-server install --oauth --client cursor
+  npx @predictable/ryumem-mcp-server install --api-key ryu_xxxxx
+  npx @predictable/ryumem-mcp-server install --api-url http://localhost:8000 --oauth
+  npx @predictable/ryumem-mcp-server uninstall
 `);
 }
 

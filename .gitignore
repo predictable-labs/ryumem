@@ -118,3 +118,5 @@ ryugraph_dump*.json
 
 cook/
 .mcp.json
+
+.cursorrules

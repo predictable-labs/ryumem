@@ -202,4 +202,11 @@ The actual Ryumem library provides these capabilities with real backend integrat
 
 ---
 
+## License
+
+GNU Affero General Public License v3.0 (AGPL-3.0) - See [LICENSE](../LICENSE) for details.
+
+---
+
 **Note**: This demo simulates Ryumem's core value proposition - showing how memory-assisted execution and workflow management dramatically improves response times through intelligent tool selection and optimized execution. The system learns which tools are necessary for similar queries, skipping exploratory work and focusing on core operations. Users can customize workflows to further optimize performance based on their specific needs. In a production environment, these optimizations would apply to real API calls, database queries, and computational tasks.
+
