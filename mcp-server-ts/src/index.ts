@@ -52,7 +52,7 @@ Use user_id = project_name.
 
 🚨 REQUIRED - Run these 3 searches at the START of EVERY conversation:
 1. search_memory({user_id, tags: ["project"], limit: 1})        // NO query parameter
-2. search_memory({user_id, tags: ["preferences"], limit: 3})    // NO query parameter
+2. search_memory({user_id, tags: ["preferences"], limit: 1})    // NO query parameter
 3. search_memory({user_id, tags: ["decision"], limit: 2})       // NO query parameter
 
 IMPORTANT: Use ONLY tags for startup searches - do NOT include query parameter.
@@ -95,9 +95,6 @@ Search memory BEFORE:
 ✓ Starting multi-step tasks
 
 Search volume limits:
-- Code summaries: limit: 1
-- Preferences: limit: 3
-- Decisions: limit: 2
 - General queries: limit: 5
 - Max 5 search results before starting work
 
