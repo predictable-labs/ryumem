@@ -1,0 +1,88 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Run pytest with server
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          cd server && pip install -r requirements.txt
+
+      - name: Set up environment variables and random port
+        id: setup
+        run: |
+          cp server/.env.example server/.env
+          echo "ADMIN_API_KEY=test_admin_key_for_ci" >> server/.env
+          echo "RYUMEM_DB_FOLDER=./test_data" >> server/.env
+          echo "GITHUB_CLIENT_ID=${{ secrets.OAUTH_CLIENT_ID }}" >> server/.env
+          echo "GITHUB_CLIENT_SECRET=${{ secrets.OAUTH_CLIENT_SECRET }}" >> server/.env
+          # Generate random port between 8000-9000
+          RANDOM_PORT=$((8000 + RANDOM % 1000))
+          echo "PORT=$RANDOM_PORT" >> $GITHUB_OUTPUT
+          echo "Using port: $RANDOM_PORT"
+
+      - name: Start server
+        run: |
+          cd server
+          python -m uvicorn main:app --host 0.0.0.0 --port ${{ steps.setup.outputs.PORT }} &
+          echo $! > server.pid
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Wait for server to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -s http://localhost:${{ steps.setup.outputs.PORT }}/health > /dev/null 2>&1; then
+              echo "Server is ready on port ${{ steps.setup.outputs.PORT }}"
+              break
+            fi
+            echo "Waiting for server... ($i/30)"
+            sleep 2
+          done
+          curl -s http://localhost:${{ steps.setup.outputs.PORT }}/health || (echo "Server failed to start" && exit 1)
+
+      - name: Test /register endpoint and get API key
+        id: register
+        run: |
+          RESPONSE=$(curl --location 'http://localhost:${{ steps.setup.outputs.PORT }}/register' \
+            --header 'Content-Type: application/json' \
+            --header 'X-Admin-Key: test_admin_key_for_ci' \
+            --data '{"customer_id": "admin"}' \
+            --fail-with-body)
+          echo "Response: $RESPONSE"
+          API_KEY=$(echo $RESPONSE | jq -r '.api_key')
+          echo "API_KEY=$API_KEY" >> $GITHUB_OUTPUT
+          echo "Successfully registered admin user with API key"
+
+      - name: Run pytest
+        run: |
+          source .venv/bin/activate 2>/dev/null || true
+          RYUMEM_API_URL=http://localhost:${{ steps.setup.outputs.PORT }} RYUMEM_API_KEY=${{ steps.register.outputs.API_KEY }} python -m pytest
+        env:
+          PYTHONUNBUFFERED: 1
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server/server.pid ]; then
+            kill $(cat server/server.pid) || true
+          fi
