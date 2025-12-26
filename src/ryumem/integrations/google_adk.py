@@ -659,6 +659,22 @@ def _get_last_session_details(similar_queries: List[Dict[str, Any]]) -> str:
     return '\n'.join(session_details)
 
 
+def _escape_braces(text: str) -> str:
+    """
+    Escape curly braces in text to prevent format string interpretation.
+
+    This is critical when the text may contain placeholders like {formatting_instructions}
+    that should be treated as literal text, not as format string variables.
+
+    Args:
+        text: Text that may contain curly braces
+
+    Returns:
+        Text with all { replaced by {{ and } replaced by }}
+    """
+    return text.replace("{", "{{").replace("}", "}}")
+
+
 def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]], memory: RyumemGoogleADK, top_k: int) -> str:
     """Build historical context string from similar queries and their tool executions."""
 
@@ -692,13 +708,21 @@ def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]
             # Get last session details
             last_session = _get_last_session_details(similar_queries)
 
+            # Escape curly braces in all variables to prevent Google ADK from
+            # interpreting them as template placeholders when it processes the augmented query
+            escaped_agent_response = _escape_braces(agent_response or "No previous response recorded")
+            escaped_tool_summary = _escape_braces(tool_summary or "No tools used")
+            escaped_simplified_tool_summary = _escape_braces(simplified_tool_summary or "No tools used")
+            escaped_last_session = _escape_braces(last_session)
+            escaped_query_text = _escape_braces(query_text)
+
             # Fill template
             return augmentation_template.format(
-                agent_response=agent_response or "No previous response recorded",
-                tool_summary=tool_summary or "No tools used",
-                simplified_tool_summary=simplified_tool_summary or "No tools used",
-                last_session=last_session,
-                query_text=query_text
+                agent_response=escaped_agent_response,
+                tool_summary=escaped_tool_summary,
+                simplified_tool_summary=escaped_simplified_tool_summary,
+                last_session=escaped_last_session,
+                query_text=escaped_query_text
             )
 
         except Exception as e:

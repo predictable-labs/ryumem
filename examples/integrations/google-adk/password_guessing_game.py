@@ -254,16 +254,23 @@ async def run_game(password: str, use_async: bool = False):
     hint_tool = FunctionTool(func=get_hint)
 
     # Create agent with detailed instructions
+    # NOTE: Added {{formatting_instructions}} and {{session_metadata}} placeholders (double braces for Google ADK)
+    # to reproduce the augmentation bug where these appear in agent responses
     password_agent = Agent(
         model=MODEL_ID,
         name='password_guesser',
         instruction="""You are a strategic password guesser playing a game.
+
+{{formatting_instructions}}
 
 GAME RULES:
 - The password is 4 characters long
 - Each character can only be A, B, C, or D
 - You have 10 attempts total
 - For each guess, you'll get feedback on how many characters are in the correct position (but not which ones)
+
+Session Context:
+{{session_metadata}}
 
 AVAILABLE TOOLS:
 1. validate_with_password(guess) - Make a guess and get feedback
@@ -283,6 +290,7 @@ IMPORTANT:
 - Pay attention to the feedback (correct_positions)
 - Don't guess the same password twice
 - Think strategically based on previous results
+- In your response, acknowledge what strategy you're following based on the formatting instructions
 
 When the user asks you to guess or try a password, use the validate_with_password tool.
 If the user asks for your progress or history, use get_guess_history.
@@ -316,6 +324,21 @@ If the user wants a hint, use get_hint.""",
         app_name=APP_NAME,
         user_id=USER_ID,
         session_id=session_id
+    )
+
+    # Set session state values for the placeholders in the agent instruction
+    # This reproduces the customer scenario where they provide these values
+    session = await session_service.get_session(
+        app_name=APP_NAME,
+        user_id=USER_ID,
+        session_id=session_id
+    )
+    session.state['formatting_instructions'] = (
+        "When guessing, always state your reasoning in the format: "
+        "'Based on previous feedback {feedback_summary}, I will try {guess}'"
+    )
+    session.state['session_metadata'] = (
+        f"Session {session_id}: Password guessing game with systematic strategy"
     )
 
     runner = Runner(

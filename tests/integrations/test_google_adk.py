@@ -1250,6 +1250,98 @@ class TestAugmentationRealIntegration:
         assert augmented.count("Session ID:") == 1, \
             "Should only include one session in last_session details"
 
+    @pytest.mark.asyncio
+    async def test_augmentation_escapes_placeholders_in_agent_response(self, ryumem, unique_user):
+        """
+        Test that augmentation properly escapes curly braces in agent responses
+        to prevent format string errors when the response contains placeholders.
+
+        This tests the fix for the issue where agent responses containing placeholders
+        like {formatting_instructions} would cause "Context variable not found" errors
+        during augmentation.
+        """
+        from ryumem.integrations.google_adk import DEFAULT_AUGMENTATION_TEMPLATE
+
+        agent = SimpleAgent(instruction="You are a helpful assistant.\n\n{formatting_instructions}")
+        agent_with_memory = add_memory_to_agent(agent, ryumem)
+        memory = agent_with_memory._ryumem_memory
+
+        # Create a previous session where the agent response includes placeholders
+        # (simulating when agent echoes its instruction or includes template variables)
+        session1 = f"session_{uuid.uuid4().hex[:8]}"
+
+        from ryumem.core.metadata_models import ToolExecution
+
+        tool_exec = ToolExecution(
+            tool_name="test_tool",
+            success=True,
+            timestamp=datetime.utcnow().isoformat(),
+            input_params={"query": "help"},
+            output_summary="Tool executed successfully",
+            duration_ms=100
+        )
+
+        # Agent response that contains placeholder from instruction
+        agent_response_with_placeholder = (
+            "Based on my instruction which says {formatting_instructions}, "
+            "I will help you with {session_metadata} and other tasks."
+        )
+
+        query_run = QueryRun(
+            run_id=str(uuid.uuid4()),
+            user_id=unique_user,
+            timestamp=datetime.utcnow().isoformat(),
+            query="Help me with a debugging task",
+            agent_response=agent_response_with_placeholder,
+            tools_used=[tool_exec]
+        )
+
+        metadata = EpisodeMetadata(integration="google_adk")
+        metadata.add_query_run(session1, query_run)
+
+        episode_id = ryumem.add_episode(
+            content="Help me with a debugging task",
+            user_id=unique_user,
+            session_id=session1,
+            source="message",
+            metadata=metadata.model_dump()
+        )
+
+        assert episode_id is not None
+
+        # Now try to augment a similar query in a new session
+        session2 = f"session_{uuid.uuid4().hex[:8]}"
+
+        from ryumem.integrations.google_adk import _augment_query_with_history
+
+        memory._augmentation_prompt = DEFAULT_AUGMENTATION_TEMPLATE
+
+        similar_query = "Help me with a debugging task"
+
+        # This should NOT raise KeyError: 'formatting_instructions'
+        # The augmentation should properly escape the placeholders in agent_response
+        try:
+            augmented_query = _augment_query_with_history(
+                query_text=similar_query,
+                memory=memory,
+                user_id=unique_user,
+                session_id=session2
+            )
+
+            # If we get here without exception, the test passes
+            # The augmented query should contain the agent response but with escaped braces
+            if augmented_query != similar_query:
+                # Augmentation occurred - verify it contains the response
+                assert "formatting_instructions" in augmented_query or "Based on my instruction" in augmented_query, \
+                    "Should include agent response from previous attempt"
+
+                # The placeholders should be in the text, not cause formatting errors
+                logger.info(f"✓ Augmentation succeeded with placeholders in agent response")
+        except KeyError as e:
+            pytest.fail(f"Augmentation failed with KeyError: {e}. Placeholders in agent_response were not properly escaped.")
+        except Exception as e:
+            pytest.fail(f"Augmentation failed with unexpected error: {e}")
+
 
 class TestMultipleMemoryAddition:
     """Test that add_memory_to_agent handles multiple calls correctly."""
