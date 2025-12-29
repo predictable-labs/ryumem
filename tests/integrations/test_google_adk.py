@@ -25,7 +25,7 @@ from ryumem.integrations.google_adk import (
     _extract_query_text,
 )
 from ryumem.main import Ryumem
-from ryumem.core.metadata_models import EpisodeMetadata, QueryRun
+from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
 
 
 # ===== Pytest Hooks for Test Result Tracking =====
@@ -473,6 +473,71 @@ class TestQueryAugmentationReal:
 
         text = _extract_query_text(message)
         assert text == "Hello world"
+
+    def test_custom_tool_summary_function(self, ryumem, agent):
+        """Test custom_tool_summary_fn is used when building context."""
+        # Define custom function
+        def custom_summary_fn(tool: ToolExecution) -> str:
+            if len(tool.output_summary) > 0:
+                return "Result was there"
+            else:
+                return "No Result"
+
+        # Set custom function on ryumem instance
+        ryumem.custom_tool_summary_fn = custom_summary_fn
+
+        # Create memory
+        memory = RyumemGoogleADK(agent=agent, ryumem=ryumem)
+        memory._augmentation_prompt = "Tools: {custom_tool_summary}\nQuery: {query_text}"
+
+        # Create metadata with tools that have different output_summary values
+        tool_with_output = ToolExecution(
+            tool_name="tool1",
+            success=True,
+            duration_ms=100,
+            timestamp=datetime.utcnow().isoformat(),
+            input_params={"param": "value"},
+            output_summary="Some result data"
+        )
+
+        tool_without_output = ToolExecution(
+            tool_name="tool2",
+            success=True,
+            duration_ms=50,
+            timestamp=datetime.utcnow().isoformat(),
+            input_params={"param": "value2"},
+            output_summary=""
+        )
+
+        query_run = QueryRun(
+            run_id="test",
+            user_id="test_user",
+            timestamp=datetime.utcnow().isoformat(),
+            query="test query",
+            agent_response="Response",
+            tools_used=[tool_with_output, tool_without_output]
+        )
+
+        metadata = EpisodeMetadata(integration="google_adk")
+        metadata.add_query_run("session1", query_run)
+
+        similar_queries = [{
+            "content": "test query",
+            "score": 0.95,
+            "uuid": "test_uuid",
+            "metadata": metadata.model_dump()
+        }]
+
+        context = _build_context_section(
+            query_text="new query",
+            similar_queries=similar_queries,
+            memory=memory,
+            top_k=1
+        )
+
+        # Should contain custom summaries
+        assert "Result was there" in context, "Should have 'Result was there' for tool with output"
+        assert "No Result" in context, "Should have 'No Result' for tool without output"
 
 
 class TestEpisodeCreationReal:

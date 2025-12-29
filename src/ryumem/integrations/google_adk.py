@@ -44,7 +44,7 @@ from typing import Optional, Dict, Any, List
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 from ryumem import EpisodeType, Ryumem, RyumemConfig
-from ryumem.core.metadata_models import EpisodeMetadata, QueryRun
+from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
 
 from .tool_tracker import ToolTracker
 
@@ -105,19 +105,16 @@ class RyumemGoogleADK:
 
     Args:
         agent: Google ADK Agent instance
-        ryumem: Initialized Ryumem instance (contains config)
-        tool_tracker: Optional ToolTracker for monitoring tool usage
+        ryumem: Initialized Ryumem instance (contains config and custom_tool_summary_fn)
     """
 
     def __init__(
         self,
         agent: Any,
-        ryumem: Ryumem,
-        tool_tracker: Optional['ToolTracker'] = None
+        ryumem: Ryumem
     ):
         self.agent = agent
         self.ryumem = ryumem
-        self.tool_tracker = tool_tracker
         # Store per-session user_id overrides
         self._session_user_overrides: Dict[str, str] = {}
 
@@ -452,8 +449,7 @@ def add_memory_to_agent(
     # Create memory integration
     memory = RyumemGoogleADK(
         agent=agent,
-        ryumem=ryumem_instance,
-        tool_tracker=tool_tracker
+        ryumem=ryumem_instance
     )
 
     # Store memory reference in tool_tracker for override support
@@ -694,6 +690,14 @@ def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]
             tool_summary = episode_metadata.get_tool_usage_summary()
             simplified_tool_summary = episode_metadata.get_simple_tool_usage_summary()
 
+            # Build custom tool summary if function provided
+            custom_tool_summary = "No tools used"
+            if memory.ryumem.custom_tool_summary_fn:
+                all_tools = episode_metadata.get_all_tools_used()
+                if all_tools:
+                    tool_summaries = [memory.ryumem.custom_tool_summary_fn(tool) for tool in all_tools]
+                    custom_tool_summary = ', '.join(tool_summaries)
+
             # Get last session details
             last_session = _get_last_session_details(similar_queries)
 
@@ -702,6 +706,7 @@ def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]
                 agent_response=agent_response or "No previous response recorded",
                 tool_summary=tool_summary or "No tools used",
                 simplified_tool_summary=simplified_tool_summary or "No tools used",
+                custom_tool_summary=custom_tool_summary,
                 last_session=last_session,
                 query_text=query_text
             )
