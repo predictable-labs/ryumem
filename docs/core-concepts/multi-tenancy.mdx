@@ -9,23 +9,36 @@ Ryumem is designed as a multi-tenant system from the ground up, supporting secur
 
 1.  **Customer Level**: Strict isolation. Data from one customer is never accessible to another. Enforced via API keys.
 2.  **User Level**: Logical separation within a customer. Use `user_id` to scope memories to specific end-users.
-3.  **Session/Agent Level**: Further scoping via `session_id` or `agent_id` for specific interaction contexts.
+3.  **Session Level**: Further scoping via `session_id` for specific interaction contexts (conversations, tasks).
+4.  **Agent Level**: Optional `agent_id` to identify which agent created the memory.
 
 ## Usage
 
 ```python
+from ryumem import Ryumem
+
+ryumem = Ryumem(api_url="http://localhost:8000")
+
+# Add episode with multi-tenancy scoping
 ryumem.add_episode(
-    content="...",
-    group_id="organization_1",      # Organization level
-    user_id="user_123",             # User level
-    agent_id="agent_assistant",     # Agent level
-    session_id="session_xyz",       # Session level
+    content="User prefers dark mode and compact layouts.",
+    user_id="user_123",             # Required: User-level isolation
+    session_id="settings_session",  # Required: Session-level grouping
+    agent_id="preferences_agent",   # Optional: Agent identifier
 )
 
-# Search within specific scope
+# Search within user scope
 results = ryumem.search(
-    query="...",
-    group_id="organization_1",
-    user_id="user_123",             # Optional: filter by user
+    query="What are the user's preferences?",
+    user_id="user_123",             # Required: Scopes search to this user
+    session_id="settings_session",  # Required: Session context
 )
 ```
+
+## Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `user_id` | Yes | User identifier for data isolation |
+| `session_id` | Yes | Session identifier for grouping related episodes |
+| `agent_id` | No | Optional agent identifier |
