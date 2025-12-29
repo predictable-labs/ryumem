@@ -268,9 +268,15 @@ class ConfigService:
             ignore_errors=get_value("tool_tracking.ignore_errors", True),
         )
 
+        # Get default AgentConfig to extract default values for new fields
+        default_agent = AgentConfig()
+
         agent_config = AgentConfig(
             memory_enabled=get_value("agent.memory_enabled", True),
             enhance_agent_instruction=get_value("agent.enhance_agent_instruction", True),
+            default_memory_block=get_value("agent.default_memory_block", default_agent.default_memory_block),
+            default_tool_block=get_value("agent.default_tool_block", default_agent.default_tool_block),
+            default_query_augmentation_template=get_value("agent.default_query_augmentation_template", default_agent.default_query_augmentation_template),
         )
 
         system_config = SystemConfig(
@@ -305,8 +311,9 @@ class ConfigService:
         # Check if database already has configs
         existing = self.db.get_all_configs()
         if existing:
-            logger.debug(f"Database already has {len(existing)} configs, skipping defaults")
-            return 0
+            logger.debug(f"Database already has {len(existing)} configs, checking for missing fields...")
+            # Database has configs, but check for missing fields (migration)
+            return self.migrate_missing_fields()
 
         logger.info("Populating database with default configuration values...")
 
@@ -332,6 +339,55 @@ class ConfigService:
                 logger.warning(f"Failed to save default config {field['key']}: {e}")
 
         logger.info(f"Saved {count} default configs to database")
+        return count
+
+    def migrate_missing_fields(self) -> int:
+        """
+        Migrate missing config fields to the database.
+        Automatically adds any new config fields that don't exist in the database.
+
+        Returns:
+            Number of fields added
+        """
+        # Get all fields from current config
+        defaults = self.get_default_configs()
+        all_fields = extract_config_fields(defaults)
+
+        # Get existing config keys from database
+        existing_configs = self.db.get_all_configs()
+        existing_keys = {cfg["key"] for cfg in existing_configs}
+
+        # Find missing fields
+        missing_fields = [
+            field for field in all_fields
+            if field["key"] not in existing_keys
+        ]
+
+        if not missing_fields:
+            logger.debug("No missing config fields - database is up to date")
+            return 0
+
+        logger.info(f"Found {len(missing_fields)} missing config fields, adding to database...")
+
+        # Add missing fields
+        count = 0
+        for field in missing_fields:
+            try:
+                value_str = self._serialize_value(field['value'], field['data_type'])
+                self.db.save_config(
+                    key=field['key'],
+                    value=value_str,
+                    category=field['category'],
+                    data_type=field['data_type'],
+                    is_sensitive=field['is_sensitive'],
+                    description=field['description']
+                )
+                count += 1
+                logger.debug(f"  Added missing field: {field['key']}")
+            except Exception as e:
+                logger.warning(f"Failed to add missing config {field['key']}: {e}")
+
+        logger.info(f"Added {count} missing config fields to database")
         return count
 
     def get_all_configs_grouped(self, mask_sensitive: bool = True) -> Dict[str, List[Dict[str, Any]]]:
