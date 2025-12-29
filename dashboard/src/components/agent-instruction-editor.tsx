@@ -1,16 +1,17 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { api, type AgentInstructionResponse } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Database, Edit2, X, Save, Trash2 } from "lucide-react"
+import { Loader2, Database, Edit2, X, Save, Trash2, AlertCircle, Info, ChevronDown, ChevronUp } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,31 @@ import {
 
 interface AgentInstructionEditorProps {
   userId?: string
+}
+
+// Valid template variables for query augmentation templates
+// Based on src/ryumem/integrations/google_adk.py:705-712
+const VALID_TEMPLATE_VARIABLES = [
+  'agent_response',
+  'tool_summary',
+  'simplified_tool_summary',
+  'custom_tool_summary',
+  'last_session',
+  'query_text'
+] as const
+
+// Extract template variables from a string (e.g., "{var1} text {var2}" -> ["var1", "var2"])
+function extractTemplateVariables(template: string): string[] {
+  const matches = template.match(/\{([^}]+)\}/g)
+  if (!matches) return []
+  return matches.map(m => m.slice(1, -1)) // Remove { and }
+}
+
+// Validate template variables
+function validateTemplateVariables(template: string): { valid: boolean; invalidVars: string[] } {
+  const usedVars = extractTemplateVariables(template)
+  const invalidVars = usedVars.filter(v => !VALID_TEMPLATE_VARIABLES.includes(v as any))
+  return { valid: invalidVars.length === 0, invalidVars }
 }
 
 export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) {
@@ -40,6 +66,16 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [expandedBase, setExpandedBase] = useState(false)
+  const [focusedField, setFocusedField] = useState<'enhanced' | 'template' | null>(null)
+
+  // Validate template variables
+  const templateValidation = useMemo(() => {
+    if (!editedQueryTemplate) return { valid: true, invalidVars: [], usedVars: [] }
+    const validation = validateTemplateVariables(editedQueryTemplate)
+    const usedVars = extractTemplateVariables(editedQueryTemplate)
+    return { ...validation, usedVars }
+  }, [editedQueryTemplate])
 
   const loadInstructions = useCallback(async () => {
     setLoading(true)
@@ -256,7 +292,7 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                           <TableCell className="font-medium">{instr.agent_type}</TableCell>
                           <TableCell>
                             <div className="max-w-xs">
-                              <pre className="text-xs whitespace-pre-wrap break-words font-mono bg-slate-50 p-2 rounded line-clamp-2">
+                              <pre className="text-xs whitespace-pre-wrap break-words font-mono bg-muted/50 p-2 rounded line-clamp-2">
                                 {instr.base_instruction.substring(0, 80)}
                                 {instr.base_instruction.length > 80 && '...'}
                               </pre>
@@ -264,8 +300,8 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                           </TableCell>
                           <TableCell className="text-sm">
                             <div className="flex gap-1 flex-wrap">
-                              {instr.memory_enabled && <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Memory</span>}
-                              {instr.tool_tracking_enabled && <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Tracking</span>}
+                              {instr.memory_enabled && <span className="text-xs bg-blue-500/20 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">Memory</span>}
+                              {instr.tool_tracking_enabled && <span className="text-xs bg-green-500/20 text-green-700 dark:text-green-300 px-2 py-1 rounded">Tracking</span>}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -279,7 +315,7 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                           <TableCell>
                             <div className="max-w-xs">
                               {instr.query_augmentation_template ? (
-                                <pre className="text-xs whitespace-pre-wrap break-words font-mono bg-amber-50 p-2 rounded line-clamp-2">
+                                <pre className="text-xs whitespace-pre-wrap break-words font-mono bg-amber-500/20 text-amber-900 dark:text-amber-200 p-2 rounded line-clamp-2">
                                   {instr.query_augmentation_template.substring(0, 100)}
                                   {instr.query_augmentation_template.length > 100 && '...'}
                                 </pre>
@@ -311,39 +347,121 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
             </DialogTitle>
             <DialogDescription>
               <div className="flex gap-2 mt-2">
-                {selectedInstruction?.memory_enabled && <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Memory Enabled</span>}
-                {selectedInstruction?.tool_tracking_enabled && <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Tool Tracking Enabled</span>}
+                {selectedInstruction?.memory_enabled && <span className="text-xs bg-blue-500/20 text-blue-700 dark:text-blue-300 px-2 py-1 rounded">Memory Enabled</span>}
+                {selectedInstruction?.tool_tracking_enabled && <span className="text-xs bg-green-500/20 text-green-700 dark:text-green-300 px-2 py-1 rounded">Tool Tracking Enabled</span>}
               </div>
             </DialogDescription>
           </DialogHeader>
           {selectedInstruction && (
-            <div className="space-y-4">
-              <div>
-                <Label className="text-sm font-medium">Base Instruction</Label>
-                <pre className="text-sm bg-slate-50 p-3 rounded mt-1 whitespace-pre-wrap font-mono border border-slate-200">
-                  {selectedInstruction.base_instruction}
-                </pre>
+            <div className="space-y-5">
+              {/* Base Instruction - Read only, click to expand */}
+              <div className="space-y-2">
+                <div className="flex items-baseline gap-2">
+                  <Label className="text-base font-semibold">Base Instruction</Label>
+                  <span className="text-xs text-muted-foreground italic">Read-only • Click to {expandedBase ? 'collapse' : 'expand'}</span>
+                </div>
+                <div
+                  className="relative cursor-pointer"
+                  onClick={() => setExpandedBase(!expandedBase)}
+                >
+                  <pre className={`text-sm bg-muted/50 p-4 rounded-lg border whitespace-pre-wrap font-mono transition-all ${
+                    expandedBase ? '' : 'line-clamp-3'
+                  }`}>
+{selectedInstruction.base_instruction}
+                  </pre>
+                </div>
               </div>
 
-              <div>
-                <Label className="text-sm font-medium">Enhanced Instruction</Label>
+              {/* Enhanced Instruction */}
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">Enhanced Instruction</Label>
                 <Textarea
                   value={editedEnhancedInstruction}
                   onChange={(e) => setEditedEnhancedInstruction(e.target.value)}
-                  rows={8}
-                  className="font-mono text-sm mt-1"
+                  onFocus={() => setFocusedField('enhanced')}
+                  onBlur={() => setFocusedField(null)}
+                  rows={focusedField === 'enhanced' ? 15 : 6}
+                  className="font-mono text-sm resize-none border-slate-300 focus:border-blue-500 focus:ring-blue-500 transition-all duration-200 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                 />
               </div>
 
-              <div>
-                <Label className="text-sm font-medium">Query Augmentation Template</Label>
+              {/* Query Augmentation Template */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-semibold">Query Augmentation Template</Label>
+                  {templateValidation.usedVars.length > 0 && (
+                    <div className="flex items-center gap-1.5 text-xs text-emerald-600">
+                      <span className="w-1.5 h-1.5 bg-emerald-600 rounded-full"></span>
+                      {templateValidation.usedVars.length} variable{templateValidation.usedVars.length !== 1 ? 's' : ''} in use
+                    </div>
+                  )}
+                </div>
+
+                {/* Template Variables Toolbar */}
+                <div className="rounded-lg border bg-accent/50 p-3">
+                  <div className="flex items-start gap-2.5">
+                    <div className="mt-0.5">
+                      <Info className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <div>
+                        <p className="text-sm font-medium">Template Variables</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Click to insert • Used variables are highlighted</p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {VALID_TEMPLATE_VARIABLES.map((varName) => {
+                          const isUsed = templateValidation.usedVars.includes(varName)
+                          return (
+                            <Badge
+                              key={varName}
+                              variant={isUsed ? "default" : "secondary"}
+                              className="font-mono cursor-pointer transition-all hover:scale-105"
+                              onClick={() => {
+                                const textarea = document.querySelector('textarea[placeholder="Enter template with variables like {agent_response}, {query_text}, etc."]') as HTMLTextAreaElement
+                                if (textarea) {
+                                  const cursorPos = textarea.selectionStart
+                                  const textBefore = editedQueryTemplate.substring(0, cursorPos)
+                                  const textAfter = editedQueryTemplate.substring(cursorPos)
+                                  setEditedQueryTemplate(textBefore + `{${varName}}` + textAfter)
+                                  setFocusedField('template')
+                                  setTimeout(() => textarea.focus(), 0)
+                                }
+                              }}
+                            >
+                              {isUsed && <span className="mr-1">✓</span>}
+                              {`{${varName}}`}
+                            </Badge>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <Textarea
                   value={editedQueryTemplate}
                   onChange={(e) => setEditedQueryTemplate(e.target.value)}
-                  rows={8}
-                  className="font-mono text-sm mt-1"
-                  placeholder="Optional query augmentation template..."
+                  onFocus={() => setFocusedField('template')}
+                  onBlur={() => setFocusedField(null)}
+                  rows={focusedField === 'template' ? 15 : 6}
+                  className="font-mono text-sm resize-none border-slate-300 focus:border-blue-500 focus:ring-blue-500 transition-all duration-200 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                  placeholder="Enter template with variables like {agent_response}, {query_text}, etc."
                 />
+
+                {/* Validation feedback */}
+                {!templateValidation.valid && (
+                  <Alert variant="destructive" className="border-red-300 bg-red-50">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      <span className="font-semibold">Invalid variables detected:</span>{' '}
+                      <code className="text-xs bg-red-100 px-1 py-0.5 rounded">
+                        {templateValidation.invalidVars.map(v => `{${v}}`).join(', ')}
+                      </code>
+                      <br />
+                      <span className="text-xs mt-1 inline-block">Please use only the supported variables shown above.</span>
+                    </AlertDescription>
+                  </Alert>
+                )}
               </div>
 
               <div className="text-xs text-muted-foreground border-t pt-3">
@@ -369,7 +487,7 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                   >
                     Cancel
                   </Button>
-                  <Button onClick={handleSave} disabled={saving || deleting}>
+                  <Button onClick={handleSave} disabled={saving || deleting || !templateValidation.valid}>
                     {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Save Changes
                   </Button>

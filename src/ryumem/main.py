@@ -42,6 +42,7 @@ class Ryumem:
         server_url: Optional[str] = None,
         api_key: Optional[str] = None,
         config_ttl: int = 300,  # 5 minutes default
+        custom_tool_summary_fn: Optional['Callable'] = None,
         # Agent config overrides
         memory_enabled: Optional[bool] = None,
         enhance_agent_instruction: Optional[bool] = None,
@@ -67,6 +68,7 @@ class Ryumem:
             server_url: URL of the Ryumem server. If None, checks RYUMEM_API_URL env var
             api_key: Optional API key for authentication
             config_ttl: Time-to-live for cached config in seconds (default: 300)
+            custom_tool_summary_fn: Optional function to generate custom tool summaries (takes ToolExecution, returns str)
             memory_enabled: Override for agent.memory_enabled
             enhance_agent_instruction: Override for agent.enhance_agent_instruction
             extract_entities: Override for entity_extraction.enabled
@@ -98,6 +100,7 @@ class Ryumem:
         self.base_url = server_url.rstrip('/')
         self.api_key = api_key
         self._config_ttl = config_ttl
+        self.custom_tool_summary_fn = custom_tool_summary_fn
 
         # Store user overrides
         self._config_overrides = {

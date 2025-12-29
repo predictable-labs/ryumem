@@ -44,7 +44,7 @@ from typing import Optional, Dict, Any, List
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 from ryumem import EpisodeType, Ryumem, RyumemConfig
-from ryumem.core.metadata_models import EpisodeMetadata, QueryRun
+from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
 
 from .tool_tracker import ToolTracker
 
@@ -105,19 +105,16 @@ class RyumemGoogleADK:
 
     Args:
         agent: Google ADK Agent instance
-        ryumem: Initialized Ryumem instance (contains config)
-        tool_tracker: Optional ToolTracker for monitoring tool usage
+        ryumem: Initialized Ryumem instance (contains config and custom_tool_summary_fn)
     """
 
     def __init__(
         self,
         agent: Any,
-        ryumem: Ryumem,
-        tool_tracker: Optional['ToolTracker'] = None
+        ryumem: Ryumem
     ):
         self.agent = agent
         self.ryumem = ryumem
-        self.tool_tracker = tool_tracker
         # Store per-session user_id overrides
         self._session_user_overrides: Dict[str, str] = {}
 
@@ -452,8 +449,7 @@ def add_memory_to_agent(
     # Create memory integration
     memory = RyumemGoogleADK(
         agent=agent,
-        ryumem=ryumem_instance,
-        tool_tracker=tool_tracker
+        ryumem=ryumem_instance
     )
 
     # Store memory reference in tool_tracker for override support
@@ -549,11 +545,16 @@ def _find_similar_query_episodes(
     threshold = memory.ryumem.config.tool_tracking.similarity_threshold
     logger.info(f"Searching with strategy={memory.ryumem.config.tool_tracking.similarity_strategy}, threshold={threshold}")
 
+    # Check for session user override - use override user_id if set
+    effective_user_id = memory.get_session_user_override(session_id) or user_id
+    if effective_user_id != user_id:
+        logger.info(f"Using session override user_id: {effective_user_id} (original: {user_id})")
+
     # Search across ALL sessions for this user (not just current session)
     # This allows learning from past game sessions
     search_results = memory.ryumem.search(
         query=query_text,
-        user_id=user_id,
+        user_id=effective_user_id,
         session_id=None,  # Don't filter by session - search across all user's past queries
         strategy=memory.ryumem.config.tool_tracking.similarity_strategy,
         similarity_threshold=memory.ryumem.config.tool_tracking.similarity_threshold,
@@ -689,6 +690,14 @@ def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]
             tool_summary = episode_metadata.get_tool_usage_summary()
             simplified_tool_summary = episode_metadata.get_simple_tool_usage_summary()
 
+            # Build custom tool summary if function provided
+            custom_tool_summary = "No tools used"
+            if memory.ryumem.custom_tool_summary_fn:
+                all_tools = episode_metadata.get_all_tools_used()
+                if all_tools:
+                    tool_summaries = [memory.ryumem.custom_tool_summary_fn(tool) for tool in all_tools]
+                    custom_tool_summary = ', '.join(tool_summaries)
+
             # Get last session details
             last_session = _get_last_session_details(similar_queries)
 
@@ -697,6 +706,7 @@ def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]
                 agent_response=agent_response or "No previous response recorded",
                 tool_summary=tool_summary or "No tools used",
                 simplified_tool_summary=simplified_tool_summary or "No tools used",
+                custom_tool_summary=custom_tool_summary,
                 last_session=last_session,
                 query_text=query_text
             )
@@ -817,10 +827,15 @@ def _create_query_episode(
 ) -> str:
     """Create episode for user query with metadata."""
 
+    # Check for session user override - use override user_id if set
+    effective_user_id = memory.get_session_user_override(session_id) or user_id
+    if effective_user_id != user_id:
+        logger.info(f"Creating episode with session override user_id: {effective_user_id} (original: {user_id})")
+
     # Create query run using Pydantic model
     query_run = QueryRun(
         run_id=run_id,
-        user_id=user_id,
+        user_id=effective_user_id,
         timestamp=datetime.datetime.utcnow().isoformat(),
         query=query_text,
         augmented_query=augmented_query_text if augmented_query_text != query_text else None,
@@ -834,7 +849,7 @@ def _create_query_episode(
 
     query_episode_id = memory.ryumem.add_episode(
         content=query_text,
-        user_id=user_id,
+        user_id=effective_user_id,
         session_id=session_id,
         source="message",
         metadata=episode_metadata.model_dump(),
@@ -842,7 +857,7 @@ def _create_query_episode(
     )
 
     _insert_run_information_in_episode(query_episode_id, run_id, session_id, query_run, memory)
-    logger.info(f"Created query episode: {query_episode_id} for user: {user_id}, session: {session_id}")
+    logger.info(f"Created query episode: {query_episode_id} for user: {effective_user_id}, session: {session_id}")
 
     return query_episode_id
 
@@ -907,6 +922,11 @@ def _prepare_query_and_episode(
     existing_episode = memory.ryumem.get_episode_by_session_id(session_id)
     run_id = str(uuid_module.uuid4())
 
+    # Check for session user override - use override user_id if set
+    effective_user_id = memory.get_session_user_override(session_id) or user_id
+    if effective_user_id != user_id:
+        logger.info(f"Using session override user_id in _prepare_query_and_episode: {effective_user_id} (original: {user_id})")
+
     if existing_episode:
         # Session already linked to an episode - reuse it and add new run
         query_episode_id = existing_episode.uuid
@@ -915,7 +935,7 @@ def _prepare_query_and_episode(
         # Create query run for this session
         query_run = QueryRun(
             run_id=run_id,
-            user_id=user_id,
+            user_id=effective_user_id,
             timestamp=datetime.datetime.utcnow().isoformat(),
             query=original_query_text,
             augmented_query=augmented_query_text if augmented_query_text != original_query_text else None,
@@ -929,7 +949,7 @@ def _prepare_query_and_episode(
         # Create new episode for this session
         query_episode_id = _create_query_episode(
             query_text=original_query_text,
-            user_id=user_id,
+            user_id=effective_user_id,
             session_id=session_id,
             run_id=run_id,
             augmented_query_text=augmented_query_text,
