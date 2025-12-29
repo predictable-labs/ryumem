@@ -1,0 +1,60 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+== Ryumem API Server ==
+
+{{- if .Values.ingress.enabled }}
+Access the API at: http{{ if $.Values.ingress.tls }}s{{ end }}://{{ (index .Values.ingress.hosts 0).host }}
+{{- else if contains "NodePort" .Values.service.type }}
+Get the API URL by running:
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "ryumem.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.service.type }}
+Get the API URL by running:
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "ryumem.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.service.port }}
+{{- else if contains "ClusterIP" .Values.service.type }}
+Forward the API port locally:
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "ryumem.fullname" . }} 8000:{{ .Values.service.port }}
+  echo "API available at http://localhost:8000"
+{{- end }}
+
+{{- if .Values.dashboard.enabled }}
+
+== Ryumem Dashboard ==
+
+{{- if .Values.dashboard.ingress.enabled }}
+Access the Dashboard at: http{{ if $.Values.dashboard.ingress.tls }}s{{ end }}://{{ (index .Values.dashboard.ingress.hosts 0).host }}
+{{- else if contains "ClusterIP" .Values.dashboard.service.type }}
+Forward the Dashboard port locally:
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "ryumem.dashboard.fullname" . }} 3000:{{ .Values.dashboard.service.port }}
+  echo "Dashboard available at http://localhost:3000"
+{{- end }}
+{{- end }}
+
+== Generate API Key ==
+
+Once the API is accessible, register to get your API key:
+
+  curl -X POST "http://localhost:8000/register" \
+    -H "Content-Type: application/json" \
+    -d '{"customer_id": "my_project"}'
+
+== Python SDK Usage ==
+
+  from ryumem import Ryumem
+
+  ryumem = Ryumem(
+      api_url="http://localhost:8000",
+      api_key="ryu_your_api_key_here"
+  )
+
+  ryumem.add_episode(
+      content="Hello, World!",
+      user_id="user_123",
+      session_id="session_abc"
+  )
+
+For more information, visit: https://github.com/predictable-labs/ryumem

@@ -5,30 +5,50 @@ description: "Ryumem supports four search strategies for flexible retrieval."
 
 ## Strategies
 
-1.  **Semantic Search**: Embedding similarity using `text-embedding-3-large`.
+1.  **Semantic Search**: Embedding similarity using vector embeddings.
 2.  **BM25 Keyword Search**: Traditional keyword/lexical matching.
 3.  **Graph Traversal**: Navigate relationships with BFS.
 4.  **Hybrid**: Combines all three using RRF fusion (recommended).
 
-## Features
-
-All strategies benefit from:
--   **Temporal Decay**: Recent facts score higher (configurable).
--   **Update-Awareness Boost**: 20% boost for facts modified in last 7 days.
-
 ## Usage
 
 ```python
-# Try different strategies
-results = ryumem.search("AI researchers", group_id="user_123", strategy="semantic")
-results = ryumem.search("machine learning", group_id="user_123", strategy="bm25")
-results = ryumem.search("tech companies", group_id="user_123", strategy="hybrid")
+from ryumem import Ryumem
 
-# Customize temporal decay
+ryumem = Ryumem(api_url="http://localhost:8000")
+
+# Try different strategies
 results = ryumem.search(
-    query="recent news",
-    group_id="user_123",
-    strategy="hybrid",
-    # Override temporal decay settings
+    query="AI researchers",
+    user_id="user_123",
+    session_id="session_abc",
+    strategy="semantic"
+)
+
+results = ryumem.search(
+    query="machine learning",
+    user_id="user_123",
+    session_id="session_abc",
+    strategy="bm25"
+)
+
+results = ryumem.search(
+    query="tech companies",
+    user_id="user_123",
+    session_id="session_abc",
+    strategy="hybrid"
 )
 ```
+
+## Search Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | str | Yes | The search query |
+| `user_id` | str | Yes | User identifier for multi-tenancy |
+| `session_id` | str | Yes | Session identifier |
+| `limit` | int | No | Maximum results to return (default: 10) |
+| `strategy` | str | No | Search strategy: `semantic`, `bm25`, `traversal`, or `hybrid` |
+| `similarity_threshold` | float | No | Minimum similarity score for results |
+| `max_depth` | int | No | Graph traversal depth (default: 2) |
+| `kinds` | list | No | Filter by episode kinds: `query` or `memory` |

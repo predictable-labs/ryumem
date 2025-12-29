@@ -1,0 +1,17 @@
+{{- if .Values.dashboard.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ryumem.dashboard.fullname" . }}
+  labels:
+    {{- include "ryumem.dashboard.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.dashboard.service.type }}
+  ports:
+    - port: {{ .Values.dashboard.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "ryumem.dashboard.selectorLabels" . | nindent 4 }}
+{{- end }}

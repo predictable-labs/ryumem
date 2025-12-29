@@ -1,0 +1,122 @@
+# Default values for ryumem
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/predictable-labs/ryumem
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: ryumem.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Ryumem configuration
+ryumem:
+  # LLM Configuration
+  llm:
+    provider: "gemini"  # gemini, openai, ollama, litellm
+    model: "gemini-2.0-flash-exp"
+
+  # Embedding Configuration
+  embedding:
+    provider: "gemini"  # gemini, openai, ollama
+    model: "text-embedding-004"
+
+  # Database
+  database:
+    folder: "/data"
+
+  # CORS
+  corsOrigins: "http://localhost:3000"
+
+# Secrets - provide via --set or external secret management
+secrets:
+  # At least one LLM API key is required
+  googleApiKey: ""
+  openaiApiKey: ""
+  adminApiKey: ""
+
+# Persistence for database
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+
+# Dashboard configuration
+dashboard:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/predictable-labs/ryumem-dashboard
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  service:
+    type: ClusterIP
+    port: 3000
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: ryumem-dashboard.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi

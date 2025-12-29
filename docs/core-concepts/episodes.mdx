@@ -10,24 +10,48 @@ Every piece of information starts as an episode.
 You can add episodes from various sources:
 
 ```python
+from ryumem import Ryumem
+
+ryumem = Ryumem(api_url="http://localhost:8000")
+
 # Text episode
 ryumem.add_episode(
     content="Alice graduated from Stanford in 2018.",
-    group_id="user_123",
+    user_id="user_123",
+    session_id="session_abc",
     source="text",
 )
 
 # Message episode (conversational)
 ryumem.add_episode(
     content="user: Where did you go to school?\nassistant: I went to MIT.",
-    group_id="user_123",
+    user_id="user_123",
+    session_id="session_abc",
     source="message",
 )
 
 # JSON episode (structured data)
 ryumem.add_episode(
     content='{"person": "Bob", "company": "Meta", "role": "Engineer"}',
-    group_id="user_123",
+    user_id="user_123",
+    session_id="session_abc",
     source="json",
 )
 ```
+
+## Episode Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `content` | str | Yes | The content of the episode |
+| `user_id` | str | Yes | User identifier for multi-tenancy |
+| `session_id` | str | Yes | Session identifier for grouping related episodes |
+| `source` | str | No | Episode type: `text`, `message`, or `json` (default: `text`) |
+| `kind` | str | No | Episode kind: `query` or `memory` (default: `query`) |
+| `metadata` | dict | No | Additional metadata to attach to the episode |
+| `agent_id` | str | No | Optional agent identifier |
+
+## Episode Kinds
+
+- **query**: Represents user queries or interactions (default)
+- **memory**: Represents stored memories or facts extracted from conversations
