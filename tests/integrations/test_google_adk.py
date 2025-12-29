@@ -617,6 +617,9 @@ class TestAddMemoryToAgentReal:
             )
             assert response.status_code == 200, f"Failed to update instruction: {response.text}"
 
+        # Clear cache after updating instruction via API
+        ryumem.clear_instruction_cache()
+
         # Step 3: Create agent2 with the loaded instruction
         agent2 = SimpleAgent(instruction=initial_instruction)
         add_memory_to_agent(agent2, ryumem)
@@ -1434,3 +1437,63 @@ class TestSessionUserOverride:
         assert episode_after_clear.user_id == user_b, "After clearing override, should use original user_b"
 
         logger.info("✓ Comprehensive session user_id override test passed")
+
+
+class TestInstructionCache:
+    """Test agent instruction caching with TTL."""
+
+    def test_instruction_cache_with_ttl(self, ryumem):
+        """Test instruction cache reduces API calls and respects TTL."""
+        import time
+
+        # Initialize with short TTL for testing
+        ryumem_test = Ryumem(config_ttl=2)
+
+        instruction = "Test instruction for cache"
+        agent_type = "google_adk"
+
+        # First call - should hit server
+        start1 = time.time()
+        result1 = ryumem_test.list_agent_instructions(
+            agent_type=agent_type,
+            current_instruction=instruction,
+            limit=1
+        )
+        duration1 = time.time() - start1
+
+        # Second call immediately - should use cache (much faster)
+        start2 = time.time()
+        result2 = ryumem_test.list_agent_instructions(
+            agent_type=agent_type,
+            current_instruction=instruction,
+            limit=1
+        )
+        duration2 = time.time() - start2
+
+        # Cache should make second call significantly faster
+        assert duration2 < duration1 * 0.5, \
+            f"Cached call should be faster: {duration2:.3f}s vs {duration1:.3f}s"
+        assert result1 == result2, "Cached result should match original"
+
+        # Test different instruction gets separate cache entry
+        instruction2 = "Different instruction"
+        ryumem_test.list_agent_instructions(
+            agent_type=agent_type,
+            current_instruction=instruction2,
+            limit=1
+        )
+        assert len(ryumem_test._instruction_cache) >= 2, \
+            "Different instructions should cache separately"
+
+        # Wait for TTL to expire
+        time.sleep(2.5)
+
+        # Call after TTL - should fetch from server again
+        result3 = ryumem_test.list_agent_instructions(
+            agent_type=agent_type,
+            current_instruction=instruction,
+            limit=1
+        )
+        assert result3 is not None, "Cache should expire and refetch after TTL"
+
+        logger.info("✓ Instruction cache working with TTL")
