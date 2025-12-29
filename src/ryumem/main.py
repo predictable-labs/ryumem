@@ -5,6 +5,7 @@ Client SDK for Ryumem Server.
 
 import logging
 import requests
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 from ryumem.core.config import RyumemConfig
 from ryumem.core.models import (
@@ -21,6 +22,13 @@ from ryumem.core.models import (
 from ryumem.core.metadata_models import EpisodeMetadata
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class InstructionCacheEntry:
+    """Cache entry for agent instructions."""
+    data: Dict[str, Any]
+    timestamp: float
 
 
 class Ryumem:
@@ -118,6 +126,9 @@ class Ryumem:
         # Cache for server config
         self._config_cache: Optional['RyumemConfig'] = None
         self._config_cache_time: Optional[float] = None
+
+        # Cache for agent instructions (key: agent_type:instruction_text)
+        self._instruction_cache: Dict[str, InstructionCacheEntry] = {}
 
         logger.info(f"Ryumem Client initialized (server: {self.base_url})")
 
@@ -700,6 +711,11 @@ class Ryumem:
                 return None
             raise
 
+    def clear_instruction_cache(self) -> None:
+        """Clear the instruction cache. Useful after updating instructions via API."""
+        self._instruction_cache.clear()
+        logger.debug("Instruction cache cleared")
+
     def list_agent_instructions(
         self,
         agent_type: Optional[str] = None,
@@ -713,6 +729,8 @@ class Ryumem:
         any stored base_instruction and return the appropriate instruction (from DB
         or enhanced version of current).
 
+        Results are cached with TTL using the same timeout as config cache.
+
         Args:
             agent_type: Optional filter by agent type
             current_instruction: Optional instruction to resolve/enhance
@@ -721,6 +739,21 @@ class Ryumem:
         Returns:
             List of instruction dictionaries ordered by creation date (newest first)
         """
+        import time
+        import hashlib
+
+        # Create cache key from agent_type and current_instruction
+        cache_key = f"{agent_type or 'all'}:{hashlib.sha256((current_instruction or '').encode()).hexdigest()}"
+
+        # Check cache validity
+        if cache_key in self._instruction_cache:
+            cache_entry = self._instruction_cache[cache_key]
+            age = time.time() - cache_entry.timestamp
+            if age < self._config_ttl:
+                logger.debug(f"Using cached instruction (age: {age:.1f}s)")
+                return [cache_entry.data] if cache_entry.data else []
+
+        # Fetch from server
         params = {"limit": limit}
         if agent_type:
             params["agent_type"] = agent_type
@@ -728,6 +761,15 @@ class Ryumem:
             params["current_instruction"] = current_instruction
 
         response = self._get("/agent-instructions", params=params)
+
+        # Cache the first result (since we typically use limit=1 and only need first item)
+        if response and len(response) > 0:
+            self._instruction_cache[cache_key] = InstructionCacheEntry(
+                data=response[0],
+                timestamp=time.time()
+            )
+            logger.debug(f"Cached instruction for key: {cache_key[:32]}...")
+
         return response
 
     # ==================== Embedding & LLM Methods ====================
