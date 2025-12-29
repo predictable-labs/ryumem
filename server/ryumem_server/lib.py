@@ -71,6 +71,8 @@ class Ryumem:
         if config is None:
             # Load from environment by default
             self.config = RyumemConfig()
+        else:
+            self.config = config
 
         # Override db_path if provided
         if db_path:
@@ -191,7 +193,7 @@ class Ryumem:
             logger.info(f"Loaded BM25 index from {bm25_path}")
             # Check if index is empty but database has data - rebuild if needed
             stats = self.search_engine.bm25_index.stats()
-            if stats["entity_count"] == 0 and stats["edge_count"] == 0:
+            if stats["entity_count"] == 0 and stats["edge_count"] == 0 and stats["episode_count"] == 0:
                 logger.info("BM25 index is empty, rebuilding from database...")
                 self._rebuild_bm25_index()
             # Check if episode_map is incomplete (old pickle file format) - rebuild if needed

@@ -89,6 +89,48 @@ class AgentConfig(BaseSettings):
         description="Whether to enhance agent instructions with memory guidance"
     )
 
+    # Default instruction blocks
+    default_memory_block: str = Field(
+        default="""MEMORY USAGE:
+Use search_memory to find relevant context before answering questions.
+Use save_memory to store important information for future reference.
+""",
+        description="Default memory instruction block added to agent instructions"
+    )
+    default_tool_block: str = Field(
+        default="""TOOL SELECTION:
+Before selecting which tool to use, search_memory for past tool usage patterns and success rates.
+Use queries like "tool execution for [task type]" to find which tools worked well for similar tasks.
+""",
+        description="Default tool selection instruction block added to agent instructions"
+    )
+    default_query_augmentation_template: str = Field(
+        default="""[Previous Attempt Summary]
+
+Your previous approach was:
+{agent_response}
+
+Tools previously used:
+{simplified_tool_summary}
+
+Last Session Details:
+{last_session}
+
+Using this memory, improve your next attempt.
+
+***IMPORTANT — REQUIRED BEHAVIOR***
+You MUST reuse any **concrete facts, results, conclusions, or discovered information** from the previous attempt if they are relevant.
+Do NOT ignore previously known truths.
+Treat the previous attempt as authoritative memory, not optional context.
+
+In your response, briefly include:
+1. What you learned last time (1-2 bullets).
+2. How you're using that knowledge now.
+
+This demonstrates to the user that memory is working and you're building on past progress.""",
+        description="Default template for query augmentation with historical context"
+    )
+
 
 class ToolTrackingConfig(BaseSettings):
     """Tool tracking configuration for Google ADK integration"""

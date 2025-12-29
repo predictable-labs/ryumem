@@ -2276,46 +2276,11 @@ class AgentInstructionResponse(BaseModel):
     updated_at: str = Field(..., description="Last update timestamp")
 
 
-# Default instruction blocks for agent enhancement
-DEFAULT_MEMORY_BLOCK = """MEMORY USAGE:
-Use search_memory to find relevant context before answering questions.
-Use save_memory to store important information for future reference.
-"""
-
-DEFAULT_TOOL_BLOCK = """TOOL SELECTION:
-Before selecting which tool to use, search_memory for past tool usage patterns and success rates.
-Use queries like "tool execution for [task type]" to find which tools worked well for similar tasks.
-"""
-
-DEFAULT_AUGMENTATION_TEMPLATE = """[Previous Attempt Summary]
-
-Your previous approach was:
-{agent_response}
-
-Tools previously used:
-{simplified_tool_summary}
-
-Last Session Details:
-{last_session}
-
-Using this memory, improve your next attempt.
-
-***IMPORTANT — REQUIRED BEHAVIOR***
-You MUST reuse any **concrete facts, results, conclusions, or discovered information** from the previous attempt if they are relevant.
-Do NOT ignore previously known truths.
-Treat the previous attempt as authoritative memory, not optional context.
-
-In your response, briefly include:
-1. What you learned last time (1-2 bullets).
-2. How you're using that knowledge now.
-
-This demonstrates to the user that memory is working and you're building on past progress."""
-
-
 def enhance_instruction(
     base_instruction: str,
     memory_enabled: bool,
-    tool_tracking_enabled: bool
+    tool_tracking_enabled: bool,
+    config: RyumemConfig
 ) -> str:
     """
     Enhance instruction with memory and tool blocks.
@@ -2327,6 +2292,7 @@ def enhance_instruction(
         base_instruction: The base instruction text
         memory_enabled: Whether to add memory usage guidance
         tool_tracking_enabled: Whether to add tool selection guidance
+        config: RyumemConfig instance for accessing default instruction blocks
 
     Returns:
         Enhanced instruction with appropriate blocks added
@@ -2337,12 +2303,12 @@ def enhance_instruction(
     instruction_parts = [base_instruction]
 
     # Add memory block if enabled and not already present
-    if memory_enabled and DEFAULT_MEMORY_BLOCK.strip() not in base_instruction:
-        instruction_parts.append(DEFAULT_MEMORY_BLOCK)
+    if memory_enabled and config.agent.default_memory_block.strip() not in base_instruction:
+        instruction_parts.append(config.agent.default_memory_block)
 
     # Add tool block if enabled and not already present
-    if tool_tracking_enabled and DEFAULT_TOOL_BLOCK.strip() not in base_instruction:
-        instruction_parts.append(DEFAULT_TOOL_BLOCK)
+    if tool_tracking_enabled and config.agent.default_tool_block.strip() not in base_instruction:
+        instruction_parts.append(config.agent.default_tool_block)
 
     return "\n\n".join(instruction_parts)
 
@@ -2466,7 +2432,8 @@ async def list_agent_instructions(
                     enhanced = enhance_instruction(
                         base_instruction=current_instruction,
                         memory_enabled=memory_enabled,
-                        tool_tracking_enabled=tool_tracking_enabled
+                        tool_tracking_enabled=tool_tracking_enabled,
+                        config=ryumem.config
                     )
                 else:
                     # No enhancement - use base instruction as-is
@@ -2475,7 +2442,7 @@ async def list_agent_instructions(
                 # Determine query_augmentation_template
                 query_template = ""
                 if track_queries and augment_queries:
-                    query_template = DEFAULT_AUGMENTATION_TEMPLATE
+                    query_template = ryumem.config.agent.default_query_augmentation_template
 
                 # Save to database so future queries can find it
                 instruction_id = ryumem.save_agent_instruction(

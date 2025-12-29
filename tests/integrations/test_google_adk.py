@@ -783,6 +783,99 @@ class TestAddMemoryToAgentReal:
             f"Agent 2 instruction not found in stored instructions: {base_instructions}"
 
 
+    @pytest.mark.asyncio
+    async def test_default_configs_from_database(self, ryumem):
+        """Test that default configs are loaded from database and changes persist."""
+        import httpx
+        import os
+
+        api_url = os.environ.get("RYUMEM_API_URL", "http://localhost:8000")
+        api_key = os.environ.get("RYUMEM_API_KEY")
+        headers = {"X-API-Key": api_key} if api_key else {}
+
+        # Capture original blocks
+        original_memory_block = ryumem.config.agent.default_memory_block
+        try:
+            # Step 1: Create agent with current configs
+            agent1 = SimpleAgent(instruction="Test agent with default configs")
+            add_memory_to_agent(agent1, ryumem)
+
+            # Verify agent1 has default blocks in enhanced instruction
+            enhanced1 = agent1.instruction
+            assert original_memory_block.strip() in enhanced1, \
+                "Original memory block not found in agent1 enhanced instruction"
+
+            # Step 2: Change configs via HTTP API (updates database)
+            custom_memory_block = "CUSTOM TEST MEMORY BLOCK xyz123"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Update the config in database
+                update_payload = {
+                    "updates": {
+                        "agent.default_memory_block": custom_memory_block
+                    }
+                }
+                response = await client.put(
+                    f"{api_url}/api/settings",
+                    json=update_payload,
+                    headers=headers
+                )
+                assert response.status_code == 200, \
+                    f"Failed to update config: {response.text}"
+
+            # Step 3: Verify config was updated by reading from database
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    f"{api_url}/api/settings/agent",
+                    headers=headers
+                )
+                assert response.status_code == 200
+                settings = response.json()
+
+                # Find the default_memory_block setting
+                memory_block_setting = next(
+                    (s for s in settings if s.get("key") == "agent.default_memory_block"),
+                    None
+                )
+                assert memory_block_setting is not None, "default_memory_block not found in settings"
+                assert memory_block_setting["value"] == custom_memory_block, \
+                    f"Config not updated in database. Expected: '{custom_memory_block}', Got: '{memory_block_setting['value']}'"
+
+            # Step 4: Create new agent - it should use the updated config from database
+            # Clear instruction cache so enhancement is regenerated with new config
+            ryumem.clear_instruction_cache()
+
+            agent2 = SimpleAgent(instruction="Test agent with updated configs")
+            add_memory_to_agent(agent2, ryumem)
+
+            # Verify agent2 uses the new custom block
+            enhanced2 = agent2.instruction
+            assert custom_memory_block in enhanced2, \
+                f"Custom memory block not found in agent2 enhanced instruction. " \
+                f"This means config changes are not being used. Enhanced: {enhanced2}"
+
+        finally:
+            # Step 5: Restore original config (always runs, even if test fails)
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    # Restore the original value in database
+                    restore_payload = {
+                        "updates": {
+                            "agent.default_memory_block": original_memory_block
+                        }
+                    }
+                    await client.put(
+                        f"{api_url}/api/settings",
+                        json=restore_payload,
+                        headers=headers
+                    )
+
+                # Clear cache so next time it reads fresh config from database
+                ryumem.clear_instruction_cache()
+            except Exception as e:
+                print(f"Warning: Failed to restore config via API: {e}")
+
+
 class TestRunnerWrappingReal:
     """Test runner wrapping with real functionality."""
 
