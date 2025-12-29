@@ -883,6 +883,337 @@ class TestMultiUserIsolation:
                 assert "abc123" not in mem["fact"]
                 assert user_a not in str(mem)
 
+    @pytest.mark.asyncio
+    async def test_query_episodes_with_user_override_creates_new_episode(self, ryumem, agent):
+        """Test that when user override changes from user_1 to user_2, a NEW episode is created for user_2.
+
+        This tests the scenario where:
+        1. An episode is added for user_1
+        2. Session override changes to user_2
+        3. Query augmentation should NOT find user_1's episodes
+        4. A new episode should be created for user_2
+        """
+        memory = RyumemGoogleADK(agent=agent, ryumem=ryumem)
+
+        user_1 = f"user_1_{uuid.uuid4().hex[:8]}"
+        user_2 = f"user_2_{uuid.uuid4().hex[:8]}"
+        session = f"session_{uuid.uuid4().hex[:8]}"
+
+        # Step 1: Create a query episode for user_1
+        from ryumem.core.metadata_models import QueryRun
+
+        query_run = QueryRun(
+            run_id=str(uuid.uuid4()),
+            user_id=user_1,
+            timestamp=datetime.utcnow().isoformat(),
+            query="What is the secret project about?",
+            agent_response="User 1 is working on a confidential AI project",
+            tools_used=[]
+        )
+
+        metadata = EpisodeMetadata(integration="google_adk")
+        metadata.add_query_run(session, query_run)
+
+        episode_1_id = ryumem.add_episode(
+            content="What is the secret project about?",
+            user_id=user_1,
+            session_id=session,
+            source="message",
+            kind="query",
+            metadata=metadata.model_dump()
+        )
+
+        assert episode_1_id is not None
+        logger.info(f"Created query episode {episode_1_id} for user_1")
+
+        # Verify episode was created for user_1
+        episode_1 = ryumem.get_episode_by_uuid(episode_1_id)
+        assert episode_1 is not None
+        assert episode_1.user_id == user_1
+        assert episode_1.kind.value == "query"
+
+        # Step 2: Set session override to user_2
+        memory.set_session_user_override(session, user_2)
+        logger.info(f"Set session override from user_1 to user_2")
+
+        # Step 3: Test query augmentation doesn't find user_1's episodes
+        from ryumem.integrations.google_adk import _find_similar_query_episodes
+
+        # Try to find similar queries - should NOT find user_1's episode
+        # because we're now operating as user_2 due to override
+        similar_episodes = _find_similar_query_episodes(
+            query_text="What is the secret project about?",
+            memory=memory,
+            user_id=user_1,  # Original user_id in context
+            session_id=session
+        )
+
+        # Should NOT find user_1's episodes because override is set to user_2
+        logger.info(f"Found {len(similar_episodes)} similar episodes (should be 0)")
+        assert len(similar_episodes) == 0, \
+            f"Query augmentation should not find user_1's episodes when override is user_2, found {len(similar_episodes)}"
+
+        # Step 4: Create a new query episode - should be created for user_2
+        from ryumem.integrations.google_adk import _create_query_episode
+
+        episode_2_id = _create_query_episode(
+            query_text="Another query about the project",
+            user_id=user_1,  # Original user_id in context
+            session_id=session,
+            run_id=str(uuid.uuid4()),
+            augmented_query_text="Another query about the project",
+            memory=memory
+        )
+
+        assert episode_2_id is not None
+        logger.info(f"Created new query episode {episode_2_id}")
+
+        # Verify the new episode was created for user_2 (not user_1) due to override
+        episode_2 = ryumem.get_episode_by_uuid(episode_2_id)
+        assert episode_2 is not None
+        assert episode_2.user_id == user_2, \
+            f"New episode should be created for user_2 (override), but got user_id={episode_2.user_id}"
+        assert episode_2.kind.value == "query"
+
+        logger.info(f"✓ New episode correctly created for user_2 (override)")
+
+        # Step 5: Verify user_2 can see their own episode but not user_1's
+        user_2_search = ryumem.search(
+            query="project",
+            user_id=user_2,
+            session_id=None,  # Search all sessions for user_2
+            strategy="semantic",
+            limit=10
+        )
+
+        assert user_2_search is not None
+        user_2_episode_ids = [ep.uuid for ep in user_2_search.episodes]
+
+        # Should have exactly 1 episode (user_2's new episode)
+        assert len(user_2_episode_ids) == 1, \
+            f"User_2 should see exactly 1 episode (their own), but found {len(user_2_episode_ids)}"
+
+        # Should be the new episode, not user_1's
+        assert episode_2_id in user_2_episode_ids, \
+            "User_2 should see their own episode"
+        assert episode_1_id not in user_2_episode_ids, \
+            "User_2 should NOT see user_1's episode"
+
+        logger.info(f"✓ User_2 sees only their own episode, not user_1's")
+
+        # Step 6: Clear override and verify isolation
+        memory.clear_session_user_override(session)
+
+        # Now user_1 should see their original episode
+        user_1_search = ryumem.search(
+            query="project",
+            user_id=user_1,
+            session_id=None,  # Search all sessions for user_1
+            strategy="semantic",
+            limit=10
+        )
+
+        user_1_episode_ids = [ep.uuid for ep in user_1_search.episodes]
+
+        # Should find user_1's original episode
+        assert episode_1_id in user_1_episode_ids, \
+            "User_1 should still see their original episode"
+
+        logger.info("✓ Query episodes properly isolated with user override mechanism")
+
+    @pytest.mark.asyncio
+    async def test_augmentation_finds_override_users_own_episodes(self, ryumem, agent):
+        """Test that query augmentation DOES find the override user's own previous episodes.
+
+        Scenario:
+        1. user_2 creates their own query episode
+        2. Session override is set to user_2
+        3. Query augmentation should FIND user_2's previous episodes
+        """
+        memory = RyumemGoogleADK(agent=agent, ryumem=ryumem)
+
+        user_1 = f"user_1_{uuid.uuid4().hex[:8]}"
+        user_2 = f"user_2_{uuid.uuid4().hex[:8]}"
+        session1 = f"session_1_{uuid.uuid4().hex[:8]}"
+        session2 = f"session_2_{uuid.uuid4().hex[:8]}"
+
+        # Step 1: Create a query episode for user_2 in session1
+        from ryumem.core.metadata_models import QueryRun
+
+        query_run = QueryRun(
+            run_id=str(uuid.uuid4()),
+            user_id=user_2,
+            timestamp=datetime.utcnow().isoformat(),
+            query="How do I configure the database?",
+            agent_response="You can configure it in settings.json",
+            tools_used=[]
+        )
+
+        metadata = EpisodeMetadata(integration="google_adk")
+        metadata.add_query_run(session1, query_run)
+
+        user_2_episode_id = ryumem.add_episode(
+            content="How do I configure the database?",
+            user_id=user_2,
+            session_id=session1,
+            source="message",
+            kind="query",
+            metadata=metadata.model_dump()
+        )
+
+        assert user_2_episode_id is not None
+        logger.info(f"Created query episode {user_2_episode_id} for user_2")
+
+        # Step 2: Set session override to user_2 for session2
+        memory.set_session_user_override(session2, user_2)
+        logger.info(f"Set session override to user_2 for session2")
+
+        # Step 3: Query augmentation should FIND user_2's episodes
+        from ryumem.integrations.google_adk import _find_similar_query_episodes
+
+        similar_episodes = _find_similar_query_episodes(
+            query_text="How do I configure the database?",
+            memory=memory,
+            user_id=user_1,  # Original user_id in context
+            session_id=session2  # Has override to user_2
+        )
+
+        # Should FIND user_2's episode because override is set to user_2
+        logger.info(f"Found {len(similar_episodes)} similar episodes (should be >= 1)")
+        assert len(similar_episodes) >= 1, \
+            f"Query augmentation should find user_2's episodes when override is user_2, found {len(similar_episodes)}"
+
+        # Verify it found the right episode
+        found_episode_ids = [ep['uuid'] for ep in similar_episodes]
+        assert user_2_episode_id in found_episode_ids, \
+            "Should find user_2's previous episode"
+
+        logger.info("✓ Query augmentation correctly finds override user's own episodes")
+
+    @pytest.mark.asyncio
+    async def test_existing_episode_with_override_change(self, ryumem, agent):
+        """Test behavior when session has existing episode and override changes.
+
+        Scenario:
+        1. Session has episode for user_1
+        2. Override changes to user_2
+        3. New query run is added - should handle gracefully
+
+        This tests potential data inconsistency where:
+        - Episode belongs to user_1
+        - New QueryRun has user_id=user_2
+        """
+        memory = RyumemGoogleADK(agent=agent, ryumem=ryumem)
+
+        user_1 = f"user_1_{uuid.uuid4().hex[:8]}"
+        user_2 = f"user_2_{uuid.uuid4().hex[:8]}"
+        session = f"session_{uuid.uuid4().hex[:8]}"
+
+        # Step 1: Create initial episode for user_1
+        from ryumem.core.metadata_models import QueryRun
+
+        query_run1 = QueryRun(
+            run_id=str(uuid.uuid4()),
+            user_id=user_1,
+            timestamp=datetime.utcnow().isoformat(),
+            query="First query by user_1",
+            agent_response="Response to user_1",
+            tools_used=[]
+        )
+
+        metadata1 = EpisodeMetadata(integration="google_adk")
+        metadata1.add_query_run(session, query_run1)
+
+        episode_1_id = ryumem.add_episode(
+            content="First query by user_1",
+            user_id=user_1,
+            session_id=session,
+            source="message",
+            kind="query",
+            metadata=metadata1.model_dump()
+        )
+
+        assert episode_1_id is not None
+        logger.info(f"Created initial episode {episode_1_id} for user_1")
+
+        # Verify episode belongs to user_1
+        episode_1 = ryumem.get_episode_by_uuid(episode_1_id)
+        assert episode_1.user_id == user_1
+
+        # Step 2: Set session override to user_2
+        memory.set_session_user_override(session, user_2)
+        logger.info(f"Set session override to user_2")
+
+        # Step 3: Try to add a new query run via _prepare_query_and_episode
+        from ryumem.integrations.google_adk import _prepare_query_and_episode
+
+        class SimpleMessage:
+            def __init__(self, text):
+                self.parts = [type('Part', (), {'text': text})()]
+
+        message = SimpleMessage("Second query after override")
+
+        class SimpleRunner:
+            pass
+
+        original_query, augmented_msg, query_episode_id, run_id = _prepare_query_and_episode(
+            new_message=message,
+            user_id=user_1,  # Original user_id in context
+            session_id=session,
+            memory=memory,
+            original_runner=SimpleRunner()
+        )
+
+        logger.info(f"After override, got episode_id: {query_episode_id}")
+
+        # Step 4: Check what happened
+        # The session already has an episode, so it should reuse it
+        # But the new run should have user_id=user_2 (the override)
+
+        # Verify episode_id is the same (reused existing episode)
+        assert query_episode_id == episode_1_id, \
+            "Should reuse existing episode for the session"
+
+        # Get the updated episode and check metadata
+        updated_episode = ryumem.get_episode_by_uuid(query_episode_id)
+
+        # Episode still belongs to user_1 (original owner)
+        assert updated_episode.user_id == user_1, \
+            "Episode should still belong to original user_1"
+
+        # Check metadata to see if the new run has correct user_id
+        if isinstance(updated_episode.metadata, dict):
+            episode_meta = EpisodeMetadata(**updated_episode.metadata)
+
+            # Should have runs for this session
+            assert session in episode_meta.sessions, \
+                "Metadata should have session"
+
+            runs = episode_meta.sessions[session]
+            assert len(runs) >= 2, \
+                f"Should have at least 2 runs (original + new), found {len(runs)}"
+
+            # Find the new run
+            new_run = None
+            for run in runs:
+                if run.run_id == run_id:
+                    new_run = run
+                    break
+
+            assert new_run is not None, "Should find the new run in metadata"
+
+            # CRITICAL: The new run should have user_id=user_2 (the override)
+            assert new_run.user_id == user_2, \
+                f"New run should have override user_id=user_2, but got {new_run.user_id}"
+
+            logger.info(f"✓ New run correctly has user_id={new_run.user_id} (override)")
+            logger.info(f"✓ Episode still belongs to user_id={updated_episode.user_id} (original)")
+
+        # Step 5: Clear override and verify
+        memory.clear_session_user_override(session)
+
+        logger.info("✓ Existing episode with override change handled correctly")
+
 
 class TestAugmentationRealIntegration:
     """Test query augmentation with real data flow - full e2e integration."""
