@@ -1,0 +1,18 @@
+apiVersion: v2
+name: ryumem
+description: A Helm chart for Ryumem - Bi-temporal Knowledge Graph Memory System
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - memory
+  - knowledge-graph
+  - ai
+  - llm
+  - agents
+home: https://github.com/predictable-labs/ryumem
+sources:
+  - https://github.com/predictable-labs/ryumem
+maintainers:
+  - name: Predictable Labs
+    url: https://github.com/predictable-labs

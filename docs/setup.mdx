@@ -3,7 +3,7 @@ title: Setup
 description: "Deploy Ryumem on your own infrastructure."
 ---
 
-Ryumem is fully open source and can be self-hosted on your own infrastructure. Choose between Docker Compose (recommended) or local development setup.
+Ryumem is fully open source and can be self-hosted on your own infrastructure. Choose between Docker Compose (recommended), Helm Chart for Kubernetes, or local development setup.
 
 ## Option 1: Docker Compose (Recommended)
 
@@ -56,7 +56,113 @@ The fastest way to get Ryumem running with all components.
   </Step>
 </Steps>
 
-## Option 2: Local Development
+## Option 2: Helm Chart (Kubernetes)
+
+Deploy Ryumem to Kubernetes using the official Helm chart.
+
+<Steps>
+  <Step title="Add the Helm Repository">
+    ```bash
+    # Clone the repository to get the Helm chart
+    git clone https://github.com/predictable-labs/ryumem.git
+    cd ryumem
+    ```
+  </Step>
+
+  <Step title="Configure Values">
+    Create a custom values file:
+
+    ```yaml
+    # custom-values.yaml
+    secrets:
+      googleApiKey: "your-google-api-key"  # or openaiApiKey
+      adminApiKey: "your-admin-key"
+
+    ingress:
+      enabled: true
+      className: nginx
+      hosts:
+        - host: ryumem.your-domain.com
+          paths:
+            - path: /
+              pathType: Prefix
+
+    dashboard:
+      enabled: true
+      ingress:
+        enabled: true
+        className: nginx
+        hosts:
+          - host: ryumem-dashboard.your-domain.com
+            paths:
+              - path: /
+                pathType: Prefix
+
+    persistence:
+      enabled: true
+      size: 20Gi
+    ```
+  </Step>
+
+  <Step title="Install the Chart">
+    ```bash
+    helm install ryumem ./helm/ryumem \
+      -f custom-values.yaml \
+      --namespace ryumem \
+      --create-namespace
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    # Check pods are running
+    kubectl get pods -n ryumem
+
+    # Get the API endpoint
+    kubectl get ingress -n ryumem
+    ```
+  </Step>
+
+  <Step title="Generate Your API Key">
+    Port-forward and register:
+
+    ```bash
+    kubectl port-forward -n ryumem svc/ryumem 8000:8000
+
+    curl -X POST "http://localhost:8000/register" \
+      -H "Content-Type: application/json" \
+      -d '{"customer_id": "my_project"}'
+    ```
+  </Step>
+</Steps>
+
+### Helm Chart Configuration
+
+Key configuration options in `values.yaml`:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `replicaCount` | `1` | Number of API server replicas |
+| `image.repository` | `ghcr.io/predictable-labs/ryumem` | Container image |
+| `image.tag` | `latest` | Image tag |
+| `secrets.googleApiKey` | `""` | Google Gemini API key |
+| `secrets.openaiApiKey` | `""` | OpenAI API key |
+| `secrets.adminApiKey` | `""` | Admin API key for registration |
+| `ryumem.llm.provider` | `gemini` | LLM provider |
+| `ryumem.llm.model` | `gemini-2.0-flash-exp` | LLM model |
+| `ryumem.embedding.provider` | `gemini` | Embedding provider |
+| `ryumem.embedding.model` | `text-embedding-004` | Embedding model |
+| `persistence.enabled` | `true` | Enable persistent storage |
+| `persistence.size` | `10Gi` | Storage size |
+| `dashboard.enabled` | `true` | Deploy dashboard |
+| `ingress.enabled` | `false` | Enable API ingress |
+| `dashboard.ingress.enabled` | `false` | Enable dashboard ingress |
+
+<Note>
+For production deployments, use external secret management (like Kubernetes Secrets, Vault, or External Secrets Operator) instead of storing API keys in values files.
+</Note>
+
+## Option 3: Local Development
 
 For development or when you want more control over individual components.
 
@@ -154,12 +260,14 @@ ryumem = Ryumem(
 ryumem.add_episode(
     content="Alice works at Google in Mountain View as a Software Engineer.",
     user_id="user_123",
+    session_id="session_abc",
 )
 
 # Search your memories
 results = ryumem.search(
     query="Where does Alice work?",
     user_id="user_123",
+    session_id="session_abc",
 )
 
 print(results)

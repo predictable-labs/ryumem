@@ -31,18 +31,20 @@ Episodes are the fundamental unit of memory in Ryumem. Each episode contains con
 # Add your first episode
 ryumem.add_episode(
     content="Alice works at Google in Mountain View as a Software Engineer.",
-    group_id="user_123",
+    user_id="user_123",
+    session_id="session_abc",
 )
 
 # Add a related episode
 ryumem.add_episode(
     content="Bob is Alice's colleague and recently moved to Meta.",
-    group_id="user_123",
+    user_id="user_123",
+    session_id="session_abc",
 )
 ```
 
 <Tip>
-The `group_id` parameter is used for multi-tenancy. Use it to isolate memories by user, session, or any other grouping.
+The `user_id` parameter is used for multi-tenancy to isolate memories by user. The `session_id` groups related episodes together within a conversation or session.
 </Tip>
 
 ## Search Memories
@@ -53,7 +55,8 @@ Ryumem supports multiple search strategies. The hybrid strategy combines semanti
 # Search using hybrid strategy
 results = ryumem.search(
     query="Where does Alice work?",
-    group_id="user_123",
+    user_id="user_123",
+    session_id="session_abc",
     strategy="hybrid",  # Combines semantic + BM25 + graph traversal
     limit=10,
 )
@@ -72,7 +75,7 @@ for edge in results.edges:
 
 - **`semantic`** - Uses embeddings for meaning-based search
 - **`bm25`** - Traditional keyword-based search
-- **`graph_traversal`** - Explores connected entities
+- **`traversal`** - Explores connected entities via graph traversal
 - **`hybrid`** - Combines all three methods (recommended)
 
 Learn more in [Search Strategies](/core-concepts/search-strategies).
@@ -85,7 +88,8 @@ Retrieve comprehensive information about a specific entity:
 # Get all context for an entity
 context = ryumem.get_entity_context(
     entity_name="Alice",
-    group_id="user_123",
+    user_id="user_123",
+    session_id="session_abc",
 )
 
 print(f"Entity: {context['entity']['name']}")
@@ -109,18 +113,21 @@ ryumem = Ryumem(
 # Add knowledge
 ryumem.add_episode(
     content="Alice works at Google in Mountain View as a Software Engineer.",
-    group_id="user_123",
+    user_id="user_123",
+    session_id="session_abc",
 )
 
 ryumem.add_episode(
     content="Bob is Alice's colleague and recently moved to Meta.",
-    group_id="user_123",
+    user_id="user_123",
+    session_id="session_abc",
 )
 
 # Search
 results = ryumem.search(
     query="Where does Alice work?",
-    group_id="user_123",
+    user_id="user_123",
+    session_id="session_abc",
     strategy="hybrid",
     limit=10,
 )
@@ -130,6 +137,42 @@ for entity in results.entities:
     score = results.scores.get(entity.uuid, 0.0)
     print(f"{entity.name} - {score:.3f}")
 ```
+
+## Password Guessing Game Example
+
+This example demonstrates Ryumem's query augmentation with Google ADK. An AI agent learns from previous attempts to guess a password more intelligently.
+
+```python
+from ryumem import Ryumem
+from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+from google.adk.runners import Runner
+
+# Initialize Ryumem with query augmentation
+ryumem = Ryumem(
+    track_tools=True,           # Enable tool tracking
+    augment_queries=True,       # Enable query augmentation
+    similarity_threshold=0.3,   # Match queries with 30%+ similarity
+    top_k_similar=5,            # Use top 5 similar queries for context
+)
+
+# Create your agent with tools
+agent = Agent(
+    model="gemini-2.0-flash-exp",
+    name="password_guesser",
+    instruction="You are a strategic password guesser...",
+    tools=[validate_tool, history_tool, hint_tool]
+)
+
+# Add memory to the agent
+agent = add_memory_to_agent(agent, ryumem)
+
+# Wrap the runner for automatic query tracking
+runner = wrap_runner_with_tracking(runner, agent)
+```
+
+The full example is available at [`examples/integrations/google-adk/password_guessing_game.py`](https://github.com/predictable-labs/ryumem/blob/main/examples/integrations/google-adk/password_guessing_game.py).
 
 ## Next Steps
 

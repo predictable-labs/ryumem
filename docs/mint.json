@@ -58,9 +58,7 @@
             "pages": [
                 "core-concepts/episodes",
                 "core-concepts/multi-tenancy",
-                "core-concepts/bi-temporal-graph",
-                "core-concepts/search-strategies",
-                "core-concepts/memory-pruning"
+                "core-concepts/search-strategies"
             ]
         },
         {
