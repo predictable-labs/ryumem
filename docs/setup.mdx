@@ -1,71 +1,179 @@
 ---
 title: Setup
-description: "Get started with Ryumem in minutes."
+description: "Deploy Ryumem on your own infrastructure."
 ---
 
-## Installation
+Ryumem is fully open source and can be self-hosted on your own infrastructure. Choose between Docker Compose (recommended) or local development setup.
 
-Install Ryumem from PyPI:
+## Option 1: Docker Compose (Recommended)
+
+The fastest way to get Ryumem running with all components.
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/predictable-labs/ryumem.git
+    cd ryumem
+    ```
+  </Step>
+
+  <Step title="Configure Environment">
+    ```bash
+    # Configure server
+    cp server/.env.example server/.env
+    # Edit server/.env and add your LLM API key (GOOGLE_API_KEY or OPENAI_API_KEY)
+
+    # Configure dashboard
+    cp dashboard/env.template dashboard/.env
+    ```
+
+    <Warning>
+    You need at least one LLM API key (Google Gemini or OpenAI) for entity extraction and embeddings.
+    </Warning>
+  </Step>
+
+  <Step title="Start All Services">
+    ```bash
+    docker-compose up -d
+    ```
+
+    This starts:
+    - **API Server**: http://localhost:8000
+    - **Dashboard**: http://localhost:3000
+    - **API Docs**: http://localhost:8000/docs
+  </Step>
+
+  <Step title="Generate Your API Key">
+    Register a customer to get your API key:
+
+    ```bash
+    curl -X POST "http://localhost:8000/register" \
+      -H "Content-Type: application/json" \
+      -d '{"customer_id": "my_project"}'
+    ```
+
+    The response includes your API key (starts with `ryu_`). Save this securely.
+  </Step>
+</Steps>
+
+## Option 2: Local Development
+
+For development or when you want more control over individual components.
+
+### Prerequisites
+
+- Python 3.10+
+- Node.js 18+
+- An LLM API key (Google Gemini, OpenAI, or local Ollama)
+
+### Start the API Server
+
+<Steps>
+  <Step title="Install the SDK">
+    ```bash
+    pip install -e .
+    ```
+  </Step>
+
+  <Step title="Install Server Dependencies">
+    ```bash
+    cd server
+    pip install -r requirements.txt
+    ```
+  </Step>
+
+  <Step title="Configure Environment">
+    ```bash
+    cp .env.example .env
+    # Edit .env and set your LLM API key
+    ```
+  </Step>
+
+  <Step title="Start the Server">
+    ```bash
+    uvicorn main:app --reload --host 0.0.0.0 --port 8000
+    ```
+  </Step>
+</Steps>
+
+### Start the Dashboard
+
+```bash
+cd dashboard
+npm install
+cp env.template .env
+npm run dev
+```
+
+The dashboard will be available at http://localhost:3000.
+
+## Environment Variables
+
+### Server Configuration (`server/.env`)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GOOGLE_API_KEY` | Yes* | - | Google Gemini API key |
+| `OPENAI_API_KEY` | Yes* | - | OpenAI API key |
+| `RYUMEM_DB_FOLDER` | Yes | `./data` | Database storage path |
+| `ADMIN_API_KEY` | Yes | - | Admin key for registration |
+| `LLM_PROVIDER` | No | `gemini` | LLM provider (gemini, openai, ollama, litellm) |
+| `LLM_MODEL` | No | `gemini-2.0-flash-exp` | LLM model name |
+| `EMBEDDING_PROVIDER` | No | `gemini` | Embedding provider |
+| `EMBEDDING_MODEL` | No | `text-embedding-004` | Embedding model |
+| `CORS_ORIGINS` | No | `http://localhost:3000` | Allowed CORS origins |
+
+*At least one LLM API key is required
+
+### Dashboard Configuration (`dashboard/.env`)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `NEXT_PUBLIC_API_URL` | Yes | `http://localhost:8000` | Ryumem API server URL |
+
+## Quick Start with Python SDK
+
+Once your server is running, install the Python SDK:
 
 ```bash
 pip install ryumem
 ```
 
-## Getting an API Key
-
-Ryumem uses a hosted service for production deployments. To get your API key:
-
-<Note>
-Contact **contact@predictable.sh** to request an API key for the Ryumem hosted service.
-</Note>
-
-Your API key will start with `ryu_` and should be kept secure. Never commit it to version control.
-
-## Quick Start
-
-Initialize Ryumem with your API key:
+Initialize and use Ryumem:
 
 ```python
 from ryumem import Ryumem
 
-# Initialize with your Ryumem API key
+# Initialize with your local server
 ryumem = Ryumem(
-    api_key="ryu_...",
+    api_url="http://localhost:8000",
+    api_key="ryu_your_api_key_here"
 )
 
 # Add your first memory episode
 ryumem.add_episode(
     content="Alice works at Google in Mountain View as a Software Engineer.",
-    group_id="user_123",
-)
-
-# Add a related episode
-ryumem.add_episode(
-    content="Bob is Alice's colleague and recently moved to Meta.",
-    group_id="user_123",
+    user_id="user_123",
 )
 
 # Search your memories
 results = ryumem.search(
     query="Where does Alice work?",
-    group_id="user_123",
+    user_id="user_123",
 )
 
 print(results)
 ```
 
-<Warning>
-For self-hosted deployments, contact **contact@predictable.sh**.
-</Warning>
-
 ## Accessing the Dashboard
 
-The Ryumem dashboard provides a web interface for visualizing and managing your knowledge graph.
+Once Ryumem is running:
 
-**To access:**
-1. Navigate to the dashboard URL (provided with your API key)
+1. Navigate to http://localhost:3000
 2. Enter your API key (starts with `ryu_`)
 3. Click "Sign in"
+
+Your API key is stored securely in your browser and used for all API requests.
 
 **Dashboard Features:**
 - Search and query your knowledge graph
@@ -78,19 +186,41 @@ The Ryumem dashboard provides a web interface for visualizing and managing your 
   Complete guide to dashboard features and navigation
 </Card>
 
+## Using with Ollama (Local LLMs)
+
+For fully local deployment without cloud API keys:
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull a model
+ollama pull llama3.2
+
+# Configure server/.env
+LLM_PROVIDER=ollama
+LLM_MODEL=llama3.2
+EMBEDDING_PROVIDER=ollama
+EMBEDDING_MODEL=nomic-embed-text
+```
+
+<Note>
+Local LLMs may have different performance characteristics compared to cloud providers. Test with your use case.
+</Note>
+
 ## Next Steps
 
 <CardGroup cols={2}>
   <Card title="Quickstart Tutorial" icon="rocket" href="/quickstart">
-    Build your first memory-enabled agent in 5 minutes
+    Build your first memory-enabled agent
   </Card>
-  <Card title="Google ADK Integration" icon="plug" href="/integrations/google-adk">
-    Add memory to Google ADK agents with one line
+  <Card title="MCP Server" icon="plug" href="/integrations/mcp-server">
+    Add memory to Claude Desktop
+  </Card>
+  <Card title="Google ADK Integration" icon="robot" href="/integrations/google-adk">
+    Add memory to Google ADK agents
   </Card>
   <Card title="Core Concepts" icon="brain" href="/core-concepts/episodes">
     Understand how Ryumem works
-  </Card>
-  <Card title="Examples" icon="code" href="/examples/basic-usage">
-    See real-world usage examples
   </Card>
 </CardGroup>

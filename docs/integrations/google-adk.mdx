@@ -18,8 +18,15 @@ Ryumem provides **zero-boilerplate integration** for Google's Agent Developer Ki
     ```python
     from ryumem import Ryumem
 
-    ryumem = Ryumem(api_key="ryu_...")
+    ryumem = Ryumem(
+        api_url="http://localhost:8000",
+        api_key="ryu_your_api_key_here"
+    )
     ```
+
+    <Note>
+    Need to set up a Ryumem server? See the [Setup Guide](/setup).
+    </Note>
   </Step>
 
   <Step title="Add Memory to Agent">

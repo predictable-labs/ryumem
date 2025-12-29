@@ -8,22 +8,35 @@ This quickstart will guide you through building a Google ADK agent with automati
 ## Prerequisites
 
 <Steps>
-  <Step title="Install Dependencies">
+  <Step title="Set Up Ryumem Server">
+    First, you need a running Ryumem server. See [Setup Guide](/setup) for Docker Compose or local installation.
+
+    Quick start with Docker:
     ```bash
-    pip install ryumem google-adk python-dotenv
+    git clone https://github.com/predictable-labs/ryumem.git
+    cd ryumem
+    cp server/.env.example server/.env
+    # Add your GOOGLE_API_KEY to server/.env
+    docker-compose up -d
     ```
   </Step>
 
-  <Step title="Get API Keys">
-    You'll need two API keys:
+  <Step title="Get Your API Key">
+    Register to get your Ryumem API key:
 
-    **Ryumem API Key** (for memory)
-    - Contact **contact@predictable.sh** to request access
-    - Your key will start with `ryu_`
+    ```bash
+    curl -X POST "http://localhost:8000/register" \
+      -H "Content-Type: application/json" \
+      -d '{"customer_id": "my_project"}'
+    ```
 
-    **Google API Key** (for Gemini)
-    - Get one from [Google AI Studio](https://aistudio.google.com/app/apikey)
-    - Starts with your project identifier
+    Save the API key from the response (starts with `ryu_`).
+  </Step>
+
+  <Step title="Install Dependencies for Google ADK">
+    ```bash
+    pip install ryumem google-adk python-dotenv
+    ```
   </Step>
 
   <Step title="Set Environment Variables">
@@ -32,12 +45,10 @@ This quickstart will guide you through building a Google ADK agent with automati
     ```bash
     GOOGLE_API_KEY=your_google_api_key
     ```
-
-    Keep your Ryumem API key secure - you'll pass it directly in the code.
   </Step>
 </Steps>
 
-## Building Your First Agent
+## Building Your First Agent With Google ADK
 
 Let's build a weather assistant that remembers conversations and automatically tracks what it does.
 
@@ -107,7 +118,10 @@ agent = Agent(
 )
 
 # ⭐ Add memory in ONE line!
-ryumem = Ryumem(api_key="ryu_...")
+ryumem = Ryumem(
+    api_url="http://localhost:8000",
+    api_key="ryu_your_api_key_here"
+)
 
 memory = add_memory_to_agent(
     agent,
@@ -281,7 +295,10 @@ agent = Agent(
 )
 
 # Add memory
-ryumem = Ryumem(api_key="ryu_...")
+ryumem = Ryumem(
+    api_url="http://localhost:8000",
+    api_key="ryu_your_api_key_here"
+)
 memory = add_memory_to_agent(
     agent,
     ryumem_instance=ryumem,

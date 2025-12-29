@@ -1,0 +1,200 @@
+---
+title: MCP Server
+description: "Add Ryumem memory to Claude Desktop, Cursor, and AI coding agents."
+---
+
+The Ryumem MCP (Model Context Protocol) server enables AI coding assistants to have persistent, intelligent memory across sessions.
+
+<Note>
+MCP is an open protocol that standardizes how AI applications connect to external tools and data sources. [Learn more about MCP](https://modelcontextprotocol.io/).
+</Note>
+
+## Supported Clients
+
+<CardGroup cols={3}>
+  <Card title="Claude Code" icon="terminal">
+    Anthropic's CLI coding assistant
+  </Card>
+  <Card title="Cursor" icon="code">
+    AI-powered code editor
+  </Card>
+  <Card title="Claude Desktop" icon="desktop">
+    Claude desktop application
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+### Option 1: Self-Hosted (Open Source)
+
+If you're running your own Ryumem server:
+
+<Steps>
+  <Step title="Start Your Ryumem Server">
+    Make sure your Ryumem server is running (see [Setup Guide](/setup)):
+
+    ```bash
+    docker-compose up -d
+    # Server at http://localhost:8000
+    ```
+  </Step>
+
+  <Step title="Install MCP Server">
+    ```bash
+    npx @predictable/ryumem-mcp-server install \
+      --api-key ryu_your_api_key_here \
+      --api-url http://localhost:8000
+    ```
+  </Step>
+
+  <Step title="Restart Your Client">
+    Restart Claude Code, Cursor, or Claude Desktop to load the new configuration.
+  </Step>
+</Steps>
+
+### Option 2: Ryumem Cloud
+
+For hosted Ryumem service with GitHub authentication:
+
+```bash
+# Claude Code (default)
+npx @predictable/ryumem-mcp-server install --oauth
+
+# Cursor
+npx @predictable/ryumem-mcp-server install --oauth --client cursor
+
+# Claude Desktop
+npx @predictable/ryumem-mcp-server install --oauth --client claude-desktop
+```
+
+This authenticates via GitHub OAuth and automatically configures your client.
+
+## Manual Configuration
+
+If you prefer manual setup, add to your configuration file:
+
+**Configuration file locations:**
+- **Claude Code:** `~/.claude.json`
+- **Cursor:** `~/.cursor/mcp.json`
+- **Claude Desktop (macOS):** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Claude Desktop (Windows):** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Claude Desktop (Linux):** `~/.config/Claude/claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "ryumem": {
+      "command": "npx",
+      "args": ["@predictable/ryumem-mcp-server"],
+      "env": {
+        "RYUMEM_API_URL": "http://localhost:8000",
+        "RYUMEM_API_KEY": "ryu_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+## CLI Options
+
+```bash
+npx @predictable/ryumem-mcp-server install [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--oauth` | Authenticate via GitHub OAuth (for hosted service) |
+| `--api-key <key>` | Use a specific API key |
+| `--api-url <url>` | Custom API URL (default: `https://api.ryumem.io`) |
+| `--client <name>` | Target client: `claude-code` (default), `cursor`, or `claude-desktop` |
+
+### Uninstall
+
+```bash
+npx @predictable/ryumem-mcp-server uninstall
+```
+
+## Available Tools
+
+The MCP server provides the following tools to AI agents:
+
+| Tool | Description |
+|------|-------------|
+| `search_memory` | Multi-strategy semantic search across the knowledge graph |
+| `add_episode` | Save new episodic memory |
+| `get_entity_context` | Retrieve entity details and relationships |
+| `list_episodes` | Paginated episode listing with filters |
+| `get_episode` | Retrieve specific episode by UUID |
+| `update_episode_metadata` | Update metadata on existing episode |
+| `prune_memories` | Clean up old or redundant memories |
+
+## Cursor Configuration
+
+Cursor's MCP implementation doesn't automatically load server instructions. To enable Ryumem's memory-first behavior, add the following to your project's `.cursorrules` file:
+
+```
+Always search and follow Ryumem's memory-first instructions.
+```
+
+**Alternative:** You can also add these instructions to Cursor's global "Rules for AI" in Settings > General > Rules for AI.
+
+## How It Works
+
+Once configured, your AI coding assistant will:
+
+1. **Search memory** before starting tasks to retrieve relevant context
+2. **Store important information** like code patterns, decisions, and preferences
+3. **Build a knowledge graph** of entities and relationships in your codebase
+4. **Learn from past sessions** to provide more contextual assistance
+
+<Tip>
+The MCP server includes instructions that guide the AI to use memory proactively. You don't need to explicitly ask it to remember things.
+</Tip>
+
+## Example Workflow
+
+After setting up the MCP server, your AI assistant will automatically:
+
+1. **At conversation start**: Search for project context, preferences, and recent decisions
+2. **When reading files**: Check if summaries exist before reading full content
+3. **When making decisions**: Store architectural decisions and trade-offs
+4. **When learning preferences**: Remember your coding style and tool preferences
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="MCP server not loading">
+    1. Verify the configuration file path is correct for your client
+    2. Check that `npx @predictable/ryumem-mcp-server` runs without errors
+    3. Restart your AI client after configuration changes
+  </Accordion>
+
+  <Accordion title="Authentication errors">
+    1. Verify your API key is correct (should start with `ryu_`)
+    2. For self-hosted, ensure the API URL is accessible
+    3. Check server logs for authentication errors
+  </Accordion>
+
+  <Accordion title="Memory not persisting">
+    1. Verify your Ryumem server is running and accessible
+    2. Check the `user_id` being used (usually derived from project name)
+    3. Use the dashboard to verify episodes are being stored
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Setup Guide" icon="server" href="/setup">
+    Deploy your own Ryumem server
+  </Card>
+  <Card title="Dashboard Guide" icon="chart-line" href="/dashboard/overview">
+    View and manage your memories
+  </Card>
+  <Card title="Core Concepts" icon="brain" href="/core-concepts/episodes">
+    Understand how memory works
+  </Card>
+  <Card title="Google ADK Integration" icon="robot" href="/integrations/google-adk">
+    Add memory to custom agents
+  </Card>
+</CardGroup>
