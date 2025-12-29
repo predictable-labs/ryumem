@@ -1,16 +1,17 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { api, type AgentInstructionResponse } from "@/lib/api"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Database, Edit2, X, Save, Trash2 } from "lucide-react"
+import { Loader2, Database, Edit2, X, Save, Trash2, AlertCircle, Info } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,31 @@ import {
 
 interface AgentInstructionEditorProps {
   userId?: string
+}
+
+// Valid template variables for query augmentation templates
+// Based on src/ryumem/integrations/google_adk.py:705-712
+const VALID_TEMPLATE_VARIABLES = [
+  'agent_response',
+  'tool_summary',
+  'simplified_tool_summary',
+  'custom_tool_summary',
+  'last_session',
+  'query_text'
+] as const
+
+// Extract template variables from a string (e.g., "{var1} text {var2}" -> ["var1", "var2"])
+function extractTemplateVariables(template: string): string[] {
+  const matches = template.match(/\{([^}]+)\}/g)
+  if (!matches) return []
+  return matches.map(m => m.slice(1, -1)) // Remove { and }
+}
+
+// Validate template variables
+function validateTemplateVariables(template: string): { valid: boolean; invalidVars: string[] } {
+  const usedVars = extractTemplateVariables(template)
+  const invalidVars = usedVars.filter(v => !VALID_TEMPLATE_VARIABLES.includes(v as any))
+  return { valid: invalidVars.length === 0, invalidVars }
 }
 
 export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) {
@@ -40,6 +66,14 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+
+  // Validate template variables
+  const templateValidation = useMemo(() => {
+    if (!editedQueryTemplate) return { valid: true, invalidVars: [], usedVars: [] }
+    const validation = validateTemplateVariables(editedQueryTemplate)
+    const usedVars = extractTemplateVariables(editedQueryTemplate)
+    return { ...validation, usedVars }
+  }, [editedQueryTemplate])
 
   const loadInstructions = useCallback(async () => {
     setLoading(true)
@@ -336,7 +370,40 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
               </div>
 
               <div>
-                <Label className="text-sm font-medium">Query Augmentation Template</Label>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-medium">Query Augmentation Template</Label>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Info className="h-3 w-3" />
+                    <span>Available template variables</span>
+                  </div>
+                </div>
+
+                {/* Available template variables */}
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {VALID_TEMPLATE_VARIABLES.map((varName) => {
+                    const isUsed = templateValidation.usedVars.includes(varName)
+                    return (
+                      <Badge
+                        key={varName}
+                        variant={isUsed ? "default" : "outline"}
+                        className="text-xs font-mono cursor-pointer"
+                        onClick={() => {
+                          // Insert variable at cursor position
+                          const textarea = document.querySelector('textarea[placeholder="Optional query augmentation template..."]') as HTMLTextAreaElement
+                          if (textarea) {
+                            const cursorPos = textarea.selectionStart
+                            const textBefore = editedQueryTemplate.substring(0, cursorPos)
+                            const textAfter = editedQueryTemplate.substring(cursorPos)
+                            setEditedQueryTemplate(textBefore + `{${varName}}` + textAfter)
+                          }
+                        }}
+                      >
+                        {`{${varName}}`}
+                      </Badge>
+                    )
+                  })}
+                </div>
+
                 <Textarea
                   value={editedQueryTemplate}
                   onChange={(e) => setEditedQueryTemplate(e.target.value)}
@@ -344,6 +411,18 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                   className="font-mono text-sm mt-1"
                   placeholder="Optional query augmentation template..."
                 />
+
+                {/* Validation errors */}
+                {!templateValidation.valid && (
+                  <Alert variant="destructive" className="mt-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      Invalid template variables found: {templateValidation.invalidVars.map(v => `{${v}}`).join(', ')}
+                      <br />
+                      <span className="text-xs">Only the variables shown above are supported.</span>
+                    </AlertDescription>
+                  </Alert>
+                )}
               </div>
 
               <div className="text-xs text-muted-foreground border-t pt-3">
@@ -369,7 +448,7 @@ export function AgentInstructionEditor({ userId }: AgentInstructionEditorProps) 
                   >
                     Cancel
                   </Button>
-                  <Button onClick={handleSave} disabled={saving || deleting}>
+                  <Button onClick={handleSave} disabled={saving || deleting || !templateValidation.valid}>
                     {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Save Changes
                   </Button>
