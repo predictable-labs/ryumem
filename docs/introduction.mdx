@@ -1,21 +1,22 @@
 ---
 title: Ryumem
-description: "Add intelligent, long-term memory to your AI agents with one line of code."
+description: "Open-source bi-temporal knowledge graph memory for AI agents."
+icon: "brain"
 ---
 
 # Knowledge Graph Memory for AI Agents
 
-Ryumem is a **bi-temporal knowledge graph memory system** that gives your AI agents intelligent, long-term memory with automatic tool tracking and query augmentation.
+Ryumem is an **open-source bi-temporal knowledge graph memory system** that gives your AI agents intelligent, long-term memory with automatic tool tracking and query augmentation.
 
 <CardGroup cols={2}>
   <Card title="5-Minute Quickstart" icon="rocket" href="/quickstart">
     Build your first memory-enabled agent
   </Card>
-  <Card title="One-Line Integration" icon="plug" href="/integrations/google-adk">
-    Add memory to Google ADK agents instantly
+  <Card title="Self-Hosted Setup" icon="server" href="/setup">
+    Deploy Ryumem with Docker Compose
   </Card>
-  <Card title="Dashboard Guide" icon="chart-line" href="/dashboard/overview">
-    Navigate and use the web dashboard
+  <Card title="MCP Server" icon="plug" href="/integrations/mcp-server">
+    Add memory to Claude Desktop and coding agents
   </Card>
   <Card title="Core Concepts" icon="brain" href="/core-concepts/episodes">
     Understand how Ryumem works
@@ -23,56 +24,16 @@ Ryumem is a **bi-temporal knowledge graph memory system** that gives your AI age
 </CardGroup>
 
 <Note>
-**SDK Documentation**: This documentation covers the Ryumem Python SDK for adding memory to your AI agents and the web dashboard for visualization. For server deployment or enterprise features, contact **contact@predictable.sh**.
+**Open Source**: Ryumem is open source under the AGPL-3.0 license. Self-host it on your own infrastructure or contribute on [GitHub](https://github.com/predictable-labs/ryumem).
 </Note>
 
-## Why Ryumem?
 
-<AccordionGroup>
-  <Accordion icon="bolt" title="One-Line Setup">
-    Add memory to Google ADK agents with a single function call. No configuration, no boilerplate - just instant memory.
 
-    ```python
-    memory = add_memory_to_agent(agent, ryumem_instance=ryumem)
-    ```
-  </Accordion>
-
-  <Accordion icon="wand-magic-sparkles" title="Automatic Tool Tracking">
-    Every tool execution is automatically logged with parameters, results, and timestamps. Perfect for debugging and analytics.
-
-    ```python
-    memory = add_memory_to_agent(agent, ryumem_instance=ryumem, track_tools=True)
-    ```
-  </Accordion>
-
-  <Accordion icon="sparkles" title="Query Augmentation">
-    New queries are automatically enriched with context from similar past conversations, helping agents learn and improve over time.
-
-    ```python
-    runner = wrap_runner_with_tracking(runner, memory, augment_queries=True)
-    ```
-  </Accordion>
-
-  <Accordion icon="brain" title="Knowledge Graph Memory">
-    Unlike flat memory systems, Ryumem builds a knowledge graph with entities and relationships, enabling intelligent retrieval and reasoning.
-  </Accordion>
-
-  <Accordion icon="clock" title="Temporal Awareness">
-    Tracks when facts were valid (valid_at) and when they were recorded (created_at), automatically handling contradictions and outdated information.
-  </Accordion>
-
-  <Accordion icon="magnifying-glass" title="Hybrid Search">
-    Combines semantic search (embeddings), keyword search (BM25), and graph traversal for the most relevant results.
-  </Accordion>
-
-  <Accordion icon="users" title="Built-in Multi-Tenancy">
-    Isolate memories by user, session, agent, or any custom grouping - perfect for production applications.
-  </Accordion>
-
-  <Accordion icon="gauge-high" title="Production Ready">
-    Hosted service handles scaling, embeddings, and LLM inference - you just focus on building your agent.
-  </Accordion>
-</AccordionGroup>
+**Components:**
+- **API Server** - FastAPI backend with REST API
+- **Dashboard** - Next.js web UI for visualization
+- **MCP Server** - Model Context Protocol server for AI agents
+- **Python SDK** - Client library for Python applications
 
 ## Key Features
 
@@ -91,5 +52,19 @@ Ryumem is a **bi-temporal knowledge graph memory system** that gives your AI age
   </Card>
   <Card title="Memory Pruning" icon="broom">
     Removes expired and obsolete information automatically
+  </Card>
+  <Card title="Web Dashboard" icon="chart-line">
+    Modern Next.js UI with graph visualization and analytics
+  </Card>
+</CardGroup>
+
+## Quick Links
+
+<CardGroup cols={2}>
+  <Card title="GitHub Repository" icon="github" href="https://github.com/predictable-labs/ryumem">
+    Star the repo, report issues, contribute
+  </Card>
+  <Card title="Python SDK on PyPI" icon="python" href="https://pypi.org/project/ryumem/">
+    Install with pip install ryumem
   </Card>
 </CardGroup>

@@ -1,5 +1,10 @@
 {
     "name": "Ryumem",
+    "logo": {
+        "light": "/logo.svg",
+        "dark": "/logo-dark.svg",
+        "href": "/"
+    },
     "favicon": "favicon.ico",
     "colors": {
         "primary": "#6366F1",
@@ -20,12 +25,12 @@
     "topbarLinks": [
         {
             "name": "GitHub",
-            "url": "https://github.com/predictable/ryumem"
+            "url": "https://github.com/predictable-labs/ryumem"
         }
     ],
     "topbarCtaButton": {
-        "name": "Get API Key",
-        "url": "mailto:contact@predictable.sh"
+        "name": "Star on GitHub",
+        "url": "https://github.com/predictable-labs/ryumem"
     },
     "anchors": [
         {
@@ -36,7 +41,7 @@
         {
             "name": "GitHub",
             "icon": "github",
-            "url": "https://github.com/predictable/ryumem"
+            "url": "https://github.com/predictable-labs/ryumem"
         }
     ],
     "navigation": [
@@ -61,7 +66,8 @@
         {
             "group": "Integrations",
             "pages": [
-                "integrations/google-adk"
+                "integrations/google-adk",
+                "integrations/mcp-server"
             ]
         },
         {
@@ -78,7 +84,7 @@
         }
     ],
     "footerSocials": {
-        "github": "https://github.com/predictable/ryumem"
+        "github": "https://github.com/predictable-labs/ryumem"
     },
     "feedback": {
         "thumbsRating": true,

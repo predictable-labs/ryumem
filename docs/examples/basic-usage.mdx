@@ -7,19 +7,20 @@ This guide demonstrates the fundamental operations in Ryumem: initialization, ad
 
 ## Initialize Ryumem
 
-First, import and initialize Ryumem with your API key:
+First, import and initialize Ryumem with your server URL and API key:
 
 ```python
 from ryumem import Ryumem
 
-# Initialize with your Ryumem API key
+# Initialize with your self-hosted Ryumem server
 ryumem = Ryumem(
-    api_key="ryu_...",
+    api_url="http://localhost:8000",
+    api_key="ryu_your_api_key_here",
 )
 ```
 
 <Note>
-Need an API key? Contact **contact@predictable.sh** to get started.
+Need to set up Ryumem? See the [Setup Guide](/setup) for Docker Compose or local installation instructions.
 </Note>
 
 ## Add Episodes
@@ -99,8 +100,11 @@ Here's a complete working example:
 ```python
 from ryumem import Ryumem
 
-# Initialize
-ryumem = Ryumem(api_key="ryu_...")
+# Initialize with your self-hosted server
+ryumem = Ryumem(
+    api_url="http://localhost:8000",
+    api_key="ryu_your_api_key_here"
+)
 
 # Add knowledge
 ryumem.add_episode(
