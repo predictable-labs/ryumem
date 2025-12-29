@@ -38,13 +38,16 @@ Example - With Query Tracking:
 import datetime
 import json
 import logging
+import time
 import uuid as uuid_module
+from contextlib import nullcontext
 from typing import Optional, Dict, Any, List
 
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 from ryumem import EpisodeType, Ryumem, RyumemConfig
 from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
+from ryumem.core.otel import get_telemetry
 
 from .tool_tracker import ToolTracker
 
@@ -1053,6 +1056,11 @@ def wrap_runner_with_tracking(
 
         async def wrapped_run_async(*, user_id, session_id, new_message, **kwargs):
             """Wrapped run_async method that augments queries and tracks them as episodes - returns async generator."""
+            # Get telemetry and start timing
+            telemetry = get_telemetry()
+            query_start_time = time.time()
+            query_text = _extract_query_text(new_message)
+
             # Prepare query and episode using shared helper
             _, augmented_message, query_episode_id, _ = _prepare_query_and_episode(
                 new_message=new_message,
@@ -1062,31 +1070,65 @@ def wrap_runner_with_tracking(
                 original_runner=original_runner
             )
 
-            # Call original run_async - it returns an async generator directly
-            # Log what we're actually sending to the agent
-            if hasattr(augmented_message, 'parts') and augmented_message.parts:
-                msg_text = ''.join([p.text for p in augmented_message.parts if hasattr(p, 'text')])
-                logger.info(f"Sending to agent: {msg_text[:300]}...")
+            was_augmented = (augmented_message != new_message)
+            tools_used_count = [0]  # Use list to allow modification in nested scope
 
-            event_stream = original_run_async(
+            # Start query flow span (no-op if telemetry is None)
+            span_ctx = (telemetry.trace_query_flow(
+                query_text=query_text or "unknown",
                 user_id=user_id,
                 session_id=session_id,
-                new_message=augmented_message,
-                **kwargs
-            )
+                augmented=was_augmented,
+            ) if telemetry and query_text else None) or nullcontext()
 
-            # Yield events from the async generator while capturing responses
-            agent_response_parts = []
-            try:
-                async for event in event_stream:
-                    # Capture agent text responses
-                    if hasattr(event, 'content') and hasattr(event.content, 'parts'):
-                        for part in event.content.parts:
-                            if hasattr(part, 'text') and part.text:
-                                agent_response_parts.append(part.text)
-                    yield event
-            finally:
-                _save_agent_response_to_episode(query_episode_id, session_id, agent_response_parts, memory)
+            with span_ctx as span:
+                # Set span attributes (no-op if span is None)
+                if span and was_augmented:
+                    span.set_attribute("query.augmented", True)
+                if span and query_episode_id:
+                    span.set_attribute("query.episode_id", query_episode_id)
+
+                # Call original run_async - it returns an async generator directly
+                # Log what we're actually sending to the agent
+                if hasattr(augmented_message, 'parts') and augmented_message.parts:
+                    msg_text = ''.join([p.text for p in augmented_message.parts if hasattr(p, 'text')])
+                    logger.info(f"Sending to agent: {msg_text[:300]}...")
+
+                event_stream = original_run_async(
+                    user_id=user_id,
+                    session_id=session_id,
+                    new_message=augmented_message,
+                    **kwargs
+                )
+
+                # Yield events from the async generator while capturing responses
+                agent_response_parts = []
+                try:
+                    async for event in event_stream:
+                        # Capture agent text responses
+                        if hasattr(event, 'content') and hasattr(event.content, 'parts'):
+                            for part in event.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    agent_response_parts.append(part.text)
+
+                        # Count tools (approximate)
+                        if hasattr(event, 'metadata'):
+                            tools_used_count[0] += 1
+
+                        yield event
+                finally:
+                    _save_agent_response_to_episode(query_episode_id, session_id, agent_response_parts, memory)
+
+                    # Record query metrics (no-op if telemetry is None)
+                    if telemetry:
+                        query_duration_ms = int((time.time() - query_start_time) * 1000)
+                        telemetry.record_query(
+                            duration_ms=query_duration_ms,
+                            augmented=was_augmented,
+                            user_id=user_id,
+                            session_id=session_id,
+                            tools_used_count=tools_used_count[0],
+                        )
 
         # Replace the run_async method
         original_runner.run_async = wrapped_run_async

@@ -8,6 +8,7 @@ import requests
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 from ryumem.core.config import RyumemConfig
+from ryumem.core.otel import init_telemetry, shutdown_telemetry
 from ryumem.core.models import (
     SearchResult,
     EntityNode as Entity,
@@ -134,6 +135,15 @@ class Ryumem:
         self._instruction_cache: Dict[str, InstructionCacheEntry] = {}
 
         logger.info(f"Ryumem Client initialized (server: {self.base_url})")
+
+        # Initialize OpenTelemetry if enabled
+        logger.info(f"OpenTelemetry config: otel_enabled={self.config.opentelemetry.otel_enabled}, endpoint={self.config.opentelemetry.otlp_endpoint}, protocol={self.config.opentelemetry.otlp_protocol}")
+        self.telemetry = init_telemetry(self.config.opentelemetry)
+        logger.info(f"init_telemetry returned: {self.telemetry}")
+        if self.telemetry and self.telemetry.enabled:
+            logger.info("OpenTelemetry initialized successfully")
+        else:
+            logger.info(f"OpenTelemetry not initialized: telemetry={self.telemetry}, enabled={self.telemetry.enabled if self.telemetry else 'N/A'}")
 
     def _get_headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -809,3 +819,15 @@ class Ryumem:
             Response dict with status and message
         """
         return self._delete("/database/reset")
+
+    def shutdown(self):
+        """Shutdown Ryumem and flush telemetry."""
+        logger.info("Shutting down Ryumem")
+        shutdown_telemetry()
+
+    def __del__(self):
+        """Cleanup on deletion."""
+        try:
+            self.shutdown()
+        except:
+            pass

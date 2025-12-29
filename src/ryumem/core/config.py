@@ -23,6 +23,8 @@ class DatabaseConfig(BaseSettings):
 class EntityExtractionConfig(BaseSettings):
     """Entity extraction and episode deduplication configuration"""
 
+    model_config = SettingsConfigDict(extra='ignore')
+
     enabled: bool = Field(
         default=False,
         description="Whether to enable entity extraction during ingestion (disabled by default to reduce token usage)"
@@ -48,6 +50,8 @@ class EntityExtractionConfig(BaseSettings):
 
 class EpisodeConfig(BaseSettings):
     """Episode ingestion and deduplication configuration"""
+
+    model_config = SettingsConfigDict(extra='ignore')
 
     enable_embeddings: bool = Field(
         default=True,
@@ -201,17 +205,50 @@ class ToolTrackingConfig(BaseSettings):
     )
 
 
+class OpenTelemetryConfig(BaseSettings):
+    """OpenTelemetry observability configuration"""
+
+    model_config = SettingsConfigDict(extra='ignore')
+
+    otel_enabled: bool = Field(
+        default=False,
+        description="Enable OpenTelemetry traces and metrics"
+    )
+    otlp_endpoint: Optional[str] = Field(
+        default=None,
+        description="OTLP endpoint (e.g., http://localhost:4318). If None, uses OTEL_EXPORTER_OTLP_ENDPOINT env var"
+    )
+    otlp_protocol: str = Field(
+        default="http/protobuf",
+        description="OTLP protocol: 'grpc' or 'http/protobuf'"
+    )
+    trace_sample_rate: float = Field(
+        default=1.0,
+        description="Trace sampling rate (0.0-1.0)",
+        ge=0.0,
+        le=1.0
+    )
+    metric_export_interval_millis: int = Field(
+        default=60000,
+        description="Metric export interval in milliseconds",
+        gt=0
+    )
+
+
 class RyumemConfig(BaseSettings):
     """
     Main configuration for Ryumem client instance.
     Config is fetched from the server.
     """
 
+    model_config = SettingsConfigDict(extra='ignore')
+
     # Nested configuration sections
     entity_extraction: EntityExtractionConfig = Field(default_factory=EntityExtractionConfig)
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     episode: EpisodeConfig = Field(default_factory=EpisodeConfig)
+    opentelemetry: OpenTelemetryConfig = Field(default_factory=OpenTelemetryConfig)
 
     def to_dict(self) -> dict:
         """Convert config to dictionary"""

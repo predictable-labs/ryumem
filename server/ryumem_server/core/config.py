@@ -16,6 +16,7 @@ from ryumem.core.config import (
     EpisodeConfig,
     ToolTrackingConfig,
     AgentConfig,
+    OpenTelemetryConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -275,6 +276,7 @@ class RyumemConfig(BaseSettings):
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     system: SystemConfig = Field(default_factory=SystemConfig)
+    opentelemetry: OpenTelemetryConfig = Field(default_factory=OpenTelemetryConfig)
 
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",

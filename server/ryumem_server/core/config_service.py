@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from ryumem.core.config import EpisodeConfig
+from ryumem.core.config import EpisodeConfig, OpenTelemetryConfig
 from ryumem_server.core.config import (
     AgentConfig,
     DatabaseConfig,
@@ -238,7 +238,7 @@ class ConfigService:
         )
 
         episode_config = EpisodeConfig(
-            enable_embeddings=get_value("episode.enable_embeddings", True),
+            enable_embeddings=get_value("episode.enable_embeddings", False),
             deduplication_enabled=get_value("episode.deduplication_enabled", True),
             similarity_threshold=get_value("episode.similarity_threshold", 0.95),
             bm25_similarity_threshold=get_value("episode.bm25_similarity_threshold", 0.7),
@@ -284,6 +284,14 @@ class ConfigService:
             log_level=get_value("system.log_level", "INFO"),
         )
 
+        opentelemetry_config = OpenTelemetryConfig(
+            otel_enabled=get_value("opentelemetry.otel_enabled", False),
+            otlp_endpoint=get_value("opentelemetry.otlp_endpoint"),
+            otlp_protocol=get_value("opentelemetry.otlp_protocol", "http/protobuf"),
+            trace_sample_rate=get_value("opentelemetry.trace_sample_rate", 1.0),
+            metric_export_interval_millis=get_value("opentelemetry.metric_export_interval_millis", 60000),
+        )
+
         # Construct main config
         config = RyumemConfig(
             database=database_config,
@@ -295,6 +303,7 @@ class ConfigService:
             tool_tracking=tool_tracking_config,
             agent=agent_config,
             system=system_config,
+            opentelemetry=opentelemetry_config,
         )
 
         logger.info("Loaded configuration from database")
