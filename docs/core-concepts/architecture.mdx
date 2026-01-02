@@ -8,42 +8,26 @@ Ryumem is a modular system with four main layers that work together to give AI a
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      CLIENT LAYER                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │ Python SDK  │  │ MCP Server  │  │      REST API           │  │
-│  │  (ryumem)   │  │ (TypeScript)│  │  (Direct HTTP calls)    │  │
-│  └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘  │
-└─────────┼────────────────┼─────────────────────┼────────────────┘
-          │                │                     │
-          └────────────────┼─────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    API SERVER (FastAPI)                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
-│  │   Episodes   │  │    Search    │  │   Entity Management  │   │
-│  │   Endpoint   │  │   Endpoint   │  │      Endpoint        │   │
-│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘   │
-└─────────┼─────────────────┼─────────────────────┼───────────────┘
-          │                 │                     │
-          ▼                 ▼                     ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   PROCESSING LAYER                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
-│  │  Ingestion   │  │   Search     │  │  Entity Extraction   │   │
-│  │  & Dedup     │  │   Engine     │  │  (LLM-powered)       │   │
-│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘   │
-└─────────┼─────────────────┼─────────────────────┼───────────────┘
-          │                 │                     │
-          └─────────────────┼─────────────────────┘
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   STORAGE LAYER (RyugraphDB)                    │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
-│  │   Episodes   │  │   Entities   │  │    Relationships     │   │
-│  │   (nodes)    │  │   (nodes)    │  │   (RELATES_TO edges) │   │
-│  └──────────────┘  └──────────────┘  └──────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+        SDK / MCP / REST API
+               |
+               v
+        +--------------+
+        |  API Server  |
+        |   (FastAPI)  |
+        +--------------+
+               |
+               v
+        +--------------+
+        |  Processing  |
+        | Ingestion,   |
+        | Search, LLM  |
+        +--------------+
+               |
+               v
+        +--------------+
+        |   Storage    |
+        | (RyugraphDB) |
+        +--------------+
 ```
 
 ## Components
@@ -65,38 +49,32 @@ Ryumem is a modular system with four main layers that work together to give AI a
 
 ## Data Flow: Ingestion
 
-When you add an episode, here's what happens:
+When you add an episode:
 
 ```
-┌─────────────────┐
-│  Your Content   │  (text, message, or JSON)
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│  Deduplication  │  Check for similar existing episodes
-│     Check       │  (semantic + BM25 similarity)
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│ Episode Storage │  Save to graph with embeddings
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│    Optional:    │  If entity extraction enabled
-│ Entity Extract  │  ───────────────────────────────┐
-└────────┬────────┘                                 │
-         ▼                                          ▼
-┌─────────────────┐                      ┌─────────────────┐
-│ Create Entities │                      │    Extract      │
-│    & Dedup      │                      │ Relationships   │
-└────────┬────────┘                      └────────┬────────┘
-         │                                        │
-         └──────────────┬─────────────────────────┘
-                        ▼
-              ┌─────────────────┐
-              │  Link Episode   │
-              │  to Entities    │  (MENTIONS edges)
-              └─────────────────┘
+  Content (text/message/json)
+            |
+            v
+     Deduplication Check
+     (semantic + BM25)
+            |
+            v
+     Episode Storage
+     (save + embed)
+            |
+            v
+   [If extraction enabled]
+            |
+    +-------+-------+
+    |               |
+    v               v
+ Entities    Relationships
+ (dedup)      (extract)
+    |               |
+    +-------+-------+
+            |
+            v
+    Link via MENTIONS
 ```
 
 **Key Points:**
@@ -107,36 +85,27 @@ When you add an episode, here's what happens:
 
 ## Data Flow: Search
 
-When you search memory, Ryumem uses multiple strategies:
+When you search memory:
 
 ```
-┌─────────────────┐
-│   Your Query    │
-└────────┬────────┘
-         ▼
-┌─────────────────────────────────────────────────┐
-│              MULTI-STRATEGY SEARCH              │
-├─────────────────┬───────────────┬───────────────┤
-│    Semantic     │     BM25      │     Graph     │
-│    (vectors)    │  (keywords)   │  (traversal)  │
-└────────┬────────┴───────┬───────┴───────┬───────┘
-         │                │               │
-         └────────────────┼───────────────┘
-                          ▼
-              ┌─────────────────────┐
-              │    RRF Fusion       │  Combine results with
-              │    + Scoring        │  Reciprocal Rank Fusion
-              └──────────┬──────────┘
-                         ▼
-              ┌─────────────────────┐
-              │  Temporal Decay     │  Recent facts score higher
-              │  + Ranking          │  (configurable decay rate)
-              └──────────┬──────────┘
-                         ▼
-              ┌─────────────────────┐
-              │      Results        │  Episodes, entities,
-              │                     │  and relationships
-              └─────────────────────┘
+        Query
+          |
+          v
+   +------+------+
+   |      |      |
+   v      v      v
+Semantic BM25  Graph
+          |
+          v
+    RRF Fusion
+    (combine scores)
+          |
+          v
+    Temporal Decay
+    (recent > old)
+          |
+          v
+       Results
 ```
 
 **Search Strategies:**
@@ -147,39 +116,33 @@ When you search memory, Ryumem uses multiple strategies:
 
 ## Data Model
 
-Ryumem stores knowledge as a graph with three main node types:
+Ryumem stores knowledge as a graph:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         EPISODES                                │
-│  The fundamental unit - every fact starts as an episode         │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │ uuid, content, source, kind, created_at, valid_at       │    │
-│  │ content_embedding, metadata, user_id                    │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │ MENTIONS
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         ENTITIES                                │
-│  Extracted concepts: people, places, organizations, etc.        │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │ uuid, name, entity_type, summary, name_embedding        │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │ RELATES_TO
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      RELATIONSHIPS                              │
-│  Connections between entities with bi-temporal metadata         │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │ name (relation type), fact, fact_embedding              │    │
-│  │ created_at, valid_at, invalid_at, expired_at            │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
++----------+          +----------+
+| EPISODES |--MENTIONS-->| ENTITIES |
++----------+          +----------+
+                           |
+                       RELATES_TO
+                           |
+                           v
+                      +----------+
+                      | ENTITIES |
+                      +----------+
 ```
 
-**Bi-Temporal Tracking:**
+**Episodes** - The fundamental unit. Every fact starts as an episode.
+- `uuid`, `content`, `source`, `kind`
+- `created_at`, `valid_at`, `content_embedding`
+
+**Entities** - Extracted concepts: people, places, organizations.
+- `uuid`, `name`, `entity_type`, `summary`
+
+**Relationships** - Connections between entities with bi-temporal metadata.
+- `name`, `fact`, `fact_embedding`
+- `created_at`, `valid_at`, `invalid_at`, `expired_at`
+
+## Bi-Temporal Tracking
 
 Relationships track two dimensions of time:
 - **System time**: When the fact was recorded (`created_at`)
