@@ -56,6 +56,7 @@
         {
             "group": "Core Concepts",
             "pages": [
+                "core-concepts/architecture",
                 "core-concepts/episodes",
                 "core-concepts/multi-tenancy",
                 "core-concepts/search-strategies"
