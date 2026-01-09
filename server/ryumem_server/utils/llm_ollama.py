@@ -8,9 +8,10 @@ Supports models like Llama, Mistral, Qwen, etc.
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 
 import requests
+from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 
 logger = logging.getLogger(__name__)
@@ -644,6 +645,96 @@ Detect contradictions as JSON:"""
         similarity = dot_product / (norm1 * norm2)
 
         return float(similarity)
+
+    def create_structured_output(
+        self,
+        text_input: str,
+        system_prompt: str,
+        response_model: Type[BaseModel],
+        temperature: float = 0.0,
+    ) -> BaseModel:
+        """
+        Generate structured output parsed into a Pydantic model.
+
+        Uses Ollama's JSON mode and parses the response into the Pydantic model.
+
+        Args:
+            text_input: The user input text to process
+            system_prompt: System prompt with instructions
+            response_model: Pydantic model class for response validation
+            temperature: Sampling temperature (0.0-1.0)
+
+        Returns:
+            Instance of response_model with parsed data
+        """
+        # Get JSON schema from Pydantic model for prompt guidance
+        schema = response_model.model_json_schema()
+        schema_str = json.dumps(schema, indent=2)
+
+        enhanced_prompt = f"""{system_prompt}
+
+You MUST respond with valid JSON that conforms to this schema:
+{schema_str}
+
+Output ONLY the JSON object, no other text."""
+
+        messages = [
+            {"role": "system", "content": enhanced_prompt},
+            {"role": "user", "content": text_input},
+        ]
+
+        try:
+            response = self.generate(
+                messages,
+                temperature=temperature,
+                response_format={"type": "json_object"},
+            )
+
+            content = response["content"].strip()
+
+            # Parse JSON and validate with Pydantic
+            data = json.loads(content)
+            result = response_model.model_validate(data)
+
+            logger.debug(f"Structured output: {result}")
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from Ollama response: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error generating structured output with Ollama: {e}")
+            raise
+
+    async def acreate_structured_output(
+        self,
+        text_input: str,
+        system_prompt: str,
+        response_model: Type[BaseModel],
+        temperature: float = 0.0,
+    ) -> BaseModel:
+        """
+        Async version of create_structured_output.
+
+        Note: Ollama client is synchronous, so this runs in a thread pool.
+
+        Args:
+            text_input: The user input text to process
+            system_prompt: System prompt with instructions
+            response_model: Pydantic model class for response validation
+            temperature: Sampling temperature (0.0-1.0)
+
+        Returns:
+            Instance of response_model with parsed data
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self.create_structured_output(
+                text_input, system_prompt, response_model, temperature
+            )
+        )
 
     def __repr__(self) -> str:
         """String representation."""

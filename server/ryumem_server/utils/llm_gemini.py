@@ -7,8 +7,9 @@ Supports both LLM operations and embeddings.
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 
+from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -563,6 +564,99 @@ Identify all contradictions."""
         except Exception as e:
             logger.error(f"Error generating batch embeddings with Gemini: {e}")
             raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True
+    )
+    def create_structured_output(
+        self,
+        text_input: str,
+        system_prompt: str,
+        response_model: Type[BaseModel],
+        temperature: float = 0.0,
+    ) -> BaseModel:
+        """
+        Generate structured output parsed into a Pydantic model.
+
+        Uses Gemini's controlled generation with JSON schema.
+
+        Args:
+            text_input: The user input text to process
+            system_prompt: System prompt with instructions
+            response_model: Pydantic model class for response validation
+            temperature: Sampling temperature (0.0-2.0)
+
+        Returns:
+            Instance of response_model with parsed data
+        """
+        try:
+            # Get JSON schema from Pydantic model
+            schema = response_model.model_json_schema()
+
+            # Convert messages to Gemini format
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text_input},
+            ]
+            gemini_messages = self._convert_messages(messages)
+
+            # Use Gemini's JSON mode with schema
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=gemini_messages,
+                config=self.genai.types.GenerateContentConfig(
+                    temperature=temperature,
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                )
+            )
+
+            # Parse response into Pydantic model
+            content = response.text.strip()
+            data = json.loads(content)
+            result = response_model.model_validate(data)
+
+            logger.debug(f"Structured output: {result}")
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from Gemini response: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error generating structured output with Gemini: {e}")
+            raise
+
+    async def acreate_structured_output(
+        self,
+        text_input: str,
+        system_prompt: str,
+        response_model: Type[BaseModel],
+        temperature: float = 0.0,
+    ) -> BaseModel:
+        """
+        Async version of create_structured_output.
+
+        Note: Gemini client is synchronous, so this runs in a thread pool.
+
+        Args:
+            text_input: The user input text to process
+            system_prompt: System prompt with instructions
+            response_model: Pydantic model class for response validation
+            temperature: Sampling temperature (0.0-2.0)
+
+        Returns:
+            Instance of response_model with parsed data
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self.create_structured_output(
+                text_input, system_prompt, response_model, temperature
+            )
+        )
 
     def __repr__(self) -> str:
         """String representation."""

@@ -5,9 +5,11 @@ Provides the same interface as LLMClient but uses LiteLLM for accessing
 100+ LLM providers through a single unified API.
 """
 
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 
+from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -517,6 +519,133 @@ Identify all contradictions."""
 
         except Exception as e:
             logger.error(f"Error generating batch embeddings with LiteLLM: {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True
+    )
+    def create_structured_output(
+        self,
+        text_input: str,
+        system_prompt: str,
+        response_model: Type[BaseModel],
+        temperature: float = 0.0,
+    ) -> BaseModel:
+        """
+        Generate structured output parsed into a Pydantic model.
+
+        Uses LiteLLM's JSON mode with schema guidance in the prompt.
+
+        Args:
+            text_input: The user input text to process
+            system_prompt: System prompt with instructions
+            response_model: Pydantic model class for response validation
+            temperature: Sampling temperature (0.0-2.0)
+
+        Returns:
+            Instance of response_model with parsed data
+        """
+        try:
+            # Get JSON schema from Pydantic model for prompt guidance
+            schema = response_model.model_json_schema()
+            schema_str = json.dumps(schema, indent=2)
+
+            enhanced_prompt = f"""{system_prompt}
+
+You MUST respond with valid JSON that conforms to this schema:
+{schema_str}
+
+Output ONLY the JSON object, no other text."""
+
+            messages = [
+                {"role": "system", "content": enhanced_prompt},
+                {"role": "user", "content": text_input},
+            ]
+
+            # Make API call with JSON response format
+            response = self.litellm.completion(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                timeout=self.timeout,
+                response_format={"type": "json_object"},
+            )
+
+            # Parse response
+            content = response.choices[0].message.content.strip()
+            data = json.loads(content)
+            result = response_model.model_validate(data)
+
+            logger.debug(f"Structured output: {result}")
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from LiteLLM response: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error generating structured output with LiteLLM: {e}")
+            raise
+
+    async def acreate_structured_output(
+        self,
+        text_input: str,
+        system_prompt: str,
+        response_model: Type[BaseModel],
+        temperature: float = 0.0,
+    ) -> BaseModel:
+        """
+        Async version of create_structured_output.
+
+        Args:
+            text_input: The user input text to process
+            system_prompt: System prompt with instructions
+            response_model: Pydantic model class for response validation
+            temperature: Sampling temperature (0.0-2.0)
+
+        Returns:
+            Instance of response_model with parsed data
+        """
+        try:
+            # Get JSON schema from Pydantic model for prompt guidance
+            schema = response_model.model_json_schema()
+            schema_str = json.dumps(schema, indent=2)
+
+            enhanced_prompt = f"""{system_prompt}
+
+You MUST respond with valid JSON that conforms to this schema:
+{schema_str}
+
+Output ONLY the JSON object, no other text."""
+
+            messages = [
+                {"role": "system", "content": enhanced_prompt},
+                {"role": "user", "content": text_input},
+            ]
+
+            # Make async API call with JSON response format
+            response = await self.litellm.acompletion(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                timeout=self.timeout,
+                response_format={"type": "json_object"},
+            )
+
+            # Parse response
+            content = response.choices[0].message.content.strip()
+            data = json.loads(content)
+            result = response_model.model_validate(data)
+
+            logger.debug(f"Async structured output: {result}")
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from LiteLLM response: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error generating async structured output with LiteLLM: {e}")
             raise
 
     def __repr__(self) -> str:
