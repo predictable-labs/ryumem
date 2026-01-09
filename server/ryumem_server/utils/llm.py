@@ -3,10 +3,13 @@ LLM client wrapper for OpenAI models.
 Handles function calling, retries, and error handling.
 """
 
+import asyncio
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
+from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -356,3 +359,95 @@ Identify all contradictions."""
 
         logger.info(f"Detected {len(contradictions)} contradictions")
         return contradictions
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True
+    )
+    def create_structured_output(
+        self,
+        text_input: str,
+        system_prompt: str,
+        response_model: Type[BaseModel],
+        temperature: float = 0.0,
+    ) -> BaseModel:
+        """
+        Generate structured output parsed into a Pydantic model.
+
+        Uses OpenAI's structured output feature for reliable JSON parsing.
+
+        Args:
+            text_input: The user input text to process
+            system_prompt: System prompt with instructions
+            response_model: Pydantic model class for response validation
+            temperature: Sampling temperature (0.0-2.0)
+
+        Returns:
+            Instance of response_model with parsed data
+        """
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text_input},
+            ]
+
+            response = self.client.beta.chat.completions.parse(
+                model=self.model,
+                messages=messages,
+                response_format=response_model,
+                temperature=temperature,
+            )
+
+            parsed = response.choices[0].message.parsed
+            logger.debug(f"Structured output: {parsed}")
+            return parsed
+
+        except Exception as e:
+            logger.error(f"Error generating structured output: {e}")
+            raise
+
+    async def acreate_structured_output(
+        self,
+        text_input: str,
+        system_prompt: str,
+        response_model: Type[BaseModel],
+        temperature: float = 0.0,
+    ) -> BaseModel:
+        """
+        Async version of create_structured_output.
+
+        Args:
+            text_input: The user input text to process
+            system_prompt: System prompt with instructions
+            response_model: Pydantic model class for response validation
+            temperature: Sampling temperature (0.0-2.0)
+
+        Returns:
+            Instance of response_model with parsed data
+        """
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text_input},
+            ]
+
+            async_client = AsyncOpenAI(
+                api_key=self.client.api_key,
+                timeout=self.client.timeout,
+            )
+
+            response = await async_client.beta.chat.completions.parse(
+                model=self.model,
+                messages=messages,
+                response_format=response_model,
+                temperature=temperature,
+            )
+
+            parsed = response.choices[0].message.parsed
+            logger.debug(f"Async structured output: {parsed}")
+            return parsed
+
+        except Exception as e:
+            logger.error(f"Error generating async structured output: {e}")
+            raise

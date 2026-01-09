@@ -44,6 +44,12 @@ class EntityExtractionConfig(BaseSettings):
         description="Maximum number of previous episodes to use as context for extraction",
         ge=0
     )
+    cascade_n_rounds: int = Field(
+        default=2,
+        description="Number of extraction rounds per stage in cascade extraction pipeline",
+        ge=1,
+        le=5
+    )
 
 
 class EpisodeConfig(BaseSettings):
@@ -206,6 +212,8 @@ class RyumemConfig(BaseSettings):
     Main configuration for Ryumem client instance.
     Config is fetched from the server.
     """
+
+    model_config = SettingsConfigDict(extra="ignore")
 
     # Nested configuration sections
     entity_extraction: EntityExtractionConfig = Field(default_factory=EntityExtractionConfig)

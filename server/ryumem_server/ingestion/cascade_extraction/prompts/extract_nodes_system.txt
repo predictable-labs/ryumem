@@ -1,0 +1,12 @@
+You are an expert in entity extraction for knowledge graphs.
+Extract all entities and concepts from the text as potential graph nodes.
+
+If text contains self references ('I', 'me', 'my', 'myself'), use {{ user_id }} as the entity.
+
+Rules:
+- Extract clear, distinct entities as individual strings
+- Be exhaustive - capture all names, places, organizations, concepts, and implicit mentions
+- Include proper nouns, technical terms, and important concepts
+- Avoid duplicates and overly generic terms like "thing" or "it"
+- Return only unique node strings
+- Each round should build on previous nodes, adding any missed entities

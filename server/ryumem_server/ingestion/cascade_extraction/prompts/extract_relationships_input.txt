@@ -1,0 +1,17 @@
+Text to analyze:
+{{ text }}
+
+Potential nodes:
+{{ nodes }}
+
+{% if existing_relationships %}
+Previously identified relationships (add any missed ones):
+{{ existing_relationships }}
+{% endif %}
+
+{% if context %}
+Context from conversation:
+{{ context }}
+{% endif %}
+
+Identify relationship types and refine the node list.

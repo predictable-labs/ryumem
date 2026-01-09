@@ -1,0 +1,14 @@
+Text to analyze:
+{{ text }}
+
+{% if existing_nodes %}
+Previously extracted nodes (add any missed ones):
+{{ existing_nodes }}
+{% endif %}
+
+{% if context %}
+Context from conversation:
+{{ context }}
+{% endif %}
+
+Extract all potential nodes from the text.

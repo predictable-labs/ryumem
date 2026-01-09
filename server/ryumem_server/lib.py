@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 from ryumem_server.core.config import RyumemConfig
 from ryumem_server.core.graph_db import RyugraphDB
-from ryumem_server.core.models import EpisodeNode, EpisodeType, SearchConfig, SearchResult
+from ryumem_server.core.models import EpisodeNode, EpisodeType, EntityNode, EntityEdge, SearchConfig, SearchResult
 from ryumem_server.ingestion.episode import EpisodeIngestion
 from ryumem_server.maintenance.pruner import MemoryPruner
 from ryumem_server.retrieval.search import SearchEngine
@@ -1063,8 +1063,20 @@ class Ryumem:
         logger.info(f"Loaded {len(all_entities)} entities for BM25 index")
 
         # Get all edges from database
+        # Map field names from DB query format to EntityEdge model format
         all_edges_data = self.db.get_all_edges()
-        all_edges = [EntityEdge(**e) for e in all_edges_data]
+        all_edges = []
+        for e in all_edges_data:
+            all_edges.append(EntityEdge(
+                uuid=e.get('uuid'),
+                source_node_uuid=e.get('source_uuid'),
+                target_node_uuid=e.get('target_uuid'),
+                name=e.get('relation_type', ''),
+                fact=e.get('fact', ''),
+                valid_at=e.get('valid_at'),
+                invalid_at=e.get('invalid_at'),
+                expired_at=e.get('expired_at'),
+            ))
         logger.info(f"Loaded {len(all_edges)} edges for BM25 index")
 
         # Get all episodes from database (use get_episodes with very high limit to get all)

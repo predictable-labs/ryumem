@@ -929,6 +929,11 @@ class RyugraphDB:
             r.fact AS fact,
             target.uuid AS target_uuid,
             target.name AS target_name,
+            r.created_at AS created_at,
+            r.valid_at AS valid_at,
+            r.invalid_at AS invalid_at,
+            r.expired_at AS expired_at,
+            r.mentions AS mentions,
             similarity
         ORDER BY similarity DESC
         LIMIT $limit

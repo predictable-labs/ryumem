@@ -337,6 +337,109 @@ Create an updated summary:"""
             self.db.save_entity(entity)
             logger.debug(f"Updated summary for entity {entity_data['name']}")
 
+    def resolve_entities(
+        self,
+        raw_entities: List[EntityNode],
+        user_id: str,
+    ) -> Tuple[List[EntityNode], Dict[str, str]]:
+        """
+        Resolve raw entities from cascade extraction against existing entities.
+
+        This method takes pre-extracted EntityNodes (from cascade extraction)
+        and resolves them against existing entities in the database using
+        embedding similarity search.
+
+        Args:
+            raw_entities: List of EntityNode objects from cascade extraction
+            user_id: User ID for entity resolution scope
+
+        Returns:
+            Tuple of (resolved_entities, entity_uuid_map)
+            - resolved_entities: List of resolved EntityNode objects
+            - entity_uuid_map: Dict mapping original entity UUID to resolved UUID
+        """
+        if not raw_entities:
+            logger.info("No entities to resolve")
+            return [], {}
+
+        logger.info(f"Resolving {len(raw_entities)} entities for user {user_id}")
+
+        resolved_entities: List[EntityNode] = []
+        entity_uuid_map: Dict[str, str] = {}  # Maps original UUID to resolved UUID
+
+        for raw_entity in raw_entities:
+            # Generate embedding if not present
+            if raw_entity.name_embedding is None:
+                entity_text = f"{raw_entity.name} ({raw_entity.entity_type})"
+                embedding = self.embedding_client.embed(entity_text)
+            else:
+                embedding = raw_entity.name_embedding
+
+            # Search for similar existing entities
+            similar = self.db.search_similar_entities(
+                embedding=embedding,
+                user_id=user_id,
+                threshold=self.similarity_threshold,
+                limit=5,
+            )
+
+            if similar:
+                # Log similar entities found
+                logger.info(f"Found {len(similar)} similar entities for '{raw_entity.name}':")
+                for idx, sim_entity in enumerate(similar, 1):
+                    logger.info(f"   {idx}. '{sim_entity['name']}' - similarity: {sim_entity['similarity']:.4f}")
+
+                # Use the most similar entity
+                existing = similar[0]
+                resolved_uuid = existing["uuid"]
+
+                logger.info(
+                    f"Deduplicating: '{raw_entity.name}' -> existing '{existing['name']}' "
+                    f"(similarity: {existing['similarity']:.4f})"
+                )
+
+                # Create resolved entity with existing UUID
+                resolved_entity = EntityNode(
+                    uuid=resolved_uuid,
+                    name=existing["name"],  # Use canonical name from DB
+                    entity_type=raw_entity.entity_type,
+                    summary=existing.get("summary", "") or raw_entity.summary,
+                    name_embedding=embedding,
+                    mentions=existing.get("mentions", 0) + 1,
+                    user_id=user_id,
+                )
+
+                # Save to DB (will update mentions)
+                self.db.save_entity(resolved_entity)
+                resolved_entities.append(resolved_entity)
+                entity_uuid_map[raw_entity.uuid] = resolved_uuid
+
+            else:
+                # No similar entity found - create new one
+                logger.info(f"Creating NEW entity '{raw_entity.name}' (type: {raw_entity.entity_type})")
+
+                new_entity = EntityNode(
+                    uuid=raw_entity.uuid,
+                    name=raw_entity.name,
+                    entity_type=raw_entity.entity_type,
+                    summary=raw_entity.summary or "",
+                    name_embedding=embedding,
+                    mentions=1,
+                    created_at=raw_entity.created_at or datetime.utcnow(),
+                    user_id=user_id,
+                )
+
+                # Save to DB
+                self.db.save_entity(new_entity)
+                resolved_entities.append(new_entity)
+                entity_uuid_map[raw_entity.uuid] = raw_entity.uuid
+
+        new_count = len([e for e in resolved_entities if e.mentions == 1])
+        existing_count = len([e for e in resolved_entities if e.mentions > 1])
+        logger.info(f"Resolved {len(resolved_entities)} entities ({new_count} new, {existing_count} existing)")
+
+        return resolved_entities, entity_uuid_map
+
     def get_entity_by_name(
         self,
         name: str,

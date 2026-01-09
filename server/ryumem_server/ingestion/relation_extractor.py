@@ -236,6 +236,119 @@ class RelationExtractor:
             logger.error(f"Error extracting relationships with LLM: {e}")
             return []
 
+    def resolve_relationships(
+        self,
+        raw_edges: List[EntityEdge],
+        entity_uuid_map: Dict[str, str],
+        episode_uuid: str,
+        user_id: str,
+    ) -> List[EntityEdge]:
+        """
+        Resolve raw edges from cascade extraction against existing relationships.
+
+        This method takes pre-extracted EntityEdges (from cascade extraction)
+        and resolves them against existing edges in the database using
+        embedding similarity search. It also remaps source/target UUIDs
+        using the entity resolution map.
+
+        Args:
+            raw_edges: List of EntityEdge objects from cascade extraction
+            entity_uuid_map: Dict mapping original entity UUIDs to resolved UUIDs
+            episode_uuid: UUID of the current episode
+            user_id: User ID for relationship resolution scope
+
+        Returns:
+            List of resolved EntityEdge objects
+        """
+        if not raw_edges:
+            logger.info("No relationships to resolve")
+            return []
+
+        logger.info(f"Resolving {len(raw_edges)} relationships for user {user_id}")
+
+        resolved_edges: List[EntityEdge] = []
+
+        for raw_edge in raw_edges:
+            # Remap source and target UUIDs using entity resolution map
+            source_uuid = entity_uuid_map.get(raw_edge.source_node_uuid)
+            target_uuid = entity_uuid_map.get(raw_edge.target_node_uuid)
+
+            if not source_uuid or not target_uuid:
+                logger.warning(
+                    f"Skipping edge - entity not in resolution map: "
+                    f"{raw_edge.source_node_uuid} -> {raw_edge.target_node_uuid}"
+                )
+                continue
+
+            # Generate embedding if not present
+            if raw_edge.fact_embedding is None:
+                embedding = self.embedding_client.embed(raw_edge.fact)
+            else:
+                embedding = raw_edge.fact_embedding
+
+            # Search for similar existing edges
+            similar = self.db.search_similar_edges(
+                embedding=embedding,
+                user_id=user_id,
+                threshold=self.similarity_threshold,
+                limit=1,
+            )
+
+            if similar:
+                # Found similar edge - update it
+                existing = similar[0]
+                resolved_uuid = existing["edge_uuid"]
+
+                logger.debug(
+                    f"Resolved to existing edge (similarity: {existing['similarity']:.3f})"
+                )
+
+                edge = EntityEdge(
+                    uuid=resolved_uuid,
+                    source_node_uuid=source_uuid,
+                    target_node_uuid=target_uuid,
+                    name=raw_edge.name,
+                    fact=raw_edge.fact,
+                    fact_embedding=embedding,
+                    created_at=existing.get("created_at") or datetime.utcnow(),
+                    valid_at=existing.get("valid_at") or raw_edge.valid_at,
+                    invalid_at=existing.get("invalid_at"),
+                    expired_at=existing.get("expired_at"),
+                    episodes=[episode_uuid],  # Add current episode
+                    mentions=existing.get("mentions", 0) + 1,
+                )
+
+            else:
+                # No similar edge found - create new one
+                logger.debug(
+                    f"Creating new relationship: {raw_edge.name}"
+                )
+
+                edge = EntityEdge(
+                    uuid=raw_edge.uuid,
+                    source_node_uuid=source_uuid,
+                    target_node_uuid=target_uuid,
+                    name=raw_edge.name,
+                    fact=raw_edge.fact,
+                    fact_embedding=embedding,
+                    created_at=raw_edge.created_at or datetime.utcnow(),
+                    valid_at=raw_edge.valid_at or datetime.utcnow(),
+                    invalid_at=None,
+                    expired_at=None,
+                    episodes=[episode_uuid],
+                    mentions=1,
+                )
+
+            # Save edge to database
+            self.db.save_entity_edge(edge, source_uuid, target_uuid)
+            resolved_edges.append(edge)
+
+        new_count = len([e for e in resolved_edges if e.mentions == 1])
+        existing_count = len([e for e in resolved_edges if e.mentions > 1])
+        logger.info(f"Resolved {len(resolved_edges)} relationships ({new_count} new, {existing_count} existing)")
+
+        return resolved_edges
+
     def detect_contradictions(
         self,
         new_edges: List[EntityEdge],
