@@ -3067,6 +3067,8 @@ async def reset_to_defaults(
             "failed_keys": failed_keys
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error resetting settings: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error resetting settings: {str(e)}")

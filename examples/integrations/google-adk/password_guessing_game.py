@@ -300,6 +300,7 @@ If the user wants a hint, use get_hint.""",
         augment_queries=True,    # ✨ Enable augmentation - this is key!
         similarity_threshold=0.3,  # Match queries with 30%+ similarity
         top_k_similar=5,         # Use top 5 similar queries for context
+        extract_entities=True,
     )
 
     password_agent = add_memory_to_agent(password_agent, ryumem)
@@ -362,10 +363,15 @@ If the user wants a hint, use get_hint.""",
                 # Collect the final response using async iteration (extract only text parts)
                 final_response = None
                 async for event in event_stream:
+<<<<<<< HEAD
                     if event.is_final_response():
                         # Extract text from all text parts, ignoring function_call parts
                         text_parts = [part.text for part in event.content.parts if hasattr(part, 'text') and part.text]
                         final_response = ''.join(text_parts) if text_parts else None
+=======
+                    if event.is_final_response() and event.content and event.content.parts:
+                        final_response = event.content.parts[0].text
+>>>>>>> fb2bf89 (feat: Add extraction module with multi-round processing)
 
                 if final_response:
                     print(f"\n🤖 Agent: {final_response}")
@@ -376,10 +382,15 @@ If the user wants a hint, use get_hint.""",
                 # Collect the final response (extract only text parts)
                 final_response = None
                 for event in events:
+<<<<<<< HEAD
                     if event.is_final_response():
                         # Extract text from all text parts, ignoring function_call parts
                         text_parts = [part.text for part in event.content.parts if hasattr(part, 'text') and part.text]
                         final_response = ''.join(text_parts) if text_parts else None
+=======
+                    if event.is_final_response() and event.content and event.content.parts:
+                        final_response = event.content.parts[0].text
+>>>>>>> fb2bf89 (feat: Add extraction module with multi-round processing)
 
                 if final_response:
                     print(f"\n🤖 Agent: {final_response}")
