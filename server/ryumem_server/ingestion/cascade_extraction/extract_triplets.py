@@ -98,7 +98,8 @@ def _validate_graph(graph: KnowledgeGraph) -> KnowledgeGraph:
 
     valid_edges = [
         edge for edge in graph.edges
-        if edge.source_node_id in valid_node_ids
+        if edge.source_node_id and edge.target_node_id
+        and edge.source_node_id in valid_node_ids
         and edge.target_node_id in valid_node_ids
     ]
 

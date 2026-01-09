@@ -310,7 +310,7 @@ class RelationExtractor:
                     name=raw_edge.name,
                     fact=raw_edge.fact,
                     fact_embedding=embedding,
-                    created_at=existing.get("created_at"),
+                    created_at=existing.get("created_at") or datetime.utcnow(),
                     valid_at=existing.get("valid_at") or raw_edge.valid_at,
                     invalid_at=existing.get("invalid_at"),
                     expired_at=existing.get("expired_at"),

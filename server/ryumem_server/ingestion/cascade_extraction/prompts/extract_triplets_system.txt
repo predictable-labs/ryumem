@@ -11,3 +11,4 @@ Rules:
 - Exclude trivial, redundant, or nonsensical connections
 - Include a natural language 'fact' for each edge describing the relationship
 - Each round should refine and add more precise triplets
+- IMPORTANT: source_node_id and target_node_id MUST be valid non-empty strings. NEVER return null or None for these fields.

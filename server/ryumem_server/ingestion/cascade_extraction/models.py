@@ -58,10 +58,12 @@ class ExtractedNode(BaseModel):
 class ExtractedEdge(BaseModel):
     """A fully extracted edge (relationship) between nodes."""
 
-    source_node_id: str = Field(
+    source_node_id: Optional[str] = Field(
+        default=None,
         description="ID of the source node"
     )
-    target_node_id: str = Field(
+    target_node_id: Optional[str] = Field(
+        default=None,
         description="ID of the target node"
     )
     relationship_name: str = Field(
