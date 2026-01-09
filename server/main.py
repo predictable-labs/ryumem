@@ -1030,8 +1030,6 @@ async def github_oauth_callback(request: GitHubCallbackRequest):
                 message="GitHub authentication successful"
             )
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"GitHub OAuth error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"OAuth error: {str(e)}")
