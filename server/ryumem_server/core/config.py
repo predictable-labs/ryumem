@@ -5,10 +5,13 @@ Server config extends client config with server-specific settings (LLM, Embeddin
 """
 
 import logging
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from ryumem_server.core.graph_db import RyugraphDB
 
 # Import shared configs from client (configs that client uses locally)
 from ryumem.core.config import (
