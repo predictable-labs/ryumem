@@ -51,6 +51,19 @@ dev = [
 google-adk = [
     "google-adk>=1.18.0",  # Google ADK integration
 ]
+benchmark = [
+    "click>=8.1.0",           # CLI framework
+    "tqdm>=4.66.0",           # Progress bars
+    "datasets>=2.14.0",       # HuggingFace datasets for LoCoMo
+    "mem0ai>=0.1.0",          # Mem0 memory system
+    "langchain>=0.2.0",       # LangChain framework
+    "langchain-community>=0.2.0",  # LangChain community components
+    "langchain-ollama>=0.1.0",     # LangChain Ollama integration
+    "langchain-openai>=0.1.0",     # LangChain OpenAI integration
+    "langchain-google-genai>=1.0.0",  # LangChain Google integration
+    "faiss-cpu>=1.7.0",       # FAISS vector store
+    "zep-cloud>=1.0.0",       # Zep Cloud client
+]
 
 [project.urls]
 Homepage = "https://github.com/predictable-labs/ryumem"
@@ -58,11 +71,12 @@ Repository = "https://github.com/predictable-labs/ryumem"
 "Bug Tracker" = "https://github.com/predictable-labs/ryumem/issues"
 Documentation = "https://github.com/predictable-labs/ryumem#readme"
 
-[tool.setuptools]
-package-dir = {"" = "src"}
-
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["ryumem*", "benchmarks*"]
+
+[project.scripts]
+ryumem-benchmark = "benchmarks.cli:main"
 
 [tool.black]
 line-length = 100
