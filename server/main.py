@@ -558,6 +558,7 @@ class AddEpisodeRequest(BaseModel):
     extract_entities: Optional[bool] = Field(None, description="Override config setting for entity extraction (None uses config default)")
     enable_embeddings: Optional[bool] = Field(None, description="Override config setting for episode embeddings (None uses config default)")
     deduplication_enabled: Optional[bool] = Field(None, description="Override config setting for episode deduplication (None uses config default)")
+    webhook_url: Optional[str] = Field(None, description="URL to call when entity extraction completes")
 
     class Config:
         json_schema_extra = {
@@ -565,7 +566,8 @@ class AddEpisodeRequest(BaseModel):
                 "content": "Alice works at Google as a Software Engineer in Mountain View.",
                 "user_id": "user_123",
                 "source": "text",
-                "extract_entities": False
+                "extract_entities": True,
+                "webhook_url": "https://my-app.com/webhook"
             }
         }
 
@@ -575,6 +577,18 @@ class AddEpisodeResponse(BaseModel):
     episode_id: str = Field(..., description="UUID of the created episode")
     message: str = Field(..., description="Success message")
     timestamp: str = Field(..., description="Timestamp of creation")
+    extraction_status: Optional[str] = Field(None, description="Extraction status: pending, skipped, or completed")
+
+
+class ExtractionStatusResponse(BaseModel):
+    """Response model for extraction status"""
+    episode_uuid: str = Field(..., description="UUID of the episode")
+    status: str = Field(..., description="Extraction status: pending, in_progress, completed, failed, skipped")
+    started_at: Optional[str] = Field(None, description="When extraction started")
+    completed_at: Optional[str] = Field(None, description="When extraction completed")
+    entities_count: Optional[int] = Field(None, description="Number of entities extracted")
+    edges_count: Optional[int] = Field(None, description="Number of edges extracted")
+    error: Optional[str] = Field(None, description="Error message if failed")
 
 
 class EpisodeInfo(BaseModel):
@@ -1335,16 +1349,18 @@ async def add_episode(
     """
     Add a new episode to the memory system.
 
-    This will:
-    1. Create an episode node
-    2. Extract entities and relationships
-    3. Update the knowledge graph
-    4. Detect and handle contradictions
+    Episode creation is immediate (~1-2s). Entity extraction happens
+    asynchronously via Redis workers if extract_entities=True.
 
-    Use a separate write instance for adding episodes.
+    Pipeline:
+    1. Create episode node (immediate)
+    2. Queue extraction job to Redis (if extract_entities=True)
+    3. Return immediately with episode_id and extraction_status
+
+    Use webhook_url to get notified when extraction completes.
     """
     try:
-        episode_id = ryumem.add_episode(
+        result = ryumem.add_episode(
             content=request.content,
             user_id=request.user_id,
             session_id=request.session_id,
@@ -1354,16 +1370,56 @@ async def add_episode(
             extract_entities=request.extract_entities,
             enable_embeddings=request.enable_embeddings,
             deduplication_enabled=request.deduplication_enabled,
+            webhook_url=request.webhook_url,
         )
 
         return AddEpisodeResponse(
-            episode_id=episode_id,
+            episode_id=result["episode_id"],
             message="Episode added successfully",
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().isoformat(),
+            extraction_status=result.get("extraction_status"),
         )
     except Exception as e:
         logger.error(f"Error adding episode: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error adding episode: {str(e)}")
+
+
+@app.get("/episodes/{episode_uuid}/extraction-status", response_model=ExtractionStatusResponse)
+async def get_extraction_status(episode_uuid: str):
+    """
+    Get the status of entity extraction for an episode.
+
+    Returns the current extraction status from Redis, including:
+    - status: pending, in_progress, completed, failed
+    - started_at: When extraction started
+    - completed_at: When extraction finished
+    - entities_count: Number of entities extracted
+    - edges_count: Number of edges extracted
+    - error: Error message if failed
+    """
+    try:
+        from ryumem_server.queue.redis_client import get_redis_client
+
+        redis_client = get_redis_client()
+        status_data = redis_client.get_status(episode_uuid)
+
+        if not status_data:
+            raise HTTPException(status_code=404, detail="Extraction status not found")
+
+        return ExtractionStatusResponse(
+            episode_uuid=episode_uuid,
+            status=status_data.get("status", "unknown"),
+            started_at=status_data.get("started_at"),
+            completed_at=status_data.get("completed_at"),
+            entities_count=int(status_data["entities_count"]) if "entities_count" in status_data else None,
+            edges_count=int(status_data["edges_count"]) if "edges_count" in status_data else None,
+            error=status_data.get("error"),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting extraction status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting extraction status: {str(e)}")
 
 
 @app.get("/episodes/{episode_uuid}", response_model=Optional[Dict[str, Any]])

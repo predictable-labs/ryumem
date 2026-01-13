@@ -55,6 +55,18 @@ class EpisodeKind(Enum):
         raise ValueError(f'Episode kind: {kind} not implemented')
 
 
+class ExtractionStatus(str, Enum):
+    """
+    Status of entity extraction for an episode.
+    Used to track async extraction progress via Redis workers.
+    """
+    pending = 'pending'
+    in_progress = 'in_progress'
+    completed = 'completed'
+    failed = 'failed'
+    skipped = 'skipped'
+
+
 class EpisodeNode(BaseModel):
     """
     Represents an episode (a discrete unit of ingestion).

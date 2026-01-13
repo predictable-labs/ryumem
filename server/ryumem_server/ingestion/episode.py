@@ -95,7 +95,7 @@ class EpisodeIngestion:
             f"cascade_rounds={cascade_n_rounds})"
         )
 
-    def ingest(
+    def create_episode(
         self,
         content: str,
         user_id: str,
@@ -106,22 +106,14 @@ class EpisodeIngestion:
         source_description: str = "",
         metadata: Optional[Dict] = None,
         name: Optional[str] = None,
-        extract_entities: Optional[bool] = None,
         episode_config_override: Optional["EpisodeConfig"] = None,
-    ) -> str:
+    ) -> Optional[str]:
         """
-        Ingest a new episode and extract entities/relationships.
+        Create episode node without entity extraction (Phase A).
 
-        This is the main entry point for the ingestion pipeline.
-
-        Pipeline:
-        1. Create episode node
-        2. Get context from previous episodes (if entity extraction enabled)
-        3. Extract entities and resolve against existing (if enabled)
-        4. Extract relationships and resolve against existing (if enabled)
-        5. Create MENTIONS edges from episode to entities (if entities extracted)
-        6. Detect and invalidate contradicting edges (if enabled)
-        7. Update entity summaries (if enabled)
+        This creates the episode, generates embeddings, checks for duplicates,
+        and saves to the database. Entity extraction is handled separately
+        by run_extraction().
 
         Args:
             content: Episode content (text, message, or JSON)
@@ -132,15 +124,11 @@ class EpisodeIngestion:
             source_description: Description of the source
             metadata: Optional metadata dictionary
             name: Optional name for the episode
-            extract_entities: Override instance setting for entity extraction (None uses instance default)
+            episode_config_override: Override episode config for this request
 
         Returns:
-            UUID of the created episode
+            UUID of the created episode, or existing episode UUID if duplicate
         """
-        # Determine whether to extract entities for this request
-        # Per-request override takes precedence over instance setting
-        should_extract_entities = extract_entities if extract_entities is not None else self.enable_entity_extraction
-
         # Use override config if provided, otherwise use instance config
         config = episode_config_override if episode_config_override is not None else self.episode_config
 
@@ -191,7 +179,7 @@ class EpisodeIngestion:
         if not name:
             name = f"Episode {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
 
-        logger.info(f"Starting ingestion for episode {episode_uuid}")
+        logger.info(f"Creating episode {episode_uuid}")
 
         # Ensure metadata includes session_id if provided
         episode_metadata = metadata.copy() if metadata else {}
@@ -226,70 +214,91 @@ class EpisodeIngestion:
             logger.debug(f"Added episode to BM25 index")
 
         step_duration = (datetime.utcnow() - step_start).total_seconds()
-        logger.info(f"⏱️  [TIMING] Step 1 - Create episode node with embedding: {step_duration:.2f}s")
+        logger.info(f"⏱️  [TIMING] Create episode node with embedding: {step_duration:.2f}s")
         logger.debug(f"Created episode node: {episode_uuid}")
 
-        # Step 2: Get context from previous episodes (only if entity extraction is enabled)
-        if should_extract_entities:
-            step_start = datetime.utcnow()
-            context = self._get_episode_context(
-                user_id=user_id,
-                session_id=session_id,
-            )
-            step_duration = (datetime.utcnow() - step_start).total_seconds()
-            logger.info(f"⏱️  [TIMING] Step 2 - Get episode context: {step_duration:.2f}s")
-        else:
-            context = []
-            logger.info(f"Entity extraction disabled for episode {episode_uuid}, skipping context retrieval")
+        return episode_uuid
 
-        # Step 3: Cascade extraction and resolution (OPTIONAL - controlled by flag)
-        if should_extract_entities:
-            # Step 3a: Cascade extraction (multi-round)
-            step_start = datetime.utcnow()
-            logger.info(f"Starting cascade extraction ({self.cascade_n_rounds} rounds per stage)...")
+    def run_extraction(
+        self,
+        episode_uuid: str,
+        content: str,
+        user_id: str,
+        session_id: Optional[str] = None,
+    ) -> Dict:
+        """
+        Run entity extraction for an existing episode (Phase B).
 
-            knowledge_graph = self.cascade_extractor.extract(
-                text=content,
-                user_id=user_id,
-                context=context,
-            )
-            step_duration = (datetime.utcnow() - step_start).total_seconds()
-            logger.info(
-                f"⏱️  [TIMING] Step 3a - Cascade extraction: {step_duration:.2f}s "
-                f"({len(knowledge_graph.nodes)} nodes, {len(knowledge_graph.edges)} edges)"
-            )
+        This runs the full extraction pipeline: cascade extraction,
+        entity/relationship resolution, MENTIONS edges, contradiction
+        detection, and summary updates.
 
-            if not knowledge_graph.nodes:
-                logger.info(f"No entities extracted for episode {episode_uuid}")
-                return episode_uuid
+        Called by workers after create_episode().
 
-            # Step 3b: Convert to Ryumem models
-            step_start = datetime.utcnow()
-            raw_entities, raw_edges = self.cascade_extractor.to_ryumem_models(
-                graph=knowledge_graph,
-                user_id=user_id,
-                episode_uuid=episode_uuid,
-            )
-            step_duration = (datetime.utcnow() - step_start).total_seconds()
-            logger.info(f"⏱️  [TIMING] Step 3b - Convert to Ryumem models: {step_duration:.2f}s")
+        Args:
+            episode_uuid: UUID of the episode to extract from
+            content: Episode content for extraction
+            user_id: User ID
+            session_id: Optional session ID for context
 
-            # Step 3c: Entity resolution (embedding-based deduplication)
-            step_start = datetime.utcnow()
-            entities, entity_uuid_map = self.entity_extractor.resolve_entities(
-                raw_entities=raw_entities,
-                user_id=user_id,
-            )
-            step_duration = (datetime.utcnow() - step_start).total_seconds()
-            logger.info(f"⏱️  [TIMING] Step 3c - Entity resolution: {step_duration:.2f}s ({len(entities)} entities)")
+        Returns:
+            Dict with extraction results:
+                - entities_count: Number of entities extracted
+                - edges_count: Number of relationships extracted
+        """
+        start_time = datetime.utcnow()
+        logger.info(f"Starting extraction for episode {episode_uuid}")
 
-            if not entities:
-                logger.info(f"No entities after resolution for episode {episode_uuid}")
-                return episode_uuid
-        else:
-            entities = []
-            entity_uuid_map = {}
-            logger.info(f"Entity extraction disabled for episode {episode_uuid}, skipping Steps 3-7")
-            return episode_uuid
+        # Step 2: Get context from previous episodes
+        step_start = datetime.utcnow()
+        context = self._get_episode_context(
+            user_id=user_id,
+            session_id=session_id,
+        )
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(f"⏱️  [TIMING] Step 2 - Get episode context: {step_duration:.2f}s")
+
+        # Step 3a: Cascade extraction (multi-round)
+        step_start = datetime.utcnow()
+        logger.info(f"Starting cascade extraction ({self.cascade_n_rounds} rounds per stage)...")
+
+        knowledge_graph = self.cascade_extractor.extract(
+            text=content,
+            user_id=user_id,
+            context=context,
+        )
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(
+            f"⏱️  [TIMING] Step 3a - Cascade extraction: {step_duration:.2f}s "
+            f"({len(knowledge_graph.nodes)} nodes, {len(knowledge_graph.edges)} edges)"
+        )
+
+        if not knowledge_graph.nodes:
+            logger.info(f"No entities extracted for episode {episode_uuid}")
+            return {"entities_count": 0, "edges_count": 0}
+
+        # Step 3b: Convert to Ryumem models
+        step_start = datetime.utcnow()
+        raw_entities, raw_edges = self.cascade_extractor.to_ryumem_models(
+            graph=knowledge_graph,
+            user_id=user_id,
+            episode_uuid=episode_uuid,
+        )
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(f"⏱️  [TIMING] Step 3b - Convert to Ryumem models: {step_duration:.2f}s")
+
+        # Step 3c: Entity resolution (embedding-based deduplication)
+        step_start = datetime.utcnow()
+        entities, entity_uuid_map = self.entity_extractor.resolve_entities(
+            raw_entities=raw_entities,
+            user_id=user_id,
+        )
+        step_duration = (datetime.utcnow() - step_start).total_seconds()
+        logger.info(f"⏱️  [TIMING] Step 3c - Entity resolution: {step_duration:.2f}s ({len(entities)} entities)")
+
+        if not entities:
+            logger.info(f"No entities after resolution for episode {episode_uuid}")
+            return {"entities_count": 0, "edges_count": 0}
 
         # Add entities to BM25 index
         step_start = datetime.utcnow()
@@ -357,17 +366,100 @@ class EpisodeIngestion:
         logger.info(f"⏱️  [TIMING] Step 7 - Update entity summaries: {step_duration:.2f}s")
 
         # Update episode with entity edge references
-        episode.entity_edges = [e.uuid for e in edges]
-        self.db.save_episode(episode)
+        episode = self.db.get_episode(episode_uuid)
+        if episode:
+            episode_node = EpisodeNode(**episode)
+            episode_node.entity_edges = [e.uuid for e in edges]
+            self.db.save_episode(episode_node)
 
         # Log completion
         duration = (datetime.utcnow() - start_time).total_seconds()
         logger.info(f"⏱️  [TIMING] ═══════════════════════════════════════════════════")
         logger.info(
-            f"⏱️  [TIMING] TOTAL ingestion time for episode {episode_uuid[:8]}: {duration:.2f}s"
+            f"⏱️  [TIMING] TOTAL extraction time for episode {episode_uuid[:8]}: {duration:.2f}s"
         )
         logger.info(f"⏱️  [TIMING] Results: {len(entities)} entities, {len(edges)} relationships")
         logger.info(f"⏱️  [TIMING] ═══════════════════════════════════════════════════")
+
+        return {"entities_count": len(entities), "edges_count": len(edges)}
+
+    def ingest(
+        self,
+        content: str,
+        user_id: str,
+        agent_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        source: EpisodeType = EpisodeType.text,
+        kind: 'EpisodeKind' = None,
+        source_description: str = "",
+        metadata: Optional[Dict] = None,
+        name: Optional[str] = None,
+        extract_entities: Optional[bool] = None,
+        episode_config_override: Optional["EpisodeConfig"] = None,
+    ) -> str:
+        """
+        Ingest a new episode and extract entities/relationships (synchronous).
+
+        This is the backwards-compatible entry point that calls both
+        create_episode() and run_extraction() in sequence.
+
+        For async extraction, use create_episode() then queue run_extraction()
+        to be called by a worker.
+
+        Pipeline:
+        1. Create episode node (create_episode)
+        2. Get context from previous episodes (if entity extraction enabled)
+        3. Extract entities and resolve against existing (if enabled)
+        4. Extract relationships and resolve against existing (if enabled)
+        5. Create MENTIONS edges from episode to entities (if entities extracted)
+        6. Detect and invalidate contradicting edges (if enabled)
+        7. Update entity summaries (if enabled)
+
+        Args:
+            content: Episode content (text, message, or JSON)
+            user_id: User ID (required)
+            agent_id: Optional agent ID
+            session_id: Optional session ID
+            source: Type of episode (message, json, text)
+            source_description: Description of the source
+            metadata: Optional metadata dictionary
+            name: Optional name for the episode
+            extract_entities: Override instance setting for entity extraction (None uses instance default)
+
+        Returns:
+            UUID of the created episode
+        """
+        # Determine whether to extract entities for this request
+        # Per-request override takes precedence over instance setting
+        should_extract_entities = extract_entities if extract_entities is not None else self.enable_entity_extraction
+
+        # Phase A: Create episode
+        episode_uuid = self.create_episode(
+            content=content,
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            source=source,
+            kind=kind,
+            source_description=source_description,
+            metadata=metadata,
+            name=name,
+            episode_config_override=episode_config_override,
+        )
+
+        if not episode_uuid:
+            raise ValueError("Failed to create episode")
+
+        # Phase B: Run extraction (if enabled)
+        if should_extract_entities:
+            self.run_extraction(
+                episode_uuid=episode_uuid,
+                content=content,
+                user_id=user_id,
+                session_id=session_id,
+            )
+        else:
+            logger.info(f"Entity extraction disabled for episode {episode_uuid}")
 
         return episode_uuid
 

@@ -234,17 +234,25 @@ class Ryumem:
         extract_entities: Optional[bool] = None,
         enable_embeddings: Optional[bool] = None,
         deduplication_enabled: Optional[bool] = None,
-    ) -> str:
+        webhook_url: Optional[str] = None,
+    ) -> Dict:
         """
         Add a new episode to the memory system.
 
-        This is the main ingestion method. It will:
-        1. Create an episode node
-        2. Extract entities and resolve against existing (if enabled)
-        3. Extract relationships and resolve against existing (if enabled)
-        4. Create MENTIONS edges (if entities extracted)
-        5. Detect and invalidate contradicting facts (if enabled)
-        6. Update entity summaries (if enabled)
+        This creates the episode immediately and queues entity extraction
+        to be processed by a Redis worker (if extraction is enabled).
+
+        Pipeline:
+        1. Create episode node (immediate, ~1-2s)
+        2. Queue extraction job to Redis (if extract_entities=True)
+        3. Return immediately with episode_id and extraction_status
+
+        Entity extraction happens asynchronously in workers:
+        - Extract entities and resolve against existing
+        - Extract relationships and resolve against existing
+        - Create MENTIONS edges
+        - Detect and invalidate contradicting facts
+        - Update entity summaries
 
         Args:
             content: Episode content (text, message, or JSON)
@@ -252,19 +260,27 @@ class Ryumem:
             agent_id: Optional agent ID
             session_id: Optional session ID
             source: Type of episode ("text", "message", or "json")
+            kind: Episode kind ("query" or "memory")
             metadata: Optional metadata dictionary
             extract_entities: Override config setting for entity extraction (None uses config default)
+            enable_embeddings: Override config setting for embeddings
+            deduplication_enabled: Override config setting for deduplication
+            webhook_url: URL to call when extraction completes
 
         Returns:
-            UUID of the created episode
+            Dictionary with:
+                - episode_id: UUID of the created episode
+                - extraction_status: "pending", "skipped", or None
 
         Example:
-            episode_id = ryumem.add_episode(
+            result = ryumem.add_episode(
                 content="Alice works at Google in Mountain View",
                 user_id="user_123",
                 source="text",
-                extract_entities=False,  # Skip entity extraction for this episode
+                extract_entities=True,
+                webhook_url="https://my-app.com/webhook",
             )
+            # Returns: {"episode_id": "abc-123", "extraction_status": "pending"}
         """
         # Convert source string to EpisodeType
         source_type = EpisodeType.from_str(source)
@@ -286,7 +302,11 @@ class Ryumem:
                 time_window_hours=self.config.episode.time_window_hours,
             )
 
-        episode_id = self.ingestion.ingest(
+        # Determine whether to extract entities
+        should_extract = extract_entities if extract_entities is not None else self.config.entity_extraction.enabled
+
+        # Phase A: Create episode (fast, immediate)
+        episode_id = self.ingestion.create_episode(
             content=content,
             user_id=user_id,
             agent_id=agent_id,
@@ -294,15 +314,98 @@ class Ryumem:
             source=source_type,
             kind=kind_enum,
             metadata=metadata,
-            extract_entities=extract_entities,
             episode_config_override=episode_config,
         )
 
-        # Persist BM25 index to disk after ingestion
+        if not episode_id:
+            raise ValueError("Failed to create episode")
+
+        # Persist BM25 index to disk after episode creation
         bm25_path = str(Path(self.config.database.db_path).parent / f"{Path(self.config.database.db_path).stem}_bm25.pkl")
         self.search_engine.bm25_index.save(bm25_path)
 
-        return episode_id
+        # Phase B: Queue extraction job (if enabled)
+        extraction_status = None
+        if should_extract:
+            try:
+                from ryumem_server.queue.redis_client import get_redis_client
+                from ryumem_server.queue.models import ExtractionJob
+
+                redis_client = get_redis_client()
+                job = ExtractionJob(
+                    episode_uuid=episode_id,
+                    content=content,
+                    user_id=user_id,
+                    session_id=session_id,
+                    webhook_url=webhook_url,
+                    db_path=self.config.database.db_path,  # Pass DB path to worker
+                )
+                redis_client.enqueue_extraction(job.model_dump())
+                extraction_status = "pending"
+                logger.info(f"Queued extraction job for episode {episode_id}")
+            except Exception as e:
+                logger.warning(f"Failed to queue extraction job: {e}. Falling back to sync extraction.")
+                # Fallback to synchronous extraction if Redis unavailable
+                self.ingestion.run_extraction(
+                    episode_uuid=episode_id,
+                    content=content,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+                extraction_status = "completed"
+        else:
+            extraction_status = "skipped"
+            logger.info(f"Entity extraction disabled for episode {episode_id}")
+
+        return {
+            "episode_id": episode_id,
+            "extraction_status": extraction_status,
+        }
+
+    def process_extraction(
+        self,
+        episode_uuid: str,
+        content: str,
+        user_id: str,
+        session_id: Optional[str] = None,
+    ) -> Dict:
+        """
+        Process entity extraction for an existing episode.
+
+        Called by workers to run the extraction pipeline on a queued episode.
+
+        Args:
+            episode_uuid: UUID of the episode to extract from
+            content: Episode content for extraction
+            user_id: User ID
+            session_id: Optional session ID for context
+
+        Returns:
+            Dictionary with extraction results:
+                - entities_count: Number of entities extracted
+                - edges_count: Number of relationships extracted
+
+        Example:
+            # Called by worker:
+            result = ryumem.process_extraction(
+                episode_uuid="abc-123",
+                content="Alice works at Google",
+                user_id="user_123",
+            )
+            # Returns: {"entities_count": 2, "edges_count": 1}
+        """
+        result = self.ingestion.run_extraction(
+            episode_uuid=episode_uuid,
+            content=content,
+            user_id=user_id,
+            session_id=session_id,
+        )
+
+        # Persist BM25 index to disk after extraction
+        bm25_path = str(Path(self.config.database.db_path).parent / f"{Path(self.config.database.db_path).stem}_bm25.pkl")
+        self.search_engine.bm25_index.save(bm25_path)
+
+        return result
 
     def add_episodes_batch(
         self,
