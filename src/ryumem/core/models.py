@@ -301,9 +301,11 @@ class SearchResult(BaseModel):
 
 
 class RyumemConfig(BaseModel):
-    """Configuration for Ryumem instance"""
-    db_path: str = Field(description='Path to ryugraph database')
-    openai_api_key: str = Field(description='OpenAI API key')
+    """Configuration for Ryumem instance (legacy model - see config.py for main config)"""
+    model_config = {"extra": "ignore"}
+
+    db_path: str = Field(default="./data/ryumem.db", description='Path to ryugraph database')
+    openai_api_key: str | None = Field(default=None, description='OpenAI API key')
     llm_model: str = Field(default='gpt-4', description='LLM model to use')
     embedding_model: str = Field(
         default='text-embedding-3-large',
@@ -329,16 +331,6 @@ class RyumemConfig(BaseModel):
         default=5,
         description='Maximum number of previous episodes to use as context'
     )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "db_path": "./data/ryumem.db",
-                "openai_api_key": "sk-...",
-                "llm_model": "gpt-4",
-                "embedding_model": "text-embedding-3-large"
-            }
-        }
 
 
 # Client SDK response models

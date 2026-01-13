@@ -207,6 +207,8 @@ class RyumemConfig(BaseSettings):
     Config is fetched from the server.
     """
 
+    model_config = SettingsConfigDict(extra="ignore")
+
     # Nested configuration sections
     entity_extraction: EntityExtractionConfig = Field(default_factory=EntityExtractionConfig)
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
