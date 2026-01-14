@@ -201,6 +201,34 @@ class ToolTrackingConfig(BaseSettings):
     )
 
 
+class WorkflowConfig(BaseSettings):
+    """Workflow mode configuration"""
+
+    workflow_mode_enabled: bool = Field(
+        default=False,
+        description="Enable workflow mode (DAG-based tool orchestration)"
+    )
+    auto_execute_workflows: bool = Field(
+        default=True,
+        description="Automatically execute matching workflows on chat queries"
+    )
+    similarity_threshold: float = Field(
+        default=0.7,
+        description="Similarity threshold for workflow retrieval",
+        ge=0.0,
+        le=1.0
+    )
+    auto_save_workflows: bool = Field(
+        default=True,
+        description="Automatically save newly generated workflows"
+    )
+
+    model_config = SettingsConfigDict(
+        env_prefix="RYUMEM_WORKFLOW_",
+        env_nested_delimiter="__"
+    )
+
+
 class RyumemConfig(BaseSettings):
     """
     Main configuration for Ryumem client instance.
@@ -212,6 +240,13 @@ class RyumemConfig(BaseSettings):
     tool_tracking: ToolTrackingConfig = Field(default_factory=ToolTrackingConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     episode: EpisodeConfig = Field(default_factory=EpisodeConfig)
+    workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
+
+    model_config = SettingsConfigDict(
+        env_nested_delimiter="__",
+        case_sensitive=False,
+        extra="ignore"
+    )
 
     def to_dict(self) -> dict:
         """Convert config to dictionary"""

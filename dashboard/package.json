@@ -39,6 +39,7 @@
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.66.1",
     "react-spring": "^10.0.3",
+    "reactflow": "^11.11.4",
     "recharts": "^3.4.1",
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
