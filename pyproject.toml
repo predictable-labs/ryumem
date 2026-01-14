@@ -37,6 +37,10 @@ dependencies = [
     "rank-bm25>=0.2.2",  # BM25 keyword search
     "requests>=2.31.0",  # HTTP client for server communication
     "google-genai>=0.2.0",  # Gemini embeddings
+    "opentelemetry-api>=1.20.0",  # OpenTelemetry API
+    "opentelemetry-sdk>=1.20.0",  # OpenTelemetry SDK
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",  # OTLP HTTP exporter
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",  # OTLP gRPC exporter
 ]
 
 [project.optional-dependencies]

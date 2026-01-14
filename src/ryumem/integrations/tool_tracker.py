@@ -30,6 +30,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 from ryumem import Ryumem
+from ryumem.core.otel import get_telemetry
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class ToolTracker:
     ):
         self.ryumem = ryumem
         self._execution_count = 0
+        self.telemetry = get_telemetry()
 
         # Background task management
         self.async_classification = True  # Enable async classification by default
@@ -399,6 +401,17 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
         self._execution_count += 1
 
+        # Record metrics immediately
+        if self.telemetry:
+            self.telemetry.record_tool_execution(
+                tool_name=tool_name,
+                duration_ms=duration_ms,
+                success=success,
+                user_id=user_id,
+                session_id=session_id,
+                parent_tool_name=parent_tool_name,
+            )
+
         # Store execution (async or sync based on configuration)
         if self.async_classification:
             # Fire and forget - don't block
@@ -648,14 +661,41 @@ Make it user-friendly and avoid technical jargon. Just return the description te
 
             token = _set_current_tool(tool_name)
 
+            # Extract user_id/session_id early for span
+            user_id = None
+            session_id = None
+            if 'user_id' in args:
+                user_id = args.get('user_id')
+                session_id = args.get('session_id')
+            else:
+                if tool_context and hasattr(self, '_memory_ref') and self._memory_ref:
+                    user_id, session_id = self._memory_ref._get_user_id_from_context(tool_context)
+
+            # Start span context
+            telemetry = self.telemetry
+            span_ctx = telemetry.trace_tool_execution(
+                tool_name=display_name,
+                user_id=user_id,
+                session_id=session_id,
+                input_params=args,
+            ) if telemetry else None
+
             start_time = time.time()
             success = True
             error = None
             output = None
 
             try:
-                output = await original_run_async(args=args, tool_context=tool_context)
-                return output
+                # Execute tool with span
+                if span_ctx:
+                    with span_ctx as span:
+                        output = await original_run_async(args=args, tool_context=tool_context)
+                        if span:
+                            span.set_attribute("tool.success", True)
+                        return output
+                else:
+                    output = await original_run_async(args=args, tool_context=tool_context)
+                    return output
             except Exception as e:
                 success = False
                 error = str(e)
@@ -664,16 +704,6 @@ Make it user-friendly and avoid technical jargon. Just return the description te
                 _clear_current_tool(token)
 
                 duration_ms = int((time.time() - start_time) * 1000)
-
-                user_id = None
-                session_id = None
-
-                if 'user_id' in args:
-                    user_id = args.get('user_id')
-                    session_id = args.get('session_id')
-                else:
-                    if tool_context and hasattr(self, '_memory_ref') and self._memory_ref:
-                        user_id, session_id = self._memory_ref._get_user_id_from_context(tool_context)
 
                 input_params = args
 

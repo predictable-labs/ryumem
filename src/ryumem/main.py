@@ -8,6 +8,7 @@ import requests
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 from ryumem.core.config import RyumemConfig
+from ryumem.core.otel import init_telemetry, shutdown_telemetry
 from ryumem.core.models import (
     SearchResult,
     EntityNode as Entity,
@@ -133,7 +134,15 @@ class Ryumem:
         # Cache for agent instructions (key: agent_type:instruction_text)
         self._instruction_cache: Dict[str, InstructionCacheEntry] = {}
 
+        # Initialize telemetry to None first (will be properly initialized after config is fetched)
+        self.telemetry = None
+
         logger.info(f"Ryumem Client initialized (server: {self.base_url})")
+
+        # Initialize OpenTelemetry if enabled (this fetches config from server)
+        self.telemetry = init_telemetry(self.config.opentelemetry)
+        if self.telemetry and self.telemetry.enabled:
+            logger.info("OpenTelemetry initialized successfully")
 
     def _get_headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -141,53 +150,67 @@ class Ryumem:
             headers["X-API-Key"] = self.api_key
         return headers
 
-    def _post(self, endpoint: str, json: Dict = None) -> Any:
+    def _http_request(self, method: str, endpoint: str, json: Dict = None, params: Dict = None) -> Any:
+        """Make an HTTP request with OpenTelemetry tracing."""
+        import time
+        from contextlib import nullcontext
+
         url = f"{self.base_url}{endpoint}"
-        response = requests.post(url, json=json, headers=self._get_headers())
-        try:
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"API POST request failed for {endpoint}: {e}")
-            if not self.config.tool_tracking.ignore_errors:
+
+        # Create span for HTTP request
+        span_ctx = self.telemetry.trace_tool_execution(
+            tool_name=f"http.{method.lower()}{endpoint.replace('/', '.')}",
+            user_id=None,
+            session_id=None,
+            input_params={"endpoint": endpoint, "method": method},
+        ) if self.telemetry else None
+
+        with (span_ctx if span_ctx else nullcontext()) as span:
+            start_time = time.time()
+
+            try:
+                if method == "POST":
+                    response = requests.post(url, json=json, headers=self._get_headers())
+                elif method == "PATCH":
+                    response = requests.patch(url, json=json, headers=self._get_headers())
+                elif method == "DELETE":
+                    response = requests.delete(url, headers=self._get_headers())
+                else:  # GET
+                    response = requests.get(url, params=params, headers=self._get_headers())
+
+                duration_ms = int((time.time() - start_time) * 1000)
+
+                if span:
+                    span.set_attribute("http.status_code", response.status_code)
+                    span.set_attribute("http.duration_ms", duration_ms)
+                    span.set_attribute("http.url", url)
+
+                response.raise_for_status()
+                return response.json()
+
+            except requests.exceptions.HTTPError as e:
+                if span:
+                    span.set_attribute("http.error", str(e)[:200])
+                logger.error(f"API {method} request failed for {endpoint}: {e}")
+                if not self.config.tool_tracking.ignore_errors:
+                    raise
+                return None
+            except Exception as e:
+                if span:
+                    span.set_attribute("http.error", str(e)[:200])
                 raise
-            return None
+
+    def _post(self, endpoint: str, json: Dict = None) -> Any:
+        return self._http_request("POST", endpoint, json=json)
 
     def _get(self, endpoint: str, params: Dict = None) -> Any:
-        url = f"{self.base_url}{endpoint}"
-        response = requests.get(url, params=params, headers=self._get_headers())
-        try:
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"API GET request failed for {endpoint}: {e}")
-            if not self.config.tool_tracking.ignore_errors:
-                raise
-            return None
+        return self._http_request("GET", endpoint, params=params)
 
     def _patch(self, endpoint: str, json: Dict = None) -> Any:
-        url = f"{self.base_url}{endpoint}"
-        response = requests.patch(url, json=json, headers=self._get_headers())
-        try:
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"API PATCH request failed for {endpoint}: {e}")
-            if not self.config.tool_tracking.ignore_errors:
-                raise
-            return None
+        return self._http_request("PATCH", endpoint, json=json)
 
     def _delete(self, endpoint: str) -> Any:
-        url = f"{self.base_url}{endpoint}"
-        response = requests.delete(url, headers=self._get_headers())
-        try:
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"API DELETE request failed for {endpoint}: {e}")
-            if not self.config.tool_tracking.ignore_errors:
-                raise
-            return None
+        return self._http_request("DELETE", endpoint)
 
     # ==================== Configuration ====================
 
@@ -809,3 +832,15 @@ class Ryumem:
             Response dict with status and message
         """
         return self._delete("/database/reset")
+
+    def shutdown(self):
+        """Shutdown Ryumem and flush telemetry."""
+        logger.info("Shutting down Ryumem")
+        shutdown_telemetry()
+
+    def __del__(self):
+        """Cleanup on deletion."""
+        try:
+            self.shutdown()
+        except:
+            pass
