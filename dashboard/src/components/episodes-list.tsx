@@ -585,6 +585,73 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                                 <p className="text-foreground/80">{run.agent_response}</p>
                               </div>
                             )}
+
+                            {/* Workflow Execution */}
+                            {run.workflow_execution && (
+                              <div>
+                                <p className="font-medium text-purple-500 mb-2 flex items-center gap-2">
+                                  Workflow: {run.workflow_execution.workflow_name}
+                                  {run.workflow_execution.status === 'completed' ? (
+                                    <Badge variant="outline" className="text-[10px] bg-green-50 dark:bg-green-950">
+                                      <CheckCircle2 className="h-2.5 w-2.5 mr-1 inline text-green-500" />
+                                      Completed
+                                    </Badge>
+                                  ) : run.workflow_execution.status === 'paused' ? (
+                                    <Badge variant="outline" className="text-[10px] bg-yellow-50 dark:bg-yellow-950">
+                                      <Clock className="h-2.5 w-2.5 mr-1 inline text-yellow-500" />
+                                      Paused
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[10px] bg-red-50 dark:bg-red-950">
+                                      <XCircle className="h-2.5 w-2.5 mr-1 inline text-red-500" />
+                                      Error
+                                    </Badge>
+                                  )}
+                                </p>
+
+                                {/* Node Results */}
+                                {run.workflow_execution.node_results && run.workflow_execution.node_results.length > 0 && (
+                                  <div className="space-y-1.5 mt-2">
+                                    {run.workflow_execution.node_results.map((node: any, nodeIdx: number) => (
+                                      <div key={nodeIdx} className="p-2 bg-muted/50 rounded border text-[11px]">
+                                        <div className="flex items-center justify-between mb-1">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-mono font-semibold">{node.node_id}</span>
+                                            <Badge variant="secondary" className="text-[9px] h-3.5 px-1">{node.node_type}</Badge>
+                                            {node.status === 'completed' ? (
+                                              <CheckCircle2 className="h-2.5 w-2.5 text-green-500" />
+                                            ) : (
+                                              <XCircle className="h-2.5 w-2.5 text-red-500" />
+                                            )}
+                                          </div>
+                                          <span className="text-muted-foreground text-[10px]">{node.duration_ms}ms</span>
+                                        </div>
+                                        {node.output && (
+                                          <div className="mt-1 p-1 bg-background rounded text-[10px] font-mono max-h-16 overflow-y-auto">
+                                            {typeof node.output === 'string' ? node.output : JSON.stringify(node.output, null, 2)}
+                                          </div>
+                                        )}
+                                        {node.error && (
+                                          <div className="mt-1 p-1 bg-red-50 dark:bg-red-950 rounded text-red-600 dark:text-red-400 text-[10px]">
+                                            <strong>Error:</strong> {node.error}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Pause Info */}
+                                {run.workflow_execution.status === 'paused' && run.workflow_execution.paused_at_node && (
+                                  <div className="mt-2 p-1.5 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded text-[10px]">
+                                    <div><strong>Paused at:</strong> <span className="font-mono">{run.workflow_execution.paused_at_node}</span></div>
+                                    {run.workflow_execution.pause_reason && (
+                                      <div><strong>Reason:</strong> {run.workflow_execution.pause_reason}</div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

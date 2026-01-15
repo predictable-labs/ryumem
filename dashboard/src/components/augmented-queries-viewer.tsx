@@ -364,6 +364,97 @@ export default function AugmentedQueriesViewer({ userId }: AugmentedQueriesViewe
                       </div>
                     )}
 
+                    {/* Workflow Execution */}
+                    {selectedRun.run.workflow_execution && (
+                      <div>
+                        <h4 className="text-xs font-semibold mb-2">Workflow Execution</h4>
+                        <div className="border border-purple-200 dark:border-purple-800 rounded-lg p-3 bg-purple-50 dark:bg-purple-950">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm">{selectedRun.run.workflow_execution.workflow_name}</span>
+                              {selectedRun.run.workflow_execution.status === 'completed' ? (
+                                <Badge variant="outline" className="flex items-center gap-1 text-xs h-5 bg-green-50 dark:bg-green-950">
+                                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                  Completed
+                                </Badge>
+                              ) : selectedRun.run.workflow_execution.status === 'paused' ? (
+                                <Badge variant="outline" className="flex items-center gap-1 text-xs h-5 bg-yellow-50 dark:bg-yellow-950">
+                                  <Clock className="h-3 w-3 text-yellow-500" />
+                                  Paused
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="flex items-center gap-1 text-xs h-5 bg-red-50 dark:bg-red-950">
+                                  <XCircle className="h-3 w-3 text-red-500" />
+                                  Error
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground font-mono">
+                              {selectedRun.run.workflow_execution.workflow_id.substring(0, 8)}...
+                            </div>
+                          </div>
+
+                          {/* Node Results */}
+                          {selectedRun.run.workflow_execution.node_results && selectedRun.run.workflow_execution.node_results.length > 0 && (
+                            <div className="mt-3">
+                              <h5 className="text-xs font-semibold mb-2">Nodes ({selectedRun.run.workflow_execution.node_results.length})</h5>
+                              <div className="space-y-2">
+                                {selectedRun.run.workflow_execution.node_results.map((node: any, nodeIdx: number) => (
+                                  <div key={nodeIdx} className="p-2 bg-white dark:bg-gray-900 rounded border text-xs">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono font-semibold">{node.node_id}</span>
+                                        <Badge variant="secondary" className="text-xs h-4">{node.node_type}</Badge>
+                                        {node.status === 'completed' ? (
+                                          <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                        ) : (
+                                          <XCircle className="h-3 w-3 text-red-500" />
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1 text-muted-foreground">
+                                        <Clock className="h-3 w-3" />
+                                        {node.duration_ms}ms
+                                      </div>
+                                    </div>
+                                    {node.output && (
+                                      <div className="mt-1 p-1 bg-gray-50 dark:bg-gray-800 rounded text-xs font-mono overflow-x-auto max-h-20 overflow-y-auto">
+                                        {typeof node.output === 'string' ? node.output : JSON.stringify(node.output, null, 2)}
+                                      </div>
+                                    )}
+                                    {node.error && (
+                                      <div className="mt-1 p-1 bg-red-50 dark:bg-red-950 rounded text-red-600 dark:text-red-400">
+                                        <strong>Error:</strong> {node.error}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Final Context */}
+                          {selectedRun.run.workflow_execution.final_context && Object.keys(selectedRun.run.workflow_execution.final_context).length > 0 && (
+                            <div className="mt-3">
+                              <h5 className="text-xs font-semibold mb-2">Final Context Variables</h5>
+                              <div className="p-2 bg-white dark:bg-gray-900 rounded border text-xs font-mono overflow-x-auto max-h-32 overflow-y-auto">
+                                <pre>{JSON.stringify(selectedRun.run.workflow_execution.final_context, null, 2)}</pre>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Pause Info */}
+                          {selectedRun.run.workflow_execution.status === 'paused' && selectedRun.run.workflow_execution.paused_at_node && (
+                            <div className="mt-3 p-2 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded text-xs">
+                              <div><strong>Paused at node:</strong> <span className="font-mono">{selectedRun.run.workflow_execution.paused_at_node}</span></div>
+                              {selectedRun.run.workflow_execution.pause_reason && (
+                                <div className="mt-1"><strong>Reason:</strong> {selectedRun.run.workflow_execution.pause_reason}</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                   </CardContent>
                 </Card>
               </div>

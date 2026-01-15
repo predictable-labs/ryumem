@@ -406,18 +406,28 @@ class RyumemGoogleADK:
         Returns:
             Dict with status and workflow result
         """
+        logger.info(f"▶️  continue_workflow called")
+        logger.info(f"   Session ID: {session_id}")
+        logger.info(f"   Response: {response[:100]}...")
+
         if not hasattr(tool_context, 'session') or not tool_context.session:
+            logger.error("❌ Session context required but not provided")
             return {"status": "error", "message": "Session context required"}
 
         user_id = getattr(tool_context.session, 'user_id', None)
+        logger.info(f"   User ID: {user_id}")
 
         # Get session to check if paused
         session = self.ryumem.get_session(session_id)
         if not session:
+            logger.error(f"❌ Session {session_id} not found")
             return {"status": "error", "message": f"Session {session_id} not found"}
 
         if session.get("status") != "paused":
+            logger.error(f"❌ Session not paused (status: {session.get('status')})")
             return {"status": "error", "message": f"Session not paused (status: {session.get('status')})"}
+
+        logger.info(f"   Session is paused, continuing workflow...")
 
         # Continue workflow
         from ryumem.workflows.manager import WorkflowManager
@@ -425,8 +435,12 @@ class RyumemGoogleADK:
 
         try:
             result = manager.continue_workflow_execution(session_id, user_id, response)
+            logger.info(f"✓ Workflow continuation returned: status={result.get('status')}")
             return {"status": "success", "workflow_result": result}
         except Exception as e:
+            logger.error(f"❌ Error continuing workflow: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {"status": "error", "message": str(e)}
 
     async def save_workflow(
@@ -444,26 +458,96 @@ class RyumemGoogleADK:
         Returns:
             Dict with status and workflow_id
         """
+        logger.info(f"💾 save_workflow called")
+        logger.info(f"   Workflow name: {workflow_definition.get('name', 'unnamed')}")
+        logger.info(f"   Nodes: {len(workflow_definition.get('nodes', []))}")
+
         if not hasattr(tool_context, 'session') or not tool_context.session:
+            logger.error("❌ Session context required but not provided")
             return {"status": "error", "message": "Session context required"}
 
         try:
             from ryumem.workflows.manager import WorkflowManager
             manager = WorkflowManager(self.ryumem)
-            
+
             # Validate and convert to model
             workflow = WorkflowDefinition(**workflow_definition)
-            
+
+            # Validate tool nodes have required fields
+            errors = []
+            warnings = []
+            for node in workflow.nodes:
+                from ryumem.core.workflow_models import NodeType
+
+                # Tool nodes must have tool_name and input_params
+                if node.node_type == NodeType.TOOL:
+                    if not node.tool_name:
+                        errors.append(
+                            f"Node '{node.node_id}': tool_name is required for tool nodes. "
+                            f"Specify the actual tool function name (e.g., 'get_chunk_by_term')."
+                        )
+                    if not node.input_params:
+                        errors.append(
+                            f"Node '{node.node_id}': input_params is required for tool nodes. "
+                            f"Provide a dictionary with the tool's parameters."
+                        )
+
+            # Return errors immediately if validation fails
+            if errors:
+                logger.error(f"❌ Workflow validation failed: {errors}")
+                return {
+                    "status": "error",
+                    "message": "Workflow validation failed",
+                    "errors": errors
+                }
+
+            # Validate variable references in nodes
+            for node in workflow.nodes:
+                # Check input_params for invalid patterns
+                if hasattr(node, 'input_params') and node.input_params:
+                    for key, value in node.input_params.items():
+                        if isinstance(value, str):
+                            # Check for invalid descriptive patterns
+                            invalid_phrases = [
+                                'last stage', 'previous step', 'result from', 'output of',
+                                'use the', 'from step', 'previous node', 'last step'
+                            ]
+                            if any(phrase in value.lower() for phrase in invalid_phrases):
+                                warnings.append(
+                                    f"Node '{node.node_id}': input '{key}' uses descriptive text. "
+                                    f"Use ${{node_id}} syntax to reference node outputs."
+                                )
+
+                # Check LLM prompts for invalid patterns
+                if hasattr(node, 'llm_prompt') and node.llm_prompt:
+                    if any(phrase in node.llm_prompt.lower() for phrase in ['${', 'previous', 'last']):
+                        # This is okay - prompts can reference variables
+                        pass
+
             # Save workflow
             workflow_id = manager.save_workflow(workflow)
-            
+
+            logger.info(f"✓ Workflow saved successfully: {workflow_id}")
+
+            # Return with warnings if any
+            if warnings:
+                logger.warning(f"Workflow saved with validation warnings: {warnings}")
+                return {
+                    "status": "warning",
+                    "workflow_id": workflow_id,
+                    "warnings": warnings,
+                    "message": f"Workflow saved but has {len(warnings)} validation warning(s)"
+                }
+
             return {
                 "status": "success",
                 "workflow_id": workflow_id,
                 "message": "Workflow saved successfully"
             }
         except Exception as e:
-            logger.error(f"Error saving workflow: {e}")
+            logger.error(f"❌ Error saving workflow: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {"status": "error", "message": str(e)}
 
     async def start_workflow(
@@ -483,27 +567,38 @@ class RyumemGoogleADK:
         Returns:
             Dict with execution results
         """
+        logger.info(f"▶️  start_workflow called")
+        logger.info(f"   Workflow ID: {workflow_id}")
+        logger.info(f"   Initial variables: {list(initial_variables.keys()) if initial_variables else []}")
+
         if not hasattr(tool_context, 'session') or not tool_context.session:
+            logger.error("❌ Session context required but not provided")
             return {"status": "error", "message": "Session context required"}
 
         session = tool_context.session
         user_id = getattr(session, 'user_id', None)
         session_id = getattr(session, 'id', None)
 
+        logger.info(f"   Session ID: {session_id}")
+        logger.info(f"   User ID: {user_id}")
+
         if not user_id or not session_id:
+            logger.error("❌ user_id and session_id required but not found in session")
             return {"status": "error", "message": "user_id and session_id required"}
 
         try:
             from ryumem.workflows.manager import WorkflowManager
             manager = WorkflowManager(self.ryumem)
-            
+
             # Prepare variables
             variables = initial_variables or {}
             variables.update({
                 "user_id": user_id,
                 "session_id": session_id
             })
-            
+
+            logger.info(f"   Starting workflow execution...")
+
             # Execute workflow
             result = manager.execute_workflow(
                 workflow_id=workflow_id,
@@ -511,7 +606,11 @@ class RyumemGoogleADK:
                 user_id=user_id,
                 initial_variables=variables
             )
-            
+
+            logger.info(f"✓ Workflow execution returned: status={result.get('status')}")
+            if result.get("status") == "paused":
+                logger.info(f"   Paused at: {result.get('paused_at_node')}, reason: {result.get('pause_reason')}")
+
             return {
                 "status": "success",
                 "result": result
@@ -749,18 +848,27 @@ def _get_last_session_details(similar_queries: List[Dict[str, Any]]) -> str:
             episode_metadata = EpisodeMetadata(**metadata_dict)
 
             # Check all sessions in this episode
-            for session_id, runs in episode_metadata.sessions.items():
+            for session_id, session_data in episode_metadata.sessions.items():
+                if not isinstance(session_data, dict):
+                    continue
+
+                runs = session_data.get("runs", [])
                 if not runs:
                     continue
 
-                # Get the latest timestamp from this session
-                latest_run = max(runs, key=lambda r: r.timestamp)
-                session_timestamp = datetime.datetime.fromisoformat(latest_run.timestamp)
+                # Convert runs to QueryRun objects and find latest
+                for run_data in runs:
+                    try:
+                        run = QueryRun(**run_data) if isinstance(run_data, dict) else run_data
+                        run_timestamp = datetime.datetime.fromisoformat(run.timestamp)
 
-                if most_recent_timestamp is None or session_timestamp > most_recent_timestamp:
-                    most_recent_timestamp = session_timestamp
-                    most_recent_session = runs
-                    most_recent_session_id = session_id
+                        if most_recent_timestamp is None or run_timestamp > most_recent_timestamp:
+                            most_recent_timestamp = run_timestamp
+                            most_recent_session = runs
+                            most_recent_session_id = session_id
+                    except Exception as e:
+                        logger.warning(f"Failed to parse run data: {e}")
+                        continue
 
         except Exception as e:
             logger.warning(f"Failed to parse session metadata: {e}")
@@ -820,11 +928,20 @@ def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]
 
             # Get agent response
             agent_response = None
-            for runs in episode_metadata.sessions.values():
-                for run in runs:
-                    if run.agent_response:
-                        agent_response = run.agent_response
-                        break
+            for session_data in episode_metadata.sessions.values():
+                if not isinstance(session_data, dict):
+                    continue
+
+                runs = session_data.get("runs", [])
+                for run_data in runs:
+                    try:
+                        run = QueryRun(**run_data) if isinstance(run_data, dict) else run_data
+                        if run.agent_response:
+                            agent_response = run.agent_response
+                            break
+                    except Exception as e:
+                        logger.warning(f"Failed to parse run data: {e}")
+                        continue
                 if agent_response:
                     break
 

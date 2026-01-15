@@ -182,18 +182,55 @@ class WorkflowManager:
     ) -> dict[str, Any]:
         """Execute a single workflow node."""
         from datetime import datetime
+        import time
 
-        # TODO: Implement actual tool execution
-        # For now, simulate non-LLM nodes
-        return {
-            "node_id": node.node_id,
-            "node_type": str(node.node_type),
-            "status": "completed",
-            "output": f"Simulated output for {node.node_id}",
-            "error": None,
-            "duration_ms": 100,
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        start_time = time.time()
+
+        try:
+            # Get the tool function from registry
+            if not tool_registry or not node.tool_name:
+                raise ValueError(f"Tool registry or tool_name not provided for node {node.node_id}")
+
+            if node.tool_name not in tool_registry:
+                raise ValueError(f"Tool '{node.tool_name}' not found in tool registry")
+
+            tool_func = tool_registry[node.tool_name]
+
+            # Substitute variables in input_params
+            substituted_params = {}
+            if node.input_params:
+                for key, value in node.input_params.items():
+                    if isinstance(value, str):
+                        substituted_params[key] = self._substitute_variables(value, context)
+                    else:
+                        substituted_params[key] = value
+
+            # Execute the tool
+            output = tool_func(**substituted_params)
+
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            return {
+                "node_id": node.node_id,
+                "node_type": str(node.node_type),
+                "status": "completed",
+                "output": output,
+                "error": None,
+                "duration_ms": duration_ms,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"Error executing node {node.node_id}: {e}")
+            return {
+                "node_id": node.node_id,
+                "node_type": str(node.node_type),
+                "status": "failed",
+                "output": None,
+                "error": str(e),
+                "duration_ms": duration_ms,
+                "timestamp": datetime.utcnow().isoformat()
+            }
 
     def execute_workflow(
         self,
@@ -219,6 +256,9 @@ class WorkflowManager:
         Raises:
             ValueError: If workflow not found or different workflow is paused
         """
+        logger.info(f"🚀 Starting workflow execution: workflow_id={workflow_id}, session_id={session_id}, user_id={user_id}")
+        logger.info(f"   Initial variables: {list(initial_variables.keys())}")
+
         # Check if session already has paused workflow
         session = self.ryumem.get_session(session_id)
         if session and session.get("status") == "paused":
@@ -229,13 +269,16 @@ class WorkflowManager:
                     f"cannot start {workflow_id}"
                 )
             pause_reason = pause_info.get("pause_reason") if pause_info else "unknown"
-            logger.info(f"Auto-resuming paused workflow, reason: {pause_reason}")
+            logger.info(f"♻️  Auto-resuming paused workflow, reason: {pause_reason}")
             self.engine.clear_pause(session_id, user_id)
 
         # Get workflow definition
         workflow = self.get_workflow(workflow_id)
         if not workflow:
+            logger.error(f"❌ Workflow {workflow_id} not found")
             raise ValueError(f"Workflow {workflow_id} not found")
+
+        logger.info(f"✓ Loaded workflow: {workflow.name} with {len(workflow.nodes)} nodes")
 
         # Get completed nodes from database
         completed_nodes = self.engine.get_completed_nodes(session_id, user_id)
@@ -257,26 +300,33 @@ class WorkflowManager:
         context = initial_variables.copy()
 
         for wave_num, wave in enumerate(execution_plan, 1):
-            logger.info(f"Executing wave {wave_num}/{len(execution_plan)}: {[n.node_id for n in wave]}")
+            logger.info(f"🌊 Executing wave {wave_num}/{len(execution_plan)}: {[n.node_id for n in wave]}")
 
             for node in wave:
                 from ryumem.core.workflow_models import NodeType
 
+                logger.info(f"   ⚙️  Executing node: {node.node_id} (type: {node.node_type})")
+
                 # Handle LLM_TRIGGER - pause for agent decision
                 if node.node_type == NodeType.LLM_TRIGGER:
                     prompt = self._substitute_variables(node.llm_prompt or "Continue", context)
+                    logger.info(f"   ⏸️  Pausing for LLM_TRIGGER at node {node.node_id}")
+                    logger.info(f"   💬 Prompt: {prompt[:100]}...")
                     return self._pause_workflow(workflow_id, session_id, user_id, node.node_id, "llm_trigger", prompt=prompt)
 
                 # Handle USER_TRIGGER - pause for user input
                 if node.node_type == NodeType.USER_TRIGGER:
                     prompt = self._substitute_variables(node.user_prompt or "Provide input", context)
+                    logger.info(f"   ⏸️  Pausing for USER_TRIGGER at node {node.node_id}")
+                    logger.info(f"   💬 Prompt: {prompt[:100]}...")
                     return self._pause_workflow(workflow_id, session_id, user_id, node.node_id, "user_trigger", prompt=prompt, extra_fields={"input_variable": node.user_input_variable})
 
                 # Execute node with error handling
                 try:
                     result = self._execute_node(node, context, tool_registry)
+                    logger.info(f"   ✓ Node {node.node_id} completed: {str(result.get('output', ''))[:100]}")
                 except Exception as e:
-                    logger.error(f"Node {node.node_id} failed: {e}")
+                    logger.error(f"   ❌ Node {node.node_id} failed: {e}")
                     return self._pause_workflow(workflow_id, session_id, user_id, node.node_id, "error", error=str(e))
 
                 # Store output and result
@@ -292,15 +342,19 @@ class WorkflowManager:
             success=True
         )
 
-        logger.info(f"Workflow {workflow_id} completed successfully with {len(node_results)} nodes")
+        logger.info(f"✅ Workflow {workflow_id} completed successfully!")
+        logger.info(f"   Executed {len(node_results)} nodes")
+        logger.info(f"   Final context variables: {list(context.keys())}")
 
-        return {
+        result = {
             "workflow_id": workflow_id,
             "session_id": session_id,
             "status": "completed",
             "node_results": node_results,
             "final_context": context
         }
+        logger.info(f"   Returning result with status: {result['status']}")
+        return result
 
     def continue_workflow_execution(
         self,
@@ -311,9 +365,13 @@ class WorkflowManager:
         """Continue paused workflow with response."""
         from datetime import datetime
 
+        logger.info(f"▶️  Continuing workflow: session_id={session_id}, user_id={user_id}")
+        logger.info(f"   Response: {response[:100]}...")
+
         # Get session and validate paused
         session = self.ryumem.get_session(session_id)
         if not session or session.get("status") != "paused":
+            logger.error(f"❌ Session {session_id} not paused (status: {session.get('status') if session else 'not found'})")
             raise ValueError(f"Session {session_id} not paused")
 
         # Get pause info
@@ -321,6 +379,10 @@ class WorkflowManager:
         pause_info = self.engine.get_pause_info(session_id, user_id)
         pause_reason = pause_info.get("pause_reason")
         paused_node_id = pause_info.get("paused_at_node")
+
+        logger.info(f"   Workflow ID: {workflow_id}")
+        logger.info(f"   Paused at node: {paused_node_id}")
+        logger.info(f"   Pause reason: {pause_reason}")
 
         # Create result based on pause reason
         result = {

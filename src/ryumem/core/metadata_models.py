@@ -46,6 +46,10 @@ class QueryRun(BaseModel):
         default=None,
         description="ID of the workflow executed for this query"
     )
+    workflow_execution: Optional[dict] = Field(
+        default=None,
+        description="Detailed workflow execution data including node results and status"
+    )
 
 
 class EpisodeMetadata(BaseModel):

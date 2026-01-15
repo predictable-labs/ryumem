@@ -196,6 +196,22 @@ export interface QueryRun {
     error?: string;
   }>;
   agent_response?: string;
+  workflow_execution?: {
+    workflow_id: string;
+    workflow_name: string;
+    status: 'completed' | 'paused' | 'error';
+    node_results?: Array<{
+      node_id: string;
+      node_type: string;
+      status: string;
+      output: any;
+      error?: string;
+      duration_ms: number;
+    }>;
+    final_context?: Record<string, any>;
+    paused_at_node?: string;
+    pause_reason?: string;
+  };
 }
 
 export interface AugmentedQuery {
