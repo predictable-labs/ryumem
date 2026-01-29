@@ -30,11 +30,15 @@ from pydantic import BaseModel, Field
 
 from ryumem_server import Ryumem
 from ryumem_server.core.config import RyumemConfig
-from ryumem_server.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
+from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
 
 from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.core.config_service import ConfigService
+from ryumem_server.sessions.manager import SessionManager
+from ryumem_server.sessions.models import SessionRun, SessionStatus
+from ryumem_server.workflows.storage import WorkflowStorage
+from ryumem.core.workflow_models import WorkflowDefinition
 
 # Load environment variables
 load_dotenv()
@@ -409,6 +413,7 @@ class AuthManager:
 
 _auth_manager: Optional[AuthManager] = None
 _ryumem_cache: Dict[str, Ryumem] = {}
+_session_managers: Dict[str, SessionManager] = {}  # Per-customer session managers
 
 
 
@@ -432,17 +437,27 @@ async def lifespan(app: FastAPI):
     
     # Shutdown: Clean up resources
     logger.info("Shutting down Ryumem Server...")
+
     # Close all open Ryumem instances
     for customer_id, instance in _ryumem_cache.items():
         try:
-            instance.db.close() # Assuming Ryumem has a way to close DB or we rely on GC
-            # Actually Ryumem.close() might be better if it exists, let's check lib.py
-            # lib.py doesn't seem to have a close() method on Ryumem class based on previous view_file
-            # But RyugraphDB might.
-            pass 
+            instance.close()  # Properly close the Ryumem instance
+            logger.info(f"Closed Ryumem instance for customer {customer_id}")
         except Exception as e:
             logger.error(f"Error closing instance for {customer_id}: {e}")
     _ryumem_cache.clear()
+
+    # Clear session managers (they share DB connections with Ryumem instances)
+    _session_managers.clear()
+
+    # Close AuthManager database
+    if _auth_manager:
+        try:
+            _auth_manager.db.close()
+            logger.info("Closed AuthManager database")
+        except Exception as e:
+            logger.error(f"Error closing AuthManager: {e}")
+
     logger.info("Shutdown complete")
 
 
@@ -484,19 +499,44 @@ def get_ryumem(customer_id: str = Depends(get_current_customer)):
     """
     if customer_id in _ryumem_cache:
         return _ryumem_cache[customer_id]
-        
+
     # Create new instance
     db_folder = os.getenv("RYUMEM_DB_FOLDER", "./data")
     db_path = os.path.join(db_folder, f"{customer_id}.db")
-    
+
     logger.info(f"Creating Ryumem instance for {customer_id} at {db_path}")
-    
+
     # Initialize with specific DB path
     # We create a fresh config to avoid sharing state, though Ryumem(db_path=...) handles override
     instance = Ryumem(db_path=db_path)
-    
+
     _ryumem_cache[customer_id] = instance
     return instance
+
+
+def get_session_manager(customer_id: str = Depends(get_current_customer)):
+    """
+    Get the SessionManager instance for the current customer.
+    """
+    if customer_id in _session_managers:
+        return _session_managers[customer_id]
+
+    # Get the Ryumem instance (which has the DB)
+    ryumem = get_ryumem(customer_id)
+
+    # Create SessionManager
+    manager = SessionManager(db=ryumem.db)
+    _session_managers[customer_id] = manager
+
+    return manager
+
+
+def get_workflow_storage(ryumem: Ryumem = Depends(get_ryumem)):
+    """
+    Get WorkflowStorage instance using the existing Ryumem instance.
+    No separate caching needed - created on-demand from Ryumem.
+    """
+    return WorkflowStorage(db=ryumem.db, embedding_client=ryumem.embedding_client)
 
 
 def get_write_ryumem(customer_id: str = Depends(get_current_customer)):
@@ -1623,6 +1663,25 @@ async def get_episodes(
         raise HTTPException(status_code=500, detail=f"Error getting episodes: {str(e)}")
 
 
+@app.delete("/episodes/{episode_uuid}")
+async def delete_episode(
+    episode_uuid: str,
+    ryumem: Ryumem = Depends(get_ryumem)
+):
+    """Delete an episode by UUID."""
+    try:
+        # Delete the episode node and its relationships
+        query = """
+        MATCH (e:Episode {uuid: $uuid})
+        DETACH DELETE e
+        """
+        ryumem.db.execute(query, {"uuid": episode_uuid})
+        return {"message": "Episode deleted successfully", "uuid": episode_uuid}
+    except Exception as e:
+        logger.error(f"Error deleting episode {episode_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting episode: {str(e)}")
+
+
 @app.post("/search", response_model=SearchResponse)
 async def search(
     request: SearchRequest,
@@ -2722,7 +2781,18 @@ async def get_augmented_queries(
             try:
                 episode_metadata = EpisodeMetadata(**metadata_dict)
             except Exception as e:
-                logger.warning(f"Failed to parse EpisodeMetadata for episode {episode.get('uuid')}: {e}")
+                episode_uuid = episode.get('uuid')
+                logger.warning(f"Failed to parse EpisodeMetadata for episode {episode_uuid}: {e}")
+                logger.info(f"Deleting invalid episode {episode_uuid}")
+                try:
+                    # Delete the invalid episode from database
+                    ryumem.db.graph_client.execute_query(
+                        "MATCH (e:Episode {uuid: $uuid}) DETACH DELETE e",
+                        {"uuid": episode_uuid}
+                    )
+                    logger.info(f"Deleted invalid episode {episode_uuid}")
+                except Exception as delete_err:
+                    logger.error(f"Failed to delete episode {episode_uuid}: {delete_err}")
                 continue
 
             # Handle session_id (can be nan from database)
@@ -2731,9 +2801,19 @@ async def get_augmented_queries(
                 session_id = None
 
             # Flatten all runs from all sessions
+            # Workflow execution data is now stored per-run, not per-session
             runs = []
-            for session_runs in episode_metadata.sessions.values():
-                runs.extend(session_runs)
+            for session_id_key, session_data in episode_metadata.sessions.items():
+                session_runs = session_data.get("runs", [])
+                # Convert run dicts to QueryRun objects
+                for run_data in session_runs:
+                    try:
+                        # QueryRun already has workflow_execution field populated
+                        run = QueryRun(**run_data) if isinstance(run_data, dict) else run_data
+                        runs.append(run)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse QueryRun: {e}")
+                        continue
 
             # If only_augmented is True, filter runs that have augmented queries
             if only_augmented:
@@ -3084,6 +3164,268 @@ async def get_customer_me(
                 "display_name": details.get("github_username") or customer_id
             }
     return {"customer_id": customer_id, "display_name": customer_id}
+
+
+# ===== Session Management Endpoints =====
+
+@app.get("/sessions", response_model=List[SessionRun])
+async def list_sessions(
+    user_id: Optional[str] = None,
+    limit: int = 100,
+    session_manager: SessionManager = Depends(get_session_manager)
+):
+    """List all sessions."""
+    return session_manager.list_sessions(user_id=user_id, limit=limit)
+
+
+@app.get("/sessions/active", response_model=List[SessionRun])
+async def get_active_sessions(
+    user_id: Optional[str] = None,
+    session_manager: SessionManager = Depends(get_session_manager)
+):
+    """Get all active sessions."""
+    return session_manager.get_active_sessions(user_id=user_id)
+
+
+@app.get("/sessions/{session_id}", response_model=Optional[SessionRun])
+async def get_session(
+    session_id: str,
+    session_manager: SessionManager = Depends(get_session_manager)
+):
+    """Get a specific session."""
+    return session_manager.get_session(session_id)
+
+
+class UpdateSessionRequest(BaseModel):
+    """Single request to update entire session state at once."""
+    user_id: str
+    status: Optional[SessionStatus] = None
+    workflow_id: Optional[str] = None
+    session_variables: Optional[Dict[str, Any]] = None
+    current_node: Optional[str] = None
+    error: Optional[str] = None
+    query_run: Optional[QueryRun] = None  # Add a query run if provided
+    episode_id: Optional[str] = None  # Link to specific episode
+
+
+@app.put("/sessions/{session_id}")
+async def update_session(
+    session_id: str,
+    request: UpdateSessionRequest,
+    session_manager: SessionManager = Depends(get_session_manager)
+):
+    """
+    Update entire session state in one call.
+    Only updates fields that are provided (not None).
+    """
+
+    print("HERE IN PUT", request)
+    # Update status if provided
+    if request.status is not None:
+        session_manager.set_session_status(session_id, request.user_id, request.status, request.error)
+
+    # Update workflow_id if provided
+    if request.workflow_id is not None:
+        session_manager.set_workflow_id(session_id, request.user_id, request.workflow_id)
+
+    # Update variables if provided
+    if request.session_variables is not None:
+        session_manager.update_session_variables(session_id, request.user_id, request.session_variables)
+
+    # Update current node if provided
+    if request.current_node is not None:
+        session_manager.set_current_node(session_id, request.user_id, request.current_node)
+
+    # Add query run if provided
+    if request.query_run is not None:
+        if request.episode_id:
+            # Link to specific episode
+            session_manager.add_query_run_to_episode(request.episode_id, session_id, request.user_id, request.query_run)
+        else:
+            # Find/create episode by session_id
+            session_manager.add_query_run(session_id, request.user_id, request.query_run)
+
+    return {"status": "success", "session_id": session_id}
+
+
+# ===== Workflow Management Endpoints =====
+
+class SearchWorkflowsRequest(BaseModel):
+    """Request to search for similar workflows."""
+    query: str
+    user_id: str
+    threshold: float = 0.7
+
+
+@app.post("/workflows/search", response_model=List[Dict[str, Any]])
+async def search_workflows(
+    request: SearchWorkflowsRequest,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """
+    Search for similar workflows in vector DB.
+    Server only does search, NOT generation (that happens on client).
+    """
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    # Generate embedding for query
+    query_embedding = ryumem.embedding_client.embed(request.query)
+
+    # Search for similar workflows using hybrid search (BM25 + vector)
+    similar_workflows = workflow_storage.search_similar_workflows(
+        query=request.query,
+        query_embedding=query_embedding,
+        threshold=request.threshold,
+        user_id=request.user_id
+    )
+
+    # Return workflows (without similarity scores)
+    return [workflow.model_dump() for workflow, _ in similar_workflows]
+
+
+@app.post("/workflows", response_model=Dict[str, str])
+async def create_workflow(
+    workflow: WorkflowDefinition,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Save a newly generated workflow from client."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    # Save workflow
+    workflow_id = workflow_storage.save_workflow(workflow)
+
+    return {"workflow_id": workflow_id}
+
+
+@app.get("/workflows/{workflow_id}", response_model=Optional[Dict[str, Any]])
+async def get_workflow(
+    workflow_id: str,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Get a specific workflow by ID."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    workflow = workflow_storage.get_workflow(workflow_id)
+    if workflow:
+        return workflow.model_dump()
+    return None
+
+
+@app.put("/workflows/{workflow_id}", response_model=Dict[str, str])
+async def update_workflow(
+    workflow_id: str,
+    workflow: WorkflowDefinition,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Update an existing workflow."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    # Check if workflow exists
+    existing = workflow_storage.get_workflow(workflow_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    # Update workflow (use the provided workflow_id)
+    workflow.workflow_id = workflow_id
+    updated_id = workflow_storage.save_workflow(workflow)
+
+    return {"workflow_id": updated_id}
+
+
+@app.get("/workflows", response_model=List[Dict[str, Any]])
+async def list_workflows(
+    user_id: Optional[str] = None,
+    limit: int = 100,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """List all workflows."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    workflows = workflow_storage.list_workflows(user_id=user_id, limit=limit)
+    return [w.model_dump() for w in workflows]
+
+
+class MarkSuccessRequest(BaseModel):
+    """Request to mark workflow as successful."""
+    session_id: str
+
+
+@app.post("/workflows/{workflow_id}/mark_success", response_model=Dict[str, Any])
+async def mark_workflow_success(
+    workflow_id: str,
+    request: MarkSuccessRequest,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Mark workflow execution as successful and increment success count."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    workflow_storage.increment_success_count(workflow_id)
+    updated_workflow = workflow_storage.get_workflow(workflow_id)
+
+    return updated_workflow.model_dump() if updated_workflow else {}
+
+
+class MarkFailureRequest(BaseModel):
+    """Request to mark workflow as failed."""
+    session_id: str
+    error: str
+
+
+@app.post("/workflows/{workflow_id}/mark_failure", response_model=Dict[str, Any])
+async def mark_workflow_failure(
+    workflow_id: str,
+    request: MarkFailureRequest,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Mark workflow execution as failed and increment failure count."""
+    # Check if workflow mode is enabled
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    workflow_storage.increment_failure_count(workflow_id)
+    updated_workflow = workflow_storage.get_workflow(workflow_id)
+
+    return updated_workflow.model_dump() if updated_workflow else {}
+
+
+@app.delete("/workflows/{workflow_id}")
+async def delete_workflow(
+    workflow_id: str,
+    ryumem: Ryumem = Depends(get_ryumem),
+    workflow_storage: WorkflowStorage = Depends(get_workflow_storage)
+):
+    """Delete a workflow by ID."""
+    if not ryumem.config.workflow.workflow_mode_enabled:
+        raise HTTPException(status_code=404, detail="Workflow mode not enabled")
+
+    try:
+        success = workflow_storage.delete_workflow(workflow_id)
+        if success:
+            return {"message": "Workflow deleted successfully", "workflow_id": workflow_id}
+        else:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+    except Exception as e:
+        logger.error(f"Error deleting workflow {workflow_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting workflow: {str(e)}")
 
 
 @app.delete("/database/reset")

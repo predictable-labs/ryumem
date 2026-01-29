@@ -154,9 +154,233 @@ class ConfigService:
         """
         return RyumemConfig()
 
+    def _generate_env_mapping(self, defaults: RyumemConfig) -> Dict[str, str]:
+        """
+        Generate env var mapping by introspecting RyumemConfig structure.
+
+        Args:
+            defaults: RyumemConfig instance with default values
+
+        Returns:
+            Dictionary mapping env var names to config keys
+        """
+        env_mapping = {}
+
+        # Keep special cases for backward compatibility
+        special_cases = {
+            "OPENAI_API_KEY": "llm.openai_api_key",
+            "GOOGLE_API_KEY": "llm.gemini_api_key",
+        }
+        env_mapping.update(special_cases)
+
+        # Auto-discover all sections and fields
+        for section_name in defaults.model_fields:
+            if section_name == "database":  # Skip DB config
+                continue
+
+            section_obj = getattr(defaults, section_name)
+            section_model_config = getattr(section_obj, 'model_config', {})
+            env_prefix = section_model_config.get('env_prefix', f'RYUMEM_{section_name.upper()}_')
+
+            for field_name in section_obj.model_fields:
+                env_var_name = f"{env_prefix}{field_name.upper()}"
+                config_key = f"{section_name}.{field_name}"
+
+                if env_var_name not in env_mapping and config_key not in env_mapping.values():
+                    env_mapping[env_var_name] = config_key
+
+        return env_mapping
+
+    def _infer_data_type(self, field_info) -> str:
+        """
+        Infer database storage type from Pydantic field annotation.
+
+        Args:
+            field_info: Pydantic FieldInfo object
+
+        Returns:
+            Data type string: 'bool', 'int', 'float', 'list', 'string'
+        """
+        import typing
+
+        annotation = field_info.annotation
+
+        # Handle Optional types
+        origin = typing.get_origin(annotation)
+        if origin is typing.Union:
+            args = typing.get_args(annotation)
+            # Get the non-None type
+            annotation = next((arg for arg in args if arg is not type(None)), annotation)
+
+        # Handle Literal types
+        if origin is typing.Literal:
+            return 'string'
+
+        # Check actual type
+        if annotation is bool or annotation == 'bool':
+            return 'bool'
+        elif annotation is int or 'int' in str(annotation).lower():
+            return 'int'
+        elif annotation is float or 'float' in str(annotation).lower():
+            return 'float'
+        elif annotation is list or 'list' in str(annotation).lower():
+            return 'list'
+        else:
+            return 'string'
+
+    def _build_config_section(
+        self,
+        section_name: str,
+        section_class: type,
+        config_dict: Dict[str, Any]
+    ):
+        """
+        Dynamically construct config section from database values.
+
+        Args:
+            section_name: Name of the section (e.g., "llm", "workflow")
+            section_class: The Pydantic model class (e.g., LLMConfig, WorkflowConfig)
+            config_dict: Dictionary of all config values from database
+
+        Returns:
+            Instance of the section class populated with database values
+        """
+        import os
+        from pydantic_core import PydanticUndefined
+
+        kwargs = {}
+        post_init_attrs = {}  # Fields to set after construction (like API keys with validation_alias)
+
+        for field_name, field_info in section_class.model_fields.items():
+            key = f"{section_name}.{field_name}"
+
+            # Get from database or use field default
+            if key in config_dict:
+                value = config_dict[key]
+            else:
+                value = field_info.default if field_info.default is not PydanticUndefined else None
+
+            # Special handling for API keys (have validation_alias, can come from env)
+            if field_name in ["openai_api_key", "gemini_api_key"]:
+                env_key = "OPENAI_API_KEY" if field_name == "openai_api_key" else "GOOGLE_API_KEY"
+                value = value or os.getenv(env_key)
+                # API keys have validation_alias, so we need to set them after construction
+                if value:
+                    post_init_attrs[field_name] = value
+                continue
+
+            # Handle None values with defaults
+            if value is None or value == "":
+                default = field_info.default
+                if default is not None and default is not PydanticUndefined:
+                    value = default
+
+            kwargs[field_name] = value
+
+        # Construct instance
+        instance = section_class(**kwargs)
+
+        # Set post-init attributes (like API keys)
+        for attr_name, attr_value in post_init_attrs.items():
+            setattr(instance, attr_name, attr_value)
+
+        return instance
+
+    def migrate_from_env(self, env_path: Optional[str] = None) -> Tuple[int, int]:
+        """
+        One-time migration: Read .env file and populate database with config values.
+        Uses default values from pydantic models as fallback.
+
+        Args:
+            env_path: Path to .env file (defaults to server/.env)
+
+        Returns:
+            Tuple of (migrated_count, skipped_count)
+        """
+        # Check if already migrated
+        existing_configs = self.db.get_all_configs()
+        if existing_configs:
+            logger.info(f"Configuration already migrated ({len(existing_configs)} configs in DB)")
+            return (0, len(existing_configs))
+
+        logger.info("Starting configuration migration from .env to database...")
+
+        # Load .env file if it exists
+        env_values = {}
+        if env_path and os.path.exists(env_path):
+            env_values = dotenv_values(env_path)
+            logger.info(f"Loaded {len(env_values)} values from {env_path}")
+        elif os.path.exists(".env"):
+            env_values = dotenv_values(".env")
+            logger.info(f"Loaded {len(env_values)} values from .env")
+        else:
+            logger.warning("No .env file found - using default configuration values")
+            logger.warning("To customize: Create a .env file with RYUMEM_* environment variables")
+            logger.warning("Key settings: RYUMEM_LLM_PROVIDER, RYUMEM_LLM_MODEL, RYUMEM_EMBEDDING_PROVIDER, RYUMEM_EMBEDDING_MODEL")
+
+        # Get default config model
+        defaults = self.get_default_configs()
+
+        # DYNAMIC: Generate env mapping from config structure
+        env_mapping = self._generate_env_mapping(defaults)
+
+        # Reverse mapping for quick lookup
+        key_to_env = {v: k for k, v in env_mapping.items()}
+
+        # Iterate through config sections and fields
+        migrated = 0
+        using_defaults = []
+
+        for section_name in defaults.model_fields:
+            # Skip database config (circular dependency)
+            if section_name == "database":
+                continue
+
+            section_value = getattr(defaults, section_name)
+
+            for field_name, field_info in section_value.model_fields.items():
+                key = f"{section_name}.{field_name}"
+                value = getattr(section_value, field_name)
+
+                # Override with env value if present
+                env_key = key_to_env.get(key)
+                if env_key and env_key in env_values:
+                    value = env_values[env_key]
+                else:
+                    # Track important defaults being used
+                    if key in ["llm.provider", "llm.model", "embedding.provider", "embedding.model"]:
+                        using_defaults.append(f"{key}={value}")
+
+                # Infer data type from annotation for serialization
+                data_type = self._infer_data_type(field_info)
+
+                # Detect sensitive fields
+                is_sensitive = any(s in field_name.lower() for s in ['key', 'secret', 'token', 'password'])
+
+                # Save to database
+                self.db.save_config(
+                    key=key,
+                    value=self._serialize_value(value, data_type),
+                    category=section_name,
+                    data_type=data_type,
+                    is_sensitive=is_sensitive,
+                    description=field_info.description or f"{section_name} {field_name}"
+                )
+                migrated += 1
+
+        logger.info(f"Migration complete: {migrated} configs saved to database")
+
+        # Warn about important defaults being used
+        if using_defaults and not env_values:
+            logger.warning(f"Using default values for: {', '.join(using_defaults)}")
+            logger.warning("Consider setting these in .env for your use case")
+
+        return (migrated, 0)
+
     def load_config_from_database(self) -> RyumemConfig:
         """
         Load configuration from database and construct a RyumemConfig instance.
+        Now fully dynamic - discovers all config sections automatically.
 
         Returns:
             RyumemConfig instance populated from database values
@@ -175,129 +399,40 @@ class ConfigService:
             value = self._deserialize_value(cfg["value"], cfg["data_type"])
             config_dict[key] = value
 
-        # Build nested config structure
-        def get_value(key: str, default: Any = None) -> Any:
-            return config_dict.get(key, default)
+        # Get default config to discover sections
+        defaults = RyumemConfig()
 
-        # Construct config objects
-        # DatabaseConfig ALWAYS comes from environment variables, never from database
-        # (circular dependency: need db_path to open database, can't store it in database)
-        database_config = DatabaseConfig()
+        # Build all sections dynamically
+        section_instances = {}
 
-        # Build LLM config with environment variables for API keys
-        import os
+        for section_name, field_info in RyumemConfig.model_fields.items():
+            # Special handling for database config (always from env, never from db)
+            if section_name == "database":
+                section_instances[section_name] = DatabaseConfig()
+                continue
 
-        # Get ollama_base_url, ensure it's never None (use default if empty/None)
-        ollama_url = get_value("llm.ollama_base_url", "http://localhost:11434")
-        if not ollama_url or ollama_url == "":
-            ollama_url = "http://localhost:11434"
+            # Get section class from annotation
+            section_class = field_info.annotation
 
-        llm_config = LLMConfig(
-            provider=get_value("llm.provider", "ollama"),
-            model=get_value("llm.model", "qwen2.5:7b"),
-            ollama_base_url=ollama_url,
-            entity_extraction_temperature=get_value("llm.entity_extraction_temperature", 0.3),
-            relation_extraction_temperature=get_value("llm.relation_extraction_temperature", 0.3),
-            tool_summarization_temperature=get_value("llm.tool_summarization_temperature", 0.3),
-            entity_extraction_max_tokens=get_value("llm.entity_extraction_max_tokens", 2000),
-            relation_extraction_max_tokens=get_value("llm.relation_extraction_max_tokens", 2000),
-            tool_summarization_max_tokens=get_value("llm.tool_summarization_max_tokens", 100),
-            timeout_seconds=get_value("llm.timeout_seconds", 180),
-            max_retries=get_value("llm.max_retries", 3),
-        )
+            # Handle Optional types
+            if hasattr(section_class, '__origin__'):
+                import typing
+                origin = typing.get_origin(section_class)
+                if origin is typing.Union:
+                    args = typing.get_args(section_class)
+                    section_class = next((arg for arg in args if arg is not type(None)), section_class)
 
-        # Set API keys from database values or environment
-        # Pydantic's validation_alias means these are set via environment variables
-        openai_key = get_value("llm.openai_api_key") or os.getenv("OPENAI_API_KEY")
-        gemini_key = get_value("llm.gemini_api_key") or os.getenv("GOOGLE_API_KEY")
-
-        if openai_key:
-            llm_config.openai_api_key = openai_key
-        if gemini_key:
-            llm_config.gemini_api_key = gemini_key
-
-        # Get embedding ollama_base_url, ensure it's never None
-        embedding_ollama_url = get_value("embedding.ollama_base_url", "http://localhost:11434")
-        if not embedding_ollama_url or embedding_ollama_url == "":
-            embedding_ollama_url = "http://localhost:11434"
-
-        embedding_config = EmbeddingConfig(
-            provider=get_value("embedding.provider", "ollama"),
-            model=get_value("embedding.model", "nomic-embed-text"),
-            ollama_base_url=embedding_ollama_url,
-            dimensions=get_value("embedding.dimensions", 768),
-            batch_size=get_value("embedding.batch_size", 100),
-            timeout_seconds=get_value("embedding.timeout_seconds", 180),
-        )
-
-        entity_extraction_config = EntityExtractionConfig(
-            enabled=get_value("entity_extraction.enabled", False),
-            entity_similarity_threshold=get_value("entity_extraction.entity_similarity_threshold", 0.65),
-            relationship_similarity_threshold=get_value("entity_extraction.relationship_similarity_threshold", 0.8),
-            max_context_episodes=get_value("entity_extraction.max_context_episodes", 5),
-        )
-
-        episode_config = EpisodeConfig(
-            enable_embeddings=get_value("episode.enable_embeddings", True),
-            deduplication_enabled=get_value("episode.deduplication_enabled", True),
-            similarity_threshold=get_value("episode.similarity_threshold", 0.95),
-            bm25_similarity_threshold=get_value("episode.bm25_similarity_threshold", 0.7),
-            time_window_hours=get_value("episode.time_window_hours", 24),
-        )
-
-        search_config = SearchConfig(
-            default_limit=get_value("search.default_limit", 10),
-            default_strategy=get_value("search.default_strategy", "hybrid"),
-            max_traversal_depth=get_value("search.max_traversal_depth", 2),
-            rrf_k=get_value("search.rrf_k", 60),
-            min_rrf_score=get_value("search.min_rrf_score", 0.025),
-            min_bm25_score=get_value("search.min_bm25_score", 0.1),
-        )
-
-        tool_tracking_config = ToolTrackingConfig(
-            track_tools=get_value("tool_tracking.track_tools", True),
-            track_queries=get_value("tool_tracking.track_queries", True),
-            augment_queries=get_value("tool_tracking.augment_queries", True),
-            similarity_threshold=get_value("tool_tracking.similarity_threshold", 0.3),
-            top_k_similar=get_value("tool_tracking.top_k_similar", 5),
-            sample_rate=get_value("tool_tracking.sample_rate", 1.0),
-            summarize_outputs=get_value("tool_tracking.summarize_outputs", True),
-            max_output_chars=get_value("tool_tracking.max_output_chars", 1000),
-            sanitize_pii=get_value("tool_tracking.sanitize_pii", True),
-            enhance_descriptions=get_value("tool_tracking.enhance_descriptions", False),
-            ignore_errors=get_value("tool_tracking.ignore_errors", True),
-        )
-
-        # Get default AgentConfig to extract default values for new fields
-        default_agent = AgentConfig()
-
-        agent_config = AgentConfig(
-            memory_enabled=get_value("agent.memory_enabled", True),
-            enhance_agent_instruction=get_value("agent.enhance_agent_instruction", True),
-            default_memory_block=get_value("agent.default_memory_block", default_agent.default_memory_block),
-            default_tool_block=get_value("agent.default_tool_block", default_agent.default_tool_block),
-            default_query_augmentation_template=get_value("agent.default_query_augmentation_template", default_agent.default_query_augmentation_template),
-        )
-
-        system_config = SystemConfig(
-            cors_origins=get_value("system.cors_origins", "http://localhost:3000,http://localhost:3001"),
-            log_level=get_value("system.log_level", "INFO"),
-        )
+            # Build section dynamically
+            section_instances[section_name] = self._build_config_section(
+                section_name,
+                section_class,
+                config_dict
+            )
 
         # Construct main config
-        config = RyumemConfig(
-            database=database_config,
-            llm=llm_config,
-            embedding=embedding_config,
-            entity_extraction=entity_extraction_config,
-            episode=episode_config,
-            search=search_config,
-            tool_tracking=tool_tracking_config,
-            agent=agent_config,
-            system=system_config,
-        )
+        config = RyumemConfig(**section_instances)
 
-        logger.info("Loaded configuration from database")
+        logger.info(f"Loaded configuration from database with {len(section_instances)} sections")
         return config
 
     def ensure_defaults_in_database(self) -> int:

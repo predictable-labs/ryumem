@@ -25,6 +25,10 @@ class ToolExecution(BaseModel):
         default=None,
         description="Name of immediate parent tool if called from another tool"
     )
+    workflow_id: Optional[str] = Field(
+        default=None,
+        description="ID of the workflow this tool execution belongs to"
+    )
 
 
 class QueryRun(BaseModel):
@@ -38,6 +42,14 @@ class QueryRun(BaseModel):
     agent_response: str = ""
     tools_used: list[ToolExecution] = Field(default_factory=list)
     llm_saved_memory: str = ""  # Memory saved by LLM during this run
+    workflow_id: Optional[str] = Field(
+        default=None,
+        description="ID of the workflow executed for this query"
+    )
+    workflow_execution: Optional[dict] = Field(
+        default=None,
+        description="Detailed workflow execution data including node results and status"
+    )
 
 
 class EpisodeMetadata(BaseModel):
@@ -46,47 +58,63 @@ class EpisodeMetadata(BaseModel):
 
     Structure:
         - integration: Integration type (e.g., "google_adk")
-        - sessions: Map of session_id -> list of query runs
+        - sessions: Map of session_id -> session state with runs and variables
 
     Example:
         {
             "integration": "google_adk",
             "sessions": {
-                "session_123": [
-                    {
-                        "run_id": "run_1",
-                        "timestamp": "2024-01-01T00:00:00",
-                        "query": "What is the weather?",
-                        "agent_response": "It's sunny",
-                        "tools_used": [...]
-                    }
-                ],
-                "session_456": [...]
+                "session_123": {
+                    "status": "active",
+                    "workflow_id": "wf_789",
+                    "session_variables": {"user_location": "SF"},
+                    "current_node": "node_2",
+                    "runs": [
+                        {
+                            "run_id": "run_1",
+                            "timestamp": "2024-01-01T00:00:00",
+                            "query": "What is the weather?",
+                            "agent_response": "It's sunny",
+                            "tools_used": [...]
+                        }
+                    ]
+                }
             }
         }
     """
 
     integration: str = "google_adk"
-    sessions: dict[str, list[QueryRun]] = Field(default_factory=dict)
+    sessions: dict[str, dict] = Field(default_factory=dict)
 
     def add_query_run(self, session_id: str, query_run: QueryRun) -> None:
         """Add a query run to a specific session."""
         if session_id not in self.sessions:
-            self.sessions[session_id] = []
-        self.sessions[session_id].append(query_run)
+            self.sessions[session_id] = {
+                "status": "active",
+                "workflow_id": None,
+                "session_variables": {},
+                "current_node": None,
+                "runs": []
+            }
+        self.sessions[session_id]["runs"].append(query_run.model_dump() if hasattr(query_run, 'model_dump') else query_run.dict())
 
     def get_latest_run(self, session_id: str) -> Optional[QueryRun]:
         """Get the most recent query run for a session."""
-        if session_id in self.sessions and self.sessions[session_id]:
-            return self.sessions[session_id][-1]
+        if session_id in self.sessions and self.sessions[session_id].get("runs"):
+            run_data = self.sessions[session_id]["runs"][-1]
+            return QueryRun(**run_data) if isinstance(run_data, dict) else run_data
         return None
 
     def get_all_tools_used(self) -> list[ToolExecution]:
         """Get all tool executions across all sessions."""
         all_tools = []
-        for runs in self.sessions.values():
+        for session_data in self.sessions.values():
+            runs = session_data.get("runs", [])
             for run in runs:
-                all_tools.extend(run.tools_used)
+                if isinstance(run, dict):
+                    all_tools.extend([ToolExecution(**t) if isinstance(t, dict) else t for t in run.get("tools_used", [])])
+                else:
+                    all_tools.extend(run.tools_used)
         return all_tools
 
     def get_tool_stats(self, tool_name: str) -> dict:
@@ -108,9 +136,12 @@ class EpisodeMetadata(BaseModel):
             'recent_errors': [],
         }
 
-        for runs in self.sessions.values():
+        for session_data in self.sessions.values():
+            runs = session_data.get("runs", [])
             for run in runs:
-                for tool in run.tools_used:
+                tools_used = run.get("tools_used", []) if isinstance(run, dict) else run.tools_used
+                for tool_data in tools_used:
+                    tool = ToolExecution(**tool_data) if isinstance(tool_data, dict) else tool_data
                     if tool.tool_name == tool_name:
                         stats['usage_count'] += 1
 
@@ -137,9 +168,12 @@ class EpisodeMetadata(BaseModel):
         """
         tool_usage = {}
 
-        for runs in self.sessions.values():
+        for session_data in self.sessions.values():
+            runs = session_data.get("runs", [])
             for run in runs:
-                for tool in run.tools_used:
+                tools_used = run.get("tools_used", []) if isinstance(run, dict) else run.tools_used
+                for tool_data in tools_used:
+                    tool = ToolExecution(**tool_data) if isinstance(tool_data, dict) else tool_data
                     if tool.tool_name not in tool_usage:
                         tool_usage[tool.tool_name] = {
                             'tool_name': tool.tool_name,

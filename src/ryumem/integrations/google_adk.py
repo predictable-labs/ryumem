@@ -45,6 +45,7 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 from ryumem import EpisodeType, Ryumem, RyumemConfig
 from ryumem.core.metadata_models import EpisodeMetadata, QueryRun, ToolExecution
+from ryumem.core.workflow_models import WorkflowDefinition
 
 from .tool_tracker import ToolTracker
 
@@ -66,13 +67,13 @@ Use queries like "tool execution for [task type]" to find which tools worked wel
 DEFAULT_AUGMENTATION_TEMPLATE = """[Previous Attempt Summary]
 
 Your previous approach was:
-{agent_response}
+$[agent_response]
 
 Tools previously used:
-{simplified_tool_summary}
+$[simplified_tool_summary]
 
 Last Session Details:
-{last_session}
+$[last_session]
 
 Using this memory, improve your next attempt.
 
@@ -90,7 +91,7 @@ IMPORTANT:
 If the previous attempt already contains the correct final answer, or fully solves the task, you MUST NOT re-solve it.
 Instead, directly use or return the final answer from memory.
 
-Using this information, answer the query: {query_text}
+Using this information, answer the query: $[query_text]
 """
 
 
@@ -181,6 +182,132 @@ class RyumemGoogleADK:
             user_id = getattr(session, 'user_id', None)
 
         return user_id, session_id
+
+    def _get_tool_registry(self) -> Dict[str, Any]:
+        """
+        Build a dictionary of available tool functions from the agent.
+        Used to execute tool nodes in workflows.
+        """
+        registry = {}
+        if hasattr(self.agent, 'tools') and self.agent.tools:
+            for tool in self.agent.tools:
+                # Handle Google ADK FunctionTool or raw callables
+                name = getattr(tool, 'name', getattr(tool, '__name__', None))
+                func = getattr(tool, 'func', tool)
+
+                if name and callable(func):
+                    registry[name] = func
+
+        # Add internal tools (methods of this class)
+        for tool_name in ["search_memory", "save_memory", "get_entity_context", "continue_workflow", "save_workflow", "start_workflow"]:
+            if hasattr(self, tool_name):
+                registry[tool_name] = getattr(self, tool_name)
+
+        return registry
+
+    def _attach_workflow_to_run(
+        self,
+        session_id: str,
+        user_id: str,
+        workflow_id: str,
+        workflow_result: Dict[str, Any]
+    ) -> None:
+        """
+        Attach workflow execution data to the current run.
+
+        Args:
+            session_id: Session ID
+            user_id: User ID
+            workflow_id: Workflow ID that was executed
+            workflow_result: Result from workflow execution
+        """
+        try:
+            # Get current run_id from session
+            session = self.ryumem.get_session(session_id)
+            if not session:
+                logger.warning(f"Session {session_id} not found, cannot attach workflow to run")
+                return
+
+            session_vars = session.get("session_variables", {})
+            run_id = session_vars.get("_current_run_id")
+            if not run_id:
+                logger.warning("No current run_id in session, cannot attach workflow")
+                return
+
+            # Get episode for this session
+            episode = self.ryumem.get_episode_by_session_id(session_id)
+            if not episode:
+                logger.warning(f"No episode found for session {session_id}")
+                return
+
+            # Get episode metadata
+            episode_data = episode.model_dump() if hasattr(episode, 'model_dump') else dict(episode)
+            metadata = episode_data.get("metadata", {})
+            sessions = metadata.get("sessions", {})
+            session_data = sessions.get(session_id, {})
+            runs = session_data.get("runs", [])
+
+            # Find the run with matching run_id
+            run_updated = False
+            for run in runs:
+                if run.get("run_id") == run_id:
+                    # Get workflow details
+                    from ryumem.workflows.manager import WorkflowManager
+                    manager = WorkflowManager(self.ryumem)
+                    workflow = manager.get_workflow(workflow_id)
+                    workflow_name = workflow.name if workflow else "Unknown Workflow"
+
+                    # Build node results from workflow result
+                    node_results_list = []
+                    session_vars_from_result = workflow_result.get("session_variables", {})
+                    node_results_dict = session_vars_from_result.get("_node_results", {})
+                    for node_id, node_result_data in node_results_dict.items():
+                        node_results_list.append({
+                            "node_id": node_id,
+                            "node_type": node_result_data.get("node_type", "unknown"),
+                            "status": node_result_data.get("status", "unknown"),
+                            "output": node_result_data.get("output"),
+                            "error": node_result_data.get("error"),
+                            "duration_ms": node_result_data.get("duration_ms", 0)
+                        })
+
+                    # Build workflow execution dict
+                    workflow_execution = {
+                        "workflow_id": workflow_id,
+                        "workflow_name": workflow_name,
+                        "status": workflow_result.get("status", "completed"),
+                        "node_results": node_results_list
+                    }
+
+                    # Add final context if available
+                    final_context = {k: v for k, v in session_vars_from_result.items() if not k.startswith("_")}
+                    if final_context:
+                        workflow_execution["final_context"] = final_context
+
+                    # Add pause info if paused
+                    if workflow_result.get("status") == "paused":
+                        workflow_execution["paused_at_node"] = workflow_result.get("paused_at_node")
+                        workflow_execution["pause_reason"] = workflow_result.get("pause_reason")
+
+                    # Attach to run
+                    run["workflow_id"] = workflow_id
+                    run["workflow_execution"] = workflow_execution
+                    run_updated = True
+                    logger.info(f"✓ Attached workflow {workflow_id[:8]}... to run {run_id[:8]}...")
+                    break
+
+            if not run_updated:
+                logger.warning(f"Run {run_id} not found in episode metadata")
+                return
+
+            # Update episode metadata
+            self.ryumem.update_episode_metadata(
+                episode_uuid=episode_data["uuid"],
+                metadata=metadata
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to attach workflow to run: {e}", exc_info=True)
 
     async def search_memory(self, tool_context: ToolContext, query: str, limit: int = 5) -> Dict[str, Any]:
         """
@@ -383,6 +510,265 @@ class RyumemGoogleADK:
                 "message": str(e)
             }
 
+    async def continue_workflow(
+        self,
+        tool_context: ToolContext,
+        session_id: str,
+        response: str
+    ) -> Dict[str, Any]:
+        """
+        Continue paused workflow with response.
+
+        Resumes a workflow that was paused due to:
+        - LLM_TRIGGER: Agent provides its decision/response
+        - USER_TRIGGER: Agent provides user input
+        - ERROR: Agent provides resolution
+
+        Args:
+            tool_context: Google ADK tool context
+            session_id: Session ID with paused workflow
+            response: Response to continue with
+
+        Returns:
+            Dict with status and workflow result
+        """
+        logger.info(f"▶️  continue_workflow called")
+        logger.info(f"   Session ID: {session_id}")
+        logger.info(f"   Response: {response[:100]}...")
+
+        if not hasattr(tool_context, 'session') or not tool_context.session:
+            logger.error("❌ Session context required but not provided")
+            return {"status": "error", "message": "Session context required"}
+
+        user_id = getattr(tool_context.session, 'user_id', None)
+        logger.info(f"   User ID: {user_id}")
+
+        # Get session to check if paused
+        session = self.ryumem.get_session(session_id)
+        if not session:
+            logger.error(f"❌ Session {session_id} not found")
+            return {"status": "error", "message": f"Session {session_id} not found"}
+
+        if session.get("status") != "paused":
+            logger.error(f"❌ Session not paused (status: {session.get('status')})")
+            return {"status": "error", "message": f"Session not paused (status: {session.get('status')})"}
+
+        logger.info(f"   Session is paused, continuing workflow...")
+
+        # Continue workflow
+        from ryumem.workflows.manager import WorkflowManager
+        manager = WorkflowManager(self.ryumem)
+
+        try:
+            result = manager.continue_workflow_execution(session_id, user_id, response, tool_registry=self._get_tool_registry())
+            logger.info(f"✓ Workflow continuation returned: status={result.get('status')}")
+            return {"status": "success", "workflow_result": result}
+        except Exception as e:
+            logger.error(f"❌ Error continuing workflow: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {"status": "error", "message": str(e)}
+
+    async def save_workflow(
+        self,
+        tool_context: ToolContext,
+        workflow_definition: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Save a new workflow definition.
+
+        Args:
+            tool_context: Google ADK tool context
+            workflow_definition: Workflow definition dictionary
+
+        Returns:
+            Dict with status and workflow_id
+        """
+        logger.info(f"💾 save_workflow called")
+
+        # Handle case where agent passes JSON string instead of dict
+        if isinstance(workflow_definition, str):
+            try:
+                import json
+                workflow_definition = json.loads(workflow_definition)
+                logger.info("   Parsed workflow_definition from JSON string")
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ Invalid JSON string: {e}")
+                return {"status": "error", "message": f"Invalid JSON: {e}"}
+
+        logger.info(f"   Workflow name: {workflow_definition.get('name', 'unnamed')}")
+        logger.info(f"   Nodes: {len(workflow_definition.get('nodes', []))}")
+
+        if not hasattr(tool_context, 'session') or not tool_context.session:
+            logger.error("❌ Session context required but not provided")
+            return {"status": "error", "message": "Session context required"}
+
+        try:
+            from ryumem.workflows.manager import WorkflowManager
+            manager = WorkflowManager(self.ryumem)
+
+            # Check workflow has a name
+            if not workflow_definition.get('name'):
+                return {
+                    "status": "error",
+                    "message": "Workflow must have a 'name' field"
+                }
+
+            # Convert to model
+            workflow = WorkflowDefinition(**workflow_definition)
+
+            # Save workflow (manager validates and raises ValueError if invalid)
+            workflow_id = manager.save_workflow(workflow)
+
+            logger.info(f"✓ Workflow '{workflow.name}' saved successfully: {workflow_id}")
+            return {
+                "status": "success",
+                "workflow_id": workflow_id,
+                "message": f"Workflow '{workflow.name}' saved successfully"
+            }
+        except ValueError as e:
+            # Validation errors from manager
+            logger.error(f"❌ Workflow validation failed: {e}")
+            return {
+                "status": "error",
+                "message": str(e),
+                "errors": [str(e)]
+            }
+        except Exception as e:
+            logger.error(f"❌ Error saving workflow: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {"status": "error", "message": str(e)}
+
+    async def start_workflow(
+        self,
+        tool_context: ToolContext,
+        workflow_id: str,
+        initial_variables: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Start executing a workflow.
+
+        Args:
+            tool_context: Google ADK tool context
+            workflow_id: ID of workflow to start
+            initial_variables: Optional initial variables
+
+        Returns:
+            Dict with execution results
+        """
+        logger.info(f"▶️  start_workflow called")
+        logger.info(f"   Workflow ID: {workflow_id}")
+        logger.info(f"   Initial variables: {list(initial_variables.keys()) if initial_variables else []}")
+
+        if not hasattr(tool_context, 'session') or not tool_context.session:
+            logger.error("❌ Session context required but not provided")
+            return {"status": "error", "message": "Session context required"}
+
+        session = tool_context.session
+        user_id = getattr(session, 'user_id', None)
+        session_id = getattr(session, 'id', None)
+
+        logger.info(f"   Session ID: {session_id}")
+        logger.info(f"   User ID: {user_id}")
+
+        if not user_id or not session_id:
+            logger.error("❌ user_id and session_id required but not found in session")
+            return {"status": "error", "message": "user_id and session_id required"}
+
+        try:
+            from ryumem.workflows.manager import WorkflowManager
+            manager = WorkflowManager(self.ryumem)
+
+            # Prepare variables
+            variables = initial_variables or {}
+            variables.update({
+                "user_id": user_id,
+                "session_id": session_id
+            })
+
+            logger.info(f"   Starting workflow execution...")
+
+            # Execute workflow
+            result = manager.execute_workflow(
+                workflow_id=workflow_id,
+                session_id=session_id,
+                user_id=user_id,
+                initial_variables=variables,
+                tool_registry=self._get_tool_registry()
+            )
+
+            logger.info(f"✓ Workflow execution returned: status={result.get('status')}")
+
+            workflow_status = result.get("status")
+
+            # If workflow execution failed, return error to agent
+            if workflow_status == "paused":
+                logger.info(f"   Paused at: {result.get('paused_at_node')}, reason: {result.get('pause_reason')}")
+                return {
+                    "status": "paused",
+                    "message": f"Workflow paused at node {result.get('paused_at_node')}. Use continue_workflow() to resume.",
+                    "result": result
+                }
+            elif workflow_status != "completed":
+                error_msg = result.get('error', 'Unknown error')
+                logger.error(f"❌ Workflow failed: {error_msg}")
+
+                # Check if error is due to broken workflow structure
+                if "tool_name not provided" in error_msg or "not found in tool registry" in error_msg:
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"❌ WORKFLOW EXECUTION FAILED: {error_msg}\n\n"
+                            f"The workflow has INVALID structure. You MUST recreate it:\n"
+                            f"1. Call save_workflow() with proper node definitions\n"
+                            f"2. Each tool node MUST have:\n"
+                            f"   - tool_name: actual function (e.g., 'get_chunk_by_term')\n"
+                            f"   - input_params: parameter dict (e.g., {{'term': 'Effective Date'}})\n"
+                            f"3. Then call start_workflow() with the NEW workflow_id"
+                        ),
+                        "error": error_msg
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"Workflow execution failed: {error_msg}",
+                        "error": error_msg
+                    }
+
+            # Store workflow execution data in the current run
+            self._attach_workflow_to_run(
+                session_id=session_id,
+                user_id=user_id,
+                workflow_id=workflow_id,
+                workflow_result=result
+            )
+
+            # Extract final results for easy agent access
+            final_context = result.get("session_variables", {})
+            node_outputs = {}
+            for key, value in final_context.items():
+                if not key.startswith("_") and key not in ["user_id", "session_id"]:
+                    node_outputs[key] = value
+
+            # Build clear response message
+            message = f"Workflow completed successfully. Executed {len(result.get('session_variables', {}).get('_node_results', {}))} node(s)."
+            if node_outputs:
+                message += f" Final outputs: {node_outputs}"
+
+            return {
+                "status": "success",
+                "message": message,
+                "workflow_result": {
+                    "status": result.get("status"),
+                    "outputs": node_outputs,
+                    "full_context": final_context
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error starting workflow: {e}")
+            return {"status": "error", "message": str(e)}
+
     @property
     def tools(self) -> List:
         """
@@ -398,6 +784,11 @@ class RyumemGoogleADK:
 
         if self.ryumem.config.entity_extraction.enabled:
             tools.append(self.get_entity_context)
+
+        if self.ryumem.config.workflow.workflow_mode_enabled:
+            tools.append(self.continue_workflow)
+            tools.append(self.save_workflow)
+            tools.append(self.start_workflow)
 
         return tools
 
@@ -607,18 +998,27 @@ def _get_last_session_details(similar_queries: List[Dict[str, Any]]) -> str:
             episode_metadata = EpisodeMetadata(**metadata_dict)
 
             # Check all sessions in this episode
-            for session_id, runs in episode_metadata.sessions.items():
+            for session_id, session_data in episode_metadata.sessions.items():
+                if not isinstance(session_data, dict):
+                    continue
+
+                runs = session_data.get("runs", [])
                 if not runs:
                     continue
 
-                # Get the latest timestamp from this session
-                latest_run = max(runs, key=lambda r: r.timestamp)
-                session_timestamp = datetime.datetime.fromisoformat(latest_run.timestamp)
+                # Convert runs to QueryRun objects and find latest
+                for run_data in runs:
+                    try:
+                        run = QueryRun(**run_data) if isinstance(run_data, dict) else run_data
+                        run_timestamp = datetime.datetime.fromisoformat(run.timestamp)
 
-                if most_recent_timestamp is None or session_timestamp > most_recent_timestamp:
-                    most_recent_timestamp = session_timestamp
-                    most_recent_session = runs
-                    most_recent_session_id = session_id
+                        if most_recent_timestamp is None or run_timestamp > most_recent_timestamp:
+                            most_recent_timestamp = run_timestamp
+                            most_recent_session = runs
+                            most_recent_session_id = session_id
+                    except Exception as e:
+                        logger.warning(f"Failed to parse run data: {e}")
+                        continue
 
         except Exception as e:
             logger.warning(f"Failed to parse session metadata: {e}")
@@ -678,11 +1078,20 @@ def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]
 
             # Get agent response
             agent_response = None
-            for runs in episode_metadata.sessions.values():
-                for run in runs:
-                    if run.agent_response:
-                        agent_response = run.agent_response
-                        break
+            for session_data in episode_metadata.sessions.values():
+                if not isinstance(session_data, dict):
+                    continue
+
+                runs = session_data.get("runs", [])
+                for run_data in runs:
+                    try:
+                        run = QueryRun(**run_data) if isinstance(run_data, dict) else run_data
+                        if run.agent_response:
+                            agent_response = run.agent_response
+                            break
+                    except Exception as e:
+                        logger.warning(f"Failed to parse run data: {e}")
+                        continue
                 if agent_response:
                     break
 
@@ -702,14 +1111,18 @@ def _build_context_section(query_text: str, similar_queries: List[Dict[str, Any]
             last_session = _get_last_session_details(similar_queries)
 
             # Fill template
-            return augmentation_template.format(
-                agent_response=agent_response or "No previous response recorded",
-                tool_summary=tool_summary or "No tools used",
-                simplified_tool_summary=simplified_tool_summary or "No tools used",
-                custom_tool_summary=custom_tool_summary,
-                last_session=last_session,
-                query_text=query_text
-            )
+            res = augmentation_template
+            replacements = {
+                "agent_response": agent_response or "No previous response recorded",
+                "tool_summary": tool_summary or "No tools used",
+                "simplified_tool_summary": simplified_tool_summary or "No tools used",
+                "custom_tool_summary": custom_tool_summary,
+                "last_session": last_session,
+                "query_text": query_text
+            }
+            for k, v in replacements.items():
+                res = res.replace(f"$[{k}]", str(v))
+            return res
 
         except Exception as e:
             logger.warning(f"Failed to parse query metadata: {e}")
@@ -781,6 +1194,139 @@ def _extract_query_text(new_message) -> Optional[str]:
     return query_text if query_text else None
 
 
+def _execute_matching_workflow(
+    query_text: str,
+    memory: RyumemGoogleADK,
+    user_id: str,
+    session_id: str,
+) -> Optional[str]:
+    """
+    Search for and execute a matching workflow if auto_execute is enabled.
+
+    Args:
+        query_text: The incoming user query
+        memory: RyumemGoogleADK instance with access to Ryumem
+        user_id: User identifier
+        session_id: Session identifier
+
+    Returns:
+        Enriched query text with workflow results, or None if no workflow executed
+    """
+    try:
+        # Check if workflow features are enabled
+        if not memory.ryumem.config.workflow.workflow_mode_enabled:
+            logger.debug("Workflow mode is disabled")
+            return None
+
+        if not memory.ryumem.config.workflow.auto_execute_workflows:
+            logger.debug("Workflow auto-execution is disabled")
+            return None
+
+        from ryumem.workflows.manager import WorkflowManager
+
+        logger.info(f"Searching for workflows matching query: {query_text[:50]}...")
+
+        # Search for matching workflows
+        threshold = memory.ryumem.config.workflow.similarity_threshold
+        matching_workflows = memory.ryumem.search_workflows(
+            query=query_text,
+            user_id=user_id,
+            threshold=threshold
+        )
+
+        if not matching_workflows:
+            logger.info(f"No workflows found above threshold {threshold}")
+            
+            # Return prompt to create workflow
+            prompt = (
+                f"No existing workflow found for query: '{query_text}'.\n"
+                "Please create a new workflow for this task using the 'save_workflow' tool.\n"
+                "The workflow should define the steps to handle this type of query.\n"
+                "After saving, execute it using 'start_workflow'."
+            )
+            return prompt
+
+        # Execute top matching workflow
+        top_workflow = matching_workflows[0]
+        logger.info(f"Executing workflow: {top_workflow['name']} (ID: {top_workflow['workflow_id']})")
+
+        # Create workflow manager and execute
+        manager = WorkflowManager(memory.ryumem)
+        result = manager.execute_workflow(
+            workflow_id=top_workflow['workflow_id'],
+            initial_variables={
+                "user_query": query_text,
+                "user_id": user_id,
+                "session_id": session_id,
+            },
+            user_id=user_id,
+            session_id=session_id,
+            tool_registry=memory._get_tool_registry()
+        )
+
+        # Check execution status
+        status = result.get("status", "unknown")
+        if status != "completed":
+            error_msg = result.get('error', 'Unknown error')
+            logger.warning(f"Workflow execution failed: {status}, error: {error_msg}")
+
+            # If error indicates broken workflow structure, prompt agent to recreate
+            if "tool_name not provided" in error_msg or "not found in tool registry" in error_msg:
+                prompt = (
+                    f"⚠️ Workflow '{top_workflow['name']}' (ID: {top_workflow['workflow_id'][:8]}...) FAILED to execute.\n"
+                    f"Error: {error_msg}\n\n"
+                    f"The workflow has INVALID structure. You MUST recreate it with proper configuration:\n\n"
+                    f"1. Call save_workflow() with COMPLETE node definitions:\n"
+                    f"   - Each tool node MUST have tool_name (e.g., 'get_chunk_by_term')\n"
+                    f"   - Each tool node MUST have input_params dict (e.g., {{'term': 'Effective Date', 'context_chars': 200}})\n"
+                    f"   - Use available tools: get_chunk_by_term, get_chunk_regex, is_valid_date, resolve_date, check_exists_in_text\n\n"
+                    f"2. Then call start_workflow() with the NEW workflow_id\n\n"
+                    f"Original query: {query_text}"
+                )
+                return prompt
+
+            return None
+
+        logger.info(f"Workflow '{top_workflow['name']}' executed successfully")
+
+        # Format workflow results
+        workflow_context_parts = [
+            f"[Workflow Executed: {top_workflow['name']}]",
+            ""
+        ]
+
+        # Add node results
+        node_results = result.get("node_results")
+        if node_results:
+            workflow_context_parts.append("Workflow Results:")
+            for node_result in node_results:
+                node_id = node_result["node_id"]
+                output = node_result["output"]
+                workflow_context_parts.append(f"  - {node_id}: {output}")
+            workflow_context_parts.append("")
+
+        # Add final context variables (excluding inputs)
+        final_context = result.get("final_context", {})
+        if final_context:
+            workflow_context_parts.append("Context Variables:")
+            for key, value in final_context.items():
+                if key not in ["user_query", "user_id", "session_id"]:
+                    workflow_context_parts.append(f"  - {key}: {value}")
+            workflow_context_parts.append("")
+
+        workflow_context = "\n".join(workflow_context_parts)
+
+        # Enrich query with workflow results
+        enriched_query = f"{query_text}\n\n{workflow_context}"
+        logger.info(f"Query enriched with workflow results (+{len(workflow_context)} chars)")
+
+        return enriched_query
+
+    except Exception as e:
+        logger.error(f"Workflow execution failed: {e}", exc_info=True)
+        return None
+
+
 def _insert_run_information_in_episode(
     query_episode_id: str,
     run_id: str,
@@ -788,33 +1334,16 @@ def _insert_run_information_in_episode(
     query_run: QueryRun,
     memory: RyumemGoogleADK
 ):
-    """Check for duplicate episodes and append run if needed."""
+    """Link episode to session by adding query run via SessionManager."""
+    logger.info(f"Linking session {session_id[:8]} to episode {query_episode_id[:8]}")
 
-    existing_episode = memory.ryumem.get_episode_by_uuid(query_episode_id)
-
-    if not existing_episode:
-        return
-
-    metadata_str = existing_episode.get('metadata', '{}')
-    metadata_dict = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-
-    # Parse into Pydantic model
-    episode_metadata = EpisodeMetadata(**metadata_dict)
-
-    # Check if this session already has runs
-    if session_id in episode_metadata.sessions:
-        existing_runs = episode_metadata.sessions[session_id]
-        if existing_runs and existing_runs[-1].run_id != run_id:
-            logger.info(f"Duplicate query detected - appending run to session {session_id[:8]} in episode {query_episode_id[:8]}")
-            episode_metadata.add_query_run(session_id, query_run)
-            memory.ryumem.update_episode_metadata(query_episode_id, episode_metadata.model_dump())
-            logger.info(f"Episode {query_episode_id[:8]} session {session_id[:8]} now has {len(episode_metadata.sessions[session_id])} runs")
-    else:
-        # New session - add it to the episode
-        logger.info(f"Linking new session {session_id[:8]} to existing episode {query_episode_id[:8]}")
-        episode_metadata.add_query_run(session_id, query_run)
-        memory.ryumem.update_episode_metadata(query_episode_id, episode_metadata.model_dump())
-        logger.info(f"Episode {query_episode_id[:8]} now has session {session_id[:8]} with 1 run")
+    # Use SessionManager API to link episode to session
+    memory.ryumem.link_episode_to_session(
+        episode_id=query_episode_id,
+        session_id=session_id,
+        user_id=query_run.user_id,
+        query_run=query_run
+    )
 
 
 def _create_query_episode(
@@ -893,6 +1422,9 @@ def _prepare_query_and_episode(
     original_query_text = query_text
     augmented_message = new_message
 
+    # Workflow auto-execution removed - workflows only execute via explicit tool calls
+    # (save_workflow, start_workflow, continue_workflow)
+
     # Augment query with historical context if enabled
     augment_enabled = memory.ryumem.config.tool_tracking.augment_queries
     logger.info(f"Query augmentation enabled: {augment_enabled}")
@@ -921,6 +1453,19 @@ def _prepare_query_and_episode(
     # Check if session already has an episode
     existing_episode = memory.ryumem.get_episode_by_session_id(session_id)
     run_id = str(uuid_module.uuid4())
+
+    # Store run_id in session variables so tools can access it
+    session = memory.ryumem.get_session(session_id)
+    if session:
+        session_vars = session.get("session_variables", {})
+    else:
+        session_vars = {}
+    session_vars["_current_run_id"] = run_id
+    memory.ryumem.update_session(
+        session_id=session_id,
+        user_id=user_id,
+        session_variables=session_vars
+    )
 
     # Check for session user override - use override user_id if set
     effective_user_id = memory.get_session_user_override(session_id) or user_id
