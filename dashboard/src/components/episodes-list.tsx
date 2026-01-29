@@ -609,26 +609,33 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                                   )}
                                 </p>
 
-                                {/* Node Results */}
-                                {run.workflow_execution.node_results && run.workflow_execution.node_results.length > 0 && (
+                                {/* Execution Steps */}
+                                {run.workflow_execution.node_results && run.workflow_execution.node_results.length > 0 ? (
                                   <div className="space-y-1.5 mt-2">
+                                    <div className="text-[10px] font-semibold text-muted-foreground">Execution Steps ({run.workflow_execution.node_results.length})</div>
                                     {run.workflow_execution.node_results.map((node: any, nodeIdx: number) => (
                                       <div key={nodeIdx} className="p-2 bg-muted/50 rounded border text-[11px]">
                                         <div className="flex items-center justify-between mb-1">
                                           <div className="flex items-center gap-1.5">
+                                            <span className="text-muted-foreground text-[9px]">#{nodeIdx + 1}</span>
                                             <span className="font-mono font-semibold">{node.node_id}</span>
                                             <Badge variant="secondary" className="text-[9px] h-3.5 px-1">{node.node_type}</Badge>
                                             {node.status === 'completed' ? (
                                               <CheckCircle2 className="h-2.5 w-2.5 text-green-500" />
-                                            ) : (
+                                            ) : node.status === 'failed' ? (
                                               <XCircle className="h-2.5 w-2.5 text-red-500" />
+                                            ) : (
+                                              <Clock className="h-2.5 w-2.5 text-yellow-500" />
                                             )}
                                           </div>
                                           <span className="text-muted-foreground text-[10px]">{node.duration_ms}ms</span>
                                         </div>
                                         {node.output && (
-                                          <div className="mt-1 p-1 bg-background rounded text-[10px] font-mono max-h-16 overflow-y-auto">
-                                            {typeof node.output === 'string' ? node.output : JSON.stringify(node.output, null, 2)}
+                                          <div className="mt-1">
+                                            <div className="text-[9px] text-muted-foreground mb-0.5">Output:</div>
+                                            <div className="p-1 bg-background rounded text-[10px] font-mono max-h-16 overflow-y-auto">
+                                              {typeof node.output === 'string' ? node.output : JSON.stringify(node.output, null, 2)}
+                                            </div>
                                           </div>
                                         )}
                                         {node.error && (
@@ -638,6 +645,10 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                                         )}
                                       </div>
                                     ))}
+                                  </div>
+                                ) : run.workflow_execution && (
+                                  <div className="mt-2 p-1.5 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded text-[10px]">
+                                    Workflow completed but no steps were recorded.
                                   </div>
                                 )}
 

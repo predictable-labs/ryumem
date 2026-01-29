@@ -395,20 +395,23 @@ export default function AugmentedQueriesViewer({ userId }: AugmentedQueriesViewe
                           </div>
 
                           {/* Node Results */}
-                          {selectedRun.run.workflow_execution.node_results && selectedRun.run.workflow_execution.node_results.length > 0 && (
+                          {selectedRun.run.workflow_execution.node_results && selectedRun.run.workflow_execution.node_results.length > 0 ? (
                             <div className="mt-3">
-                              <h5 className="text-xs font-semibold mb-2">Nodes ({selectedRun.run.workflow_execution.node_results.length})</h5>
+                              <h5 className="text-xs font-semibold mb-2">Execution Steps ({selectedRun.run.workflow_execution.node_results.length})</h5>
                               <div className="space-y-2">
                                 {selectedRun.run.workflow_execution.node_results.map((node: any, nodeIdx: number) => (
                                   <div key={nodeIdx} className="p-2 bg-white dark:bg-gray-900 rounded border text-xs">
                                     <div className="flex items-center justify-between mb-1">
                                       <div className="flex items-center gap-2">
+                                        <span className="text-muted-foreground font-mono text-[10px]">Step {nodeIdx + 1}</span>
                                         <span className="font-mono font-semibold">{node.node_id}</span>
                                         <Badge variant="secondary" className="text-xs h-4">{node.node_type}</Badge>
                                         {node.status === 'completed' ? (
                                           <CheckCircle2 className="h-3 w-3 text-green-500" />
-                                        ) : (
+                                        ) : node.status === 'failed' ? (
                                           <XCircle className="h-3 w-3 text-red-500" />
+                                        ) : (
+                                          <Clock className="h-3 w-3 text-yellow-500" />
                                         )}
                                       </div>
                                       <div className="flex items-center gap-1 text-muted-foreground">
@@ -417,8 +420,11 @@ export default function AugmentedQueriesViewer({ userId }: AugmentedQueriesViewe
                                       </div>
                                     </div>
                                     {node.output && (
-                                      <div className="mt-1 p-1 bg-gray-50 dark:bg-gray-800 rounded text-xs font-mono overflow-x-auto max-h-20 overflow-y-auto">
-                                        {typeof node.output === 'string' ? node.output : JSON.stringify(node.output, null, 2)}
+                                      <div className="mt-1">
+                                        <div className="text-[10px] text-muted-foreground mb-0.5">Output:</div>
+                                        <div className="p-1 bg-gray-50 dark:bg-gray-800 rounded text-xs font-mono overflow-x-auto max-h-32 overflow-y-auto">
+                                          {typeof node.output === 'string' ? node.output : JSON.stringify(node.output, null, 2)}
+                                        </div>
                                       </div>
                                     )}
                                     {node.error && (
@@ -429,6 +435,10 @@ export default function AugmentedQueriesViewer({ userId }: AugmentedQueriesViewe
                                   </div>
                                 ))}
                               </div>
+                            </div>
+                          ) : selectedRun.run.workflow_execution && (
+                            <div className="mt-3 p-2 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded text-xs">
+                              <strong>Note:</strong> Workflow completed but no execution steps were recorded.
                             </div>
                           )}
 

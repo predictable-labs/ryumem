@@ -2801,68 +2801,15 @@ async def get_augmented_queries(
                 session_id = None
 
             # Flatten all runs from all sessions
+            # Workflow execution data is now stored per-run, not per-session
             runs = []
             for session_id_key, session_data in episode_metadata.sessions.items():
-                # Extract workflow data from session_data (it's already in the metadata)
-                workflow_id = session_data.get("workflow_id")
-                session_status = session_data.get("status")
-                session_vars = session_data.get("session_variables", {})
-                node_results_dict = session_vars.get("_node_results", {})
-
                 session_runs = session_data.get("runs", [])
                 # Convert run dicts to QueryRun objects
                 for run_data in session_runs:
                     try:
+                        # QueryRun already has workflow_execution field populated
                         run = QueryRun(**run_data) if isinstance(run_data, dict) else run_data
-
-                        # Add workflow execution data if available in this session
-                        if workflow_id and node_results_dict:
-                            try:
-                                logger.info(f"Adding workflow execution data for session {session_id_key[:8] if len(session_id_key) > 8 else session_id_key}, workflow {workflow_id[:8] if len(workflow_id) > 8 else workflow_id}")
-
-                                # Get workflow details
-                                workflow_storage = WorkflowStorage(db=ryumem.db, embedding_client=ryumem.embedding_client)
-                                workflow = workflow_storage.get_workflow(workflow_id)
-                                workflow_name = workflow.name if workflow else "Unknown Workflow"
-
-                                # Build node results list
-                                node_results_list = []
-                                for node_id, node_result_data in node_results_dict.items():
-                                    node_results_list.append({
-                                        "node_id": node_id,
-                                        "node_type": node_result_data.get("node_type", "unknown"),
-                                        "status": node_result_data.get("status", "unknown"),
-                                        "output": node_result_data.get("output"),
-                                        "error": node_result_data.get("error"),
-                                        "duration_ms": node_result_data.get("duration_ms", 0)
-                                    })
-
-                                # Build workflow execution dict
-                                workflow_execution = {
-                                    "workflow_id": workflow_id,
-                                    "workflow_name": workflow_name,
-                                    "status": session_status or "completed",
-                                    "node_results": node_results_list
-                                }
-
-                                # Add final context if available
-                                final_context = {k: v for k, v in session_vars.items() if not k.startswith("_")}
-                                if final_context:
-                                    workflow_execution["final_context"] = final_context
-
-                                # Add pause info if paused
-                                if session_status == "paused":
-                                    pause_info = session_vars.get("_pause_info", {})
-                                    workflow_execution["paused_at_node"] = pause_info.get("paused_at_node")
-                                    workflow_execution["pause_reason"] = pause_info.get("pause_reason")
-
-                                # Add to run data as dict (not Pydantic model yet)
-                                run_dict = run.model_dump() if hasattr(run, 'model_dump') else dict(run)
-                                run_dict["workflow_execution"] = workflow_execution
-                                run = QueryRun(**run_dict)
-                            except Exception as e:
-                                logger.warning(f"Failed to add workflow execution data: {e}")
-
                         runs.append(run)
                     except Exception as e:
                         logger.warning(f"Failed to parse QueryRun: {e}")
