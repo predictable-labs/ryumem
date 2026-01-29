@@ -11,6 +11,7 @@ from benchmarks.adapters.base import MemorySystemAdapter, SearchStrategy
 from benchmarks.adapters.registry import AdapterRegistry, register_all_adapters
 from benchmarks.config import BenchmarkConfig
 from benchmarks.datasets.locomo import LoCoMoDataset, LoCoMoQuestion
+from benchmarks.llm_client import LLMClient
 from benchmarks.metrics.accuracy import AccuracyMetrics
 from benchmarks.metrics.memory import MemoryMetrics
 from benchmarks.metrics.performance import PerformanceMetrics
@@ -68,6 +69,12 @@ class BenchmarkRunner:
         self.dataset: Optional[LoCoMoDataset] = None
         self.adapters: Dict[str, MemorySystemAdapter] = {}
         self.results: Dict[str, BenchmarkResult] = {}
+
+        # Initialize LLM client for answering questions (Google ADK)
+        # API key is read from GOOGLE_API_KEY environment variable
+        self.llm_client = LLMClient(
+            model=config.llm_model,
+        )
 
         # Register all adapters
         register_all_adapters()
@@ -161,6 +168,18 @@ class BenchmarkRunner:
                 result = self._process_question(
                     adapter, question, performance_metrics, search_strategy
                 )
+
+                # Check for critical failures and exit early
+                if result.get("search_error"):
+                    raise RuntimeError(
+                        f"Search failed for question {question.question_id}: {result['search_error']}"
+                    )
+
+                if result.get("llm_error"):
+                    raise RuntimeError(
+                        f"LLM call failed for question {question.question_id}: {result['llm_error']}"
+                    )
+
                 question_results.append(result)
 
                 # Update accuracy metrics
@@ -177,6 +196,8 @@ class BenchmarkRunner:
 
             except Exception as e:
                 errors.append(f"Question {question.question_id}: {str(e)}")
+                # Re-raise to fail fast
+                raise
 
             finally:
                 # Clear data between questions if configured
@@ -264,27 +285,63 @@ class BenchmarkRunner:
         )
         performance_metrics.add_search_time(search_response.duration_ms)
 
-        # Evaluate answer using text containment
+        # Use LLM to answer the question based on retrieved context
+        context_episodes = [result.content for result in search_response.results]
+        llm_answer = ""
+        llm_error = None
+
+        if context_episodes:
+            try:
+                llm_answer = self.llm_client.answer_question(
+                    question=question.question,
+                    context_episodes=context_episodes,
+                    choices=question.choices,
+                    user_id=user_id,
+                    session_id="benchmark",
+                )
+            except Exception as e:
+                llm_error = str(e)
+                llm_answer = ""
+
+        # Evaluate LLM's answer
         correct_answer = question.answer.lower().strip()
         correct_choice_text = question.choices[question.correct_choice_index].lower().strip()
+        llm_answer_lower = llm_answer.lower().strip()
 
+        # Check if LLM's answer matches the correct answer
+        is_correct = (
+            correct_answer in llm_answer_lower or
+            correct_choice_text in llm_answer_lower or
+            llm_answer_lower in correct_choice_text
+        )
+
+        # Also check which rank contains the correct answer (for recall metrics)
         correct_rank = None
         for rank, result in enumerate(search_response.results, 1):
             content_lower = result.content.lower()
-            # Check if correct answer or choice text is contained in result
             if correct_answer in content_lower or correct_choice_text in content_lower:
                 correct_rank = rank
                 break
 
         return {
             "question_id": question.question_id,
+            "question": question.question,
             "question_type": question.question_type,
-            "correct": correct_rank == 1 if correct_rank else False,
+            "correct_answer": question.answer,
+            "correct_choice": question.choices[question.correct_choice_index],
+            "all_choices": question.choices,
+            "llm_answer": llm_answer,
+            "correct": is_correct,
             "correct_rank": correct_rank,
             "search_time_ms": search_response.duration_ms,
             "sessions_ingested": sessions_ingested,
             "num_results": len(search_response.results),
+            "search_results": [
+                {"content": r.content, "score": r.score}
+                for r in search_response.results
+            ],
             "search_error": search_response.error,
+            "llm_error": llm_error,
         }
 
     def teardown(self) -> None:

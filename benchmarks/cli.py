@@ -211,6 +211,7 @@ def run(
         click.echo(f"\nReports generated:")
         click.echo(f"  JSON: {report_paths['json']}")
         click.echo(f"  Markdown: {report_paths['markdown']}")
+        click.echo(f"  Detailed: {report_paths['detailed']}")
 
         # Print final summary
         click.echo("\n" + "=" * 60)
