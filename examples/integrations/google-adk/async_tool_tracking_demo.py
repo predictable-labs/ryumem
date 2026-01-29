@@ -54,7 +54,7 @@ from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
 APP_NAME = "weather_sentiment_agent_async"
 USER_ID = "user_async_test"
 SESSION_ID = "session_async_test"
-MODEL_ID = "gemini-2.0-flash-exp"
+MODEL_ID = "gemini-flash-lite-latest"
 
 
 # Tool 1: Get weather report
@@ -186,11 +186,13 @@ If the user gives feedback about weather, use analyze_sentiment tool to understa
                 new_message=content
             )
 
-            # Collect the final response using async iteration
+            # Collect the final response using async iteration (extract only text parts)
             final_response = None
             async for event in event_stream:
                 if event.is_final_response():
-                    final_response = event.content.parts[0].text
+                    # Extract text from all text parts, ignoring function_call parts
+                    text_parts = [part.text for part in event.content.parts if hasattr(part, 'text') and part.text]
+                    final_response = ''.join(text_parts) if text_parts else None
 
             if final_response:
                 print(f"\n🤖 Agent: {final_response}")

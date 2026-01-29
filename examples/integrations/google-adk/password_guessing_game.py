@@ -57,7 +57,7 @@ from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
 # App configuration
 APP_NAME = "password_guessing_game"
 USER_ID = "player_1"
-MODEL_ID = "gemini-2.0-flash-exp"
+MODEL_ID = "gemini-flash-lite-latest"
 
 # Game state
 CORRECT_PASSWORD = None
@@ -359,11 +359,13 @@ If the user wants a hint, use get_hint.""",
                     new_message=content
                 )
 
-                # Collect the final response using async iteration
+                # Collect the final response using async iteration (extract only text parts)
                 final_response = None
                 async for event in event_stream:
                     if event.is_final_response():
-                        final_response = event.content.parts[0].text
+                        # Extract text from all text parts, ignoring function_call parts
+                        text_parts = [part.text for part in event.content.parts if hasattr(part, 'text') and part.text]
+                        final_response = ''.join(text_parts) if text_parts else None
 
                 if final_response:
                     print(f"\n🤖 Agent: {final_response}")
@@ -371,11 +373,13 @@ If the user wants a hint, use get_hint.""",
                 # Sync execution
                 events = runner.run(user_id=USER_ID, session_id=session_id, new_message=content)
 
-                # Collect the final response
+                # Collect the final response (extract only text parts)
                 final_response = None
                 for event in events:
                     if event.is_final_response():
-                        final_response = event.content.parts[0].text
+                        # Extract text from all text parts, ignoring function_call parts
+                        text_parts = [part.text for part in event.content.parts if hasattr(part, 'text') and part.text]
+                        final_response = ''.join(text_parts) if text_parts else None
 
                 if final_response:
                     print(f"\n🤖 Agent: {final_response}")

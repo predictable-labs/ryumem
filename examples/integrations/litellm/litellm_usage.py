@@ -10,7 +10,7 @@ uses the appropriate API key from environment variables.
 Supported providers include:
 - OpenAI (gpt-4o, gpt-4o-mini, etc.)
 - Anthropic Claude (claude-3-5-sonnet-20241022, etc.)
-- Google Gemini (gemini/gemini-2.0-flash-exp, etc.)
+- Google Gemini (gemini/gemini-flash-lite-latest, etc.)
 - AWS Bedrock (bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0, etc.)
 - Cohere (command-r-plus, etc.)
 - And 100+ more!
@@ -111,7 +111,7 @@ def example_3_gemini_via_litellm():
     # Configure for Gemini via LiteLLM
     config = RyumemConfig()
     config.llm.provider = "litellm"
-    config.llm.model = "gemini/gemini-2.0-flash-exp"
+    config.llm.model = "gemini/gemini-flash-lite-latest"
     # Embedding will auto-select to "text-embedding-004" via LiteLLM
 
     # Initialize Ryumem
