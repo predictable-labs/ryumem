@@ -1293,7 +1293,8 @@ async def health():
 @app.get("/config")
 async def get_config(ryumem: Ryumem = Depends(get_ryumem)):
     """
-    Get the full configuration for the current Ryumem instance.
+    Get the client-relevant configuration for the current Ryumem instance.
+    Only returns config sections that the client needs: entity_extraction, tool_tracking, agent, episode.
     """
     try:
         # Get config from the instance
@@ -1302,12 +1303,16 @@ async def get_config(ryumem: Ryumem = Depends(get_ryumem)):
         # Convert to dict
         config_dict = config.model_dump()
 
-        # Manually remove sensitive keys to ensure they don't leak to client
-        if 'llm' in config_dict:
-            config_dict['llm'].pop('openai_api_key', None)
-            config_dict['llm'].pop('gemini_api_key', None)
+        # Only return client-relevant config sections
+        # Remove server-only configs: database, llm, embedding, search, system
+        client_config = {
+            'entity_extraction': config_dict.get('entity_extraction', {}),
+            'tool_tracking': config_dict.get('tool_tracking', {}),
+            'agent': config_dict.get('agent', {}),
+            'episode': config_dict.get('episode', {}),
+        }
 
-        return config_dict
+        return client_config
     except Exception as e:
         logger.error(f"Error getting config: {e}")
         raise HTTPException(status_code=500, detail=str(e))

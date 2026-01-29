@@ -103,7 +103,9 @@ async def chat_with_agent(runner, session_id: str, user_input: str, user_id: str
 
     for event in events:
         if event.is_final_response():
-            return event.content.parts[0].text
+            # Extract text from all text parts, ignoring function_call parts
+            text_parts = [part.text for part in event.content.parts if hasattr(part, 'text') and part.text]
+            return ''.join(text_parts) if text_parts else "No response"
 
     return "No response"
 
@@ -112,7 +114,7 @@ async def main():
     vprint("\n1. Creating Google ADK Agent...")
     agent = Agent(
         name="personal_assistant",
-        model="gemini-2.0-flash-exp",
+        model="gemini-flash-lite-latest",
         instruction="""You are a helpful personal assistant with memory.
 
 IMPORTANT: When using memory tools, ALWAYS pass the user_id parameter.
@@ -223,7 +225,7 @@ Always personalize responses based on what you remember about the specific user.
     # Create another agent for travel planning
     travel_agent = Agent(
         name="travel_planner",
-        model="gemini-2.0-flash-exp",
+        model="gemini-flash-lite-latest",
         instruction="""You are a travel planning assistant with memory.
 
 IMPORTANT: When using memory tools, ALWAYS pass the user_id parameter.

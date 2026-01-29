@@ -84,7 +84,7 @@ export default function AugmentedQueriesViewer({ userId }: AugmentedQueriesViewe
     }
   }
 
-  // Flatten queries into individual runs for display
+  // Flatten queries into individual runs for display and sort by runtime (most recent first)
   const flattenedRuns = queries.flatMap(query =>
     query.runs.map(run => ({
       episode_id: query.episode_id,
@@ -94,7 +94,12 @@ export default function AugmentedQueriesViewer({ userId }: AugmentedQueriesViewe
       created_at: query.created_at,
       run: run,
     }))
-  )
+  ).sort((a, b) => {
+    // Sort by run timestamp in descending order (most recent first)
+    const timeA = new Date(a.run.timestamp).getTime()
+    const timeB = new Date(b.run.timestamp).getTime()
+    return timeB - timeA
+  })
 
   const getRunAugmentationBadge = (run: any) => {
     const isAugmented = run.augmented_query && run.augmented_query !== run.query
