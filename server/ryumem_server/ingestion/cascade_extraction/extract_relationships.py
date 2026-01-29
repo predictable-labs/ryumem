@@ -5,43 +5,12 @@ Extracts relationship types and refines nodes through multiple rounds.
 """
 
 import logging
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .models import NodesAndRelationships
+from .utils import load_prompt, render_template
 
 logger = logging.getLogger(__name__)
-
-# Load prompt templates
-PROMPTS_DIR = Path(__file__).parent / "prompts"
-
-
-def _load_prompt(filename: str) -> str:
-    """Load a prompt template from file."""
-    with open(PROMPTS_DIR / filename, "r") as f:
-        return f.read()
-
-
-def _render_template(template: str, **kwargs) -> str:
-    """Simple Jinja2-style template rendering."""
-    result = template
-    for key, value in kwargs.items():
-        # Handle simple variable replacement
-        result = result.replace("{{ " + key + " }}", str(value) if value else "")
-        result = result.replace("{{" + key + "}}", str(value) if value else "")
-
-    # Handle conditional blocks {% if var %}...{% endif %}
-    import re
-    for key, value in kwargs.items():
-        if_pattern = rf'{{% if {key} %}}(.*?){{% endif %}}'
-        if value:
-            # Keep the content inside the if block
-            result = re.sub(if_pattern, r'\1', result, flags=re.DOTALL)
-        else:
-            # Remove the entire if block
-            result = re.sub(if_pattern, '', result, flags=re.DOTALL)
-
-    return result.strip()
 
 
 async def extract_relationships(
@@ -68,11 +37,11 @@ async def extract_relationships(
     Returns:
         Tuple of (refined_nodes, relationship_names)
     """
-    system_template = _load_prompt("extract_relationships_system.txt")
-    input_template = _load_prompt("extract_relationships_input.txt")
+    system_template = load_prompt("extract_relationships_system.txt")
+    input_template = load_prompt("extract_relationships_input.txt")
 
     # Render system prompt with user_id
-    system_prompt = _render_template(system_template, user_id=user_id)
+    system_prompt = render_template(system_template, user_id=user_id)
 
     current_nodes = list(nodes)
     accumulated_relationships: List[str] = []
@@ -84,7 +53,7 @@ async def extract_relationships(
         nodes_str = ", ".join(current_nodes)
         existing_rels_str = ", ".join(accumulated_relationships) if accumulated_relationships else None
 
-        input_prompt = _render_template(
+        input_prompt = render_template(
             input_template,
             text=text,
             nodes=nodes_str,
@@ -144,11 +113,11 @@ def extract_relationships_sync(
     Returns:
         Tuple of (refined_nodes, relationship_names)
     """
-    system_template = _load_prompt("extract_relationships_system.txt")
-    input_template = _load_prompt("extract_relationships_input.txt")
+    system_template = load_prompt("extract_relationships_system.txt")
+    input_template = load_prompt("extract_relationships_input.txt")
 
     # Render system prompt with user_id
-    system_prompt = _render_template(system_template, user_id=user_id)
+    system_prompt = render_template(system_template, user_id=user_id)
 
     current_nodes = list(nodes)
     accumulated_relationships: List[str] = []
@@ -160,7 +129,7 @@ def extract_relationships_sync(
         nodes_str = ", ".join(current_nodes)
         existing_rels_str = ", ".join(accumulated_relationships) if accumulated_relationships else None
 
-        input_prompt = _render_template(
+        input_prompt = render_template(
             input_template,
             text=text,
             nodes=nodes_str,

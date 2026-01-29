@@ -5,43 +5,12 @@ Extracts complete knowledge graph with nodes and edges through multiple rounds.
 """
 
 import logging
-from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from .models import KnowledgeGraph, ExtractedNode, ExtractedEdge
+from .utils import load_prompt, render_template
 
 logger = logging.getLogger(__name__)
-
-# Load prompt templates
-PROMPTS_DIR = Path(__file__).parent / "prompts"
-
-
-def _load_prompt(filename: str) -> str:
-    """Load a prompt template from file."""
-    with open(PROMPTS_DIR / filename, "r") as f:
-        return f.read()
-
-
-def _render_template(template: str, **kwargs) -> str:
-    """Simple Jinja2-style template rendering."""
-    result = template
-    for key, value in kwargs.items():
-        # Handle simple variable replacement
-        result = result.replace("{{ " + key + " }}", str(value) if value else "")
-        result = result.replace("{{" + key + "}}", str(value) if value else "")
-
-    # Handle conditional blocks {% if var %}...{% endif %}
-    import re
-    for key, value in kwargs.items():
-        if_pattern = rf'{{% if {key} %}}(.*?){{% endif %}}'
-        if value:
-            # Keep the content inside the if block
-            result = re.sub(if_pattern, r'\1', result, flags=re.DOTALL)
-        else:
-            # Remove the entire if block
-            result = re.sub(if_pattern, '', result, flags=re.DOTALL)
-
-    return result.strip()
 
 
 def _merge_graphs(existing: KnowledgeGraph, new: KnowledgeGraph) -> KnowledgeGraph:
@@ -136,11 +105,11 @@ async def extract_triplets(
     Returns:
         Complete KnowledgeGraph with nodes and edges
     """
-    system_template = _load_prompt("extract_triplets_system.txt")
-    input_template = _load_prompt("extract_triplets_input.txt")
+    system_template = load_prompt("extract_triplets_system.txt")
+    input_template = load_prompt("extract_triplets_input.txt")
 
     # Render system prompt with user_id
-    system_prompt = _render_template(system_template, user_id=user_id)
+    system_prompt = render_template(system_template, user_id=user_id)
 
     accumulated_graph = KnowledgeGraph(nodes=[], edges=[])
 
@@ -156,7 +125,7 @@ async def extract_triplets(
             }
 
         # Render input prompt
-        input_prompt = _render_template(
+        input_prompt = render_template(
             input_template,
             text=text,
             nodes=", ".join(nodes),
@@ -215,11 +184,11 @@ def extract_triplets_sync(
     Returns:
         Complete KnowledgeGraph with nodes and edges
     """
-    system_template = _load_prompt("extract_triplets_system.txt")
-    input_template = _load_prompt("extract_triplets_input.txt")
+    system_template = load_prompt("extract_triplets_system.txt")
+    input_template = load_prompt("extract_triplets_input.txt")
 
     # Render system prompt with user_id
-    system_prompt = _render_template(system_template, user_id=user_id)
+    system_prompt = render_template(system_template, user_id=user_id)
 
     accumulated_graph = KnowledgeGraph(nodes=[], edges=[])
 
@@ -235,7 +204,7 @@ def extract_triplets_sync(
             }
 
         # Render input prompt
-        input_prompt = _render_template(
+        input_prompt = render_template(
             input_template,
             text=text,
             nodes=", ".join(nodes),

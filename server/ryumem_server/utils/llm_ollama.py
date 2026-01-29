@@ -14,10 +14,12 @@ import requests
 from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 
+from .llm_base import LLMExtractionMixin
+
 logger = logging.getLogger(__name__)
 
 
-class OllamaClient:
+class OllamaClient(LLMExtractionMixin):
     """
     Ollama client for local LLM inference.
 

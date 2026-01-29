@@ -5,43 +5,12 @@ Extracts potential graph nodes from text through multiple refinement rounds.
 """
 
 import logging
-from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from .models import PotentialNodes
+from .utils import load_prompt, render_template
 
 logger = logging.getLogger(__name__)
-
-# Load prompt templates
-PROMPTS_DIR = Path(__file__).parent / "prompts"
-
-
-def _load_prompt(filename: str) -> str:
-    """Load a prompt template from file."""
-    with open(PROMPTS_DIR / filename, "r") as f:
-        return f.read()
-
-
-def _render_template(template: str, **kwargs) -> str:
-    """Simple Jinja2-style template rendering."""
-    result = template
-    for key, value in kwargs.items():
-        # Handle simple variable replacement
-        result = result.replace("{{ " + key + " }}", str(value) if value else "")
-        result = result.replace("{{" + key + "}}", str(value) if value else "")
-
-    # Handle conditional blocks {% if var %}...{% endif %}
-    import re
-    for key, value in kwargs.items():
-        if_pattern = rf'{{% if {key} %}}(.*?){{% endif %}}'
-        if value:
-            # Keep the content inside the if block
-            result = re.sub(if_pattern, r'\1', result, flags=re.DOTALL)
-        else:
-            # Remove the entire if block
-            result = re.sub(if_pattern, '', result, flags=re.DOTALL)
-
-    return result.strip()
 
 
 async def extract_nodes(
@@ -66,11 +35,11 @@ async def extract_nodes(
     Returns:
         List of unique node name strings
     """
-    system_template = _load_prompt("extract_nodes_system.txt")
-    input_template = _load_prompt("extract_nodes_input.txt")
+    system_template = load_prompt("extract_nodes_system.txt")
+    input_template = load_prompt("extract_nodes_input.txt")
 
     # Render system prompt with user_id
-    system_prompt = _render_template(system_template, user_id=user_id)
+    system_prompt = render_template(system_template, user_id=user_id)
 
     accumulated_nodes: List[str] = []
 
@@ -79,7 +48,7 @@ async def extract_nodes(
 
         # Render input prompt
         existing_nodes_str = ", ".join(accumulated_nodes) if accumulated_nodes else None
-        input_prompt = _render_template(
+        input_prompt = render_template(
             input_template,
             text=text,
             existing_nodes=existing_nodes_str,
@@ -126,11 +95,11 @@ def extract_nodes_sync(
     Returns:
         List of unique node name strings
     """
-    system_template = _load_prompt("extract_nodes_system.txt")
-    input_template = _load_prompt("extract_nodes_input.txt")
+    system_template = load_prompt("extract_nodes_system.txt")
+    input_template = load_prompt("extract_nodes_input.txt")
 
     # Render system prompt with user_id
-    system_prompt = _render_template(system_template, user_id=user_id)
+    system_prompt = render_template(system_template, user_id=user_id)
 
     accumulated_nodes: List[str] = []
 
@@ -139,7 +108,7 @@ def extract_nodes_sync(
 
         # Render input prompt
         existing_nodes_str = ", ".join(accumulated_nodes) if accumulated_nodes else None
-        input_prompt = _render_template(
+        input_prompt = render_template(
             input_template,
             text=text,
             existing_nodes=existing_nodes_str,
