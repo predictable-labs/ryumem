@@ -373,45 +373,24 @@ class LiteLLMClient(LLMExtractionMixin):
         wait=wait_exponential(multiplier=1, min=2, max=10),
         reraise=True
     )
-    def create_structured_output(
+    def _call_api_with_json_mode(
         self,
-        text_input: str,
-        system_prompt: str,
-        response_model: Type[BaseModel],
-        temperature: float = 0.0,
-    ) -> BaseModel:
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
         """
-        Generate structured output parsed into a Pydantic model.
-
-        Uses LiteLLM's JSON mode with schema guidance in the prompt.
+        LiteLLM-specific API call with JSON mode.
 
         Args:
-            text_input: The user input text to process
-            system_prompt: System prompt with instructions
-            response_model: Pydantic model class for response validation
-            temperature: Sampling temperature (0.0-2.0)
+            messages: List of message dictionaries
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens (unused, LiteLLM handles internally)
 
         Returns:
-            Instance of response_model with parsed data
+            Raw JSON string from API response
         """
         try:
-            # Get JSON schema from Pydantic model for prompt guidance
-            schema = response_model.model_json_schema()
-            schema_str = json.dumps(schema, indent=2)
-
-            enhanced_prompt = f"""{system_prompt}
-
-You MUST respond with valid JSON that conforms to this schema:
-{schema_str}
-
-Output ONLY the JSON object, no other text."""
-
-            messages = [
-                {"role": "system", "content": enhanced_prompt},
-                {"role": "user", "content": text_input},
-            ]
-
-            # Make API call with JSON response format
             response = self.litellm.completion(
                 model=self.model,
                 messages=messages,
@@ -419,59 +398,35 @@ Output ONLY the JSON object, no other text."""
                 timeout=self.timeout,
                 response_format={"type": "json_object"},
             )
+            return response.choices[0].message.content
 
-            # Parse response
-            content = response.choices[0].message.content.strip()
-            data = json.loads(content)
-            result = response_model.model_validate(data)
-
-            logger.debug(f"Structured output: {result}")
-            return result
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from LiteLLM response: {e}")
-            raise
         except Exception as e:
-            logger.error(f"Error generating structured output with LiteLLM: {e}")
+            logger.error(f"Error in LiteLLM API call: {e}")
             raise
 
-    async def acreate_structured_output(
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True
+    )
+    async def _acall_api_with_json_mode(
         self,
-        text_input: str,
-        system_prompt: str,
-        response_model: Type[BaseModel],
-        temperature: float = 0.0,
-    ) -> BaseModel:
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
         """
-        Async version of create_structured_output.
+        Async LiteLLM-specific API call with JSON mode.
 
         Args:
-            text_input: The user input text to process
-            system_prompt: System prompt with instructions
-            response_model: Pydantic model class for response validation
-            temperature: Sampling temperature (0.0-2.0)
+            messages: List of message dictionaries
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens (unused, LiteLLM handles internally)
 
         Returns:
-            Instance of response_model with parsed data
+            Raw JSON string from API response
         """
         try:
-            # Get JSON schema from Pydantic model for prompt guidance
-            schema = response_model.model_json_schema()
-            schema_str = json.dumps(schema, indent=2)
-
-            enhanced_prompt = f"""{system_prompt}
-
-You MUST respond with valid JSON that conforms to this schema:
-{schema_str}
-
-Output ONLY the JSON object, no other text."""
-
-            messages = [
-                {"role": "system", "content": enhanced_prompt},
-                {"role": "user", "content": text_input},
-            ]
-
-            # Make async API call with JSON response format
             response = await self.litellm.acompletion(
                 model=self.model,
                 messages=messages,
@@ -479,20 +434,10 @@ Output ONLY the JSON object, no other text."""
                 timeout=self.timeout,
                 response_format={"type": "json_object"},
             )
+            return response.choices[0].message.content
 
-            # Parse response
-            content = response.choices[0].message.content.strip()
-            data = json.loads(content)
-            result = response_model.model_validate(data)
-
-            logger.debug(f"Async structured output: {result}")
-            return result
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from LiteLLM response: {e}")
-            raise
         except Exception as e:
-            logger.error(f"Error generating async structured output with LiteLLM: {e}")
+            logger.error(f"Error in async LiteLLM API call: {e}")
             raise
 
     def __repr__(self) -> str:

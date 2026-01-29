@@ -5,7 +5,13 @@ Provides shared prompt building and response parsing methods for entity extracti
 relationship extraction, and contradiction detection.
 """
 
-from typing import Any, Dict, List, Optional
+import json
+import logging
+from typing import Any, Dict, List, Optional, Type
+
+from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class LLMExtractionMixin:
@@ -278,3 +284,197 @@ Identify all contradictions."""
                 if tool_call["name"] == "detect_contradictions":
                     contradictions = tool_call["arguments"].get("contradictions", [])
         return contradictions
+
+    # Structured Output Base Methods
+
+    def _call_api_with_json_mode(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
+        """
+        Provider-specific API call with JSON mode.
+
+        Override in subclass for provider-specific API call.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content'
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+
+        Returns:
+            Raw JSON string from API response
+        """
+        raise NotImplementedError("Subclass must implement _call_api_with_json_mode")
+
+    async def _acall_api_with_json_mode(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
+        """
+        Async provider-specific API call with JSON mode.
+
+        Override in subclass for async provider-specific API call.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content'
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+
+        Returns:
+            Raw JSON string from API response
+        """
+        raise NotImplementedError("Subclass must implement _acall_api_with_json_mode")
+
+    @staticmethod
+    def _build_json_prompt(system_prompt: str, schema: Dict[str, Any]) -> str:
+        """
+        Build enhanced system prompt with JSON schema guidance.
+
+        Args:
+            system_prompt: Original system prompt
+            schema: JSON schema from Pydantic model
+
+        Returns:
+            Enhanced system prompt with schema guidance
+        """
+        schema_str = json.dumps(schema, indent=2)
+        return f"""{system_prompt}
+
+You MUST respond with valid JSON that conforms to this schema:
+{schema_str}
+
+Output ONLY the JSON object, no other text."""
+
+    @staticmethod
+    def _parse_structured_response(
+        response_content: str,
+        response_model: Type[BaseModel],
+    ) -> BaseModel:
+        """
+        Parse and validate JSON response into Pydantic model.
+
+        Args:
+            response_content: Raw JSON string from API
+            response_model: Pydantic model class for validation
+
+        Returns:
+            Instance of response_model with parsed data
+
+        Raises:
+            json.JSONDecodeError: If response is not valid JSON
+            ValidationError: If JSON doesn't match schema
+        """
+        data = json.loads(response_content.strip())
+        return response_model.model_validate(data)
+
+    def create_structured_output(
+        self,
+        text_input: str,
+        system_prompt: str,
+        response_model: Type[BaseModel],
+        temperature: float = 0.0,
+    ) -> BaseModel:
+        """
+        Generate structured output parsed into a Pydantic model.
+
+        Base implementation that calls provider-specific _call_api_with_json_mode().
+
+        Args:
+            text_input: The user input text to process
+            system_prompt: System prompt with instructions
+            response_model: Pydantic model class for response validation
+            temperature: Sampling temperature (0.0-2.0)
+
+        Returns:
+            Instance of response_model with parsed data
+        """
+        try:
+            # Get JSON schema from Pydantic model
+            schema = response_model.model_json_schema()
+
+            # Build enhanced prompt with schema
+            enhanced_prompt = self._build_json_prompt(system_prompt, schema)
+
+            # Build messages
+            messages = [
+                {"role": "system", "content": enhanced_prompt},
+                {"role": "user", "content": text_input},
+            ]
+
+            # Call provider-specific API
+            response_content = self._call_api_with_json_mode(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=None,
+            )
+
+            # Parse and validate response
+            result = self._parse_structured_response(response_content, response_model)
+
+            logger.debug(f"Structured output: {result}")
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from LLM response: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error generating structured output: {e}")
+            raise
+
+    async def acreate_structured_output(
+        self,
+        text_input: str,
+        system_prompt: str,
+        response_model: Type[BaseModel],
+        temperature: float = 0.0,
+    ) -> BaseModel:
+        """
+        Async version of create_structured_output.
+
+        Base implementation that calls provider-specific _acall_api_with_json_mode().
+
+        Args:
+            text_input: The user input text to process
+            system_prompt: System prompt with instructions
+            response_model: Pydantic model class for response validation
+            temperature: Sampling temperature (0.0-2.0)
+
+        Returns:
+            Instance of response_model with parsed data
+        """
+        try:
+            # Get JSON schema from Pydantic model
+            schema = response_model.model_json_schema()
+
+            # Build enhanced prompt with schema
+            enhanced_prompt = self._build_json_prompt(system_prompt, schema)
+
+            # Build messages
+            messages = [
+                {"role": "system", "content": enhanced_prompt},
+                {"role": "user", "content": text_input},
+            ]
+
+            # Call provider-specific async API
+            response_content = await self._acall_api_with_json_mode(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=None,
+            )
+
+            # Parse and validate response
+            result = self._parse_structured_response(response_content, response_model)
+
+            logger.debug(f"Async structured output: {result}")
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from LLM response: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error generating async structured output: {e}")
+            raise

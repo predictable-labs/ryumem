@@ -648,94 +648,59 @@ Detect contradictions as JSON:"""
 
         return float(similarity)
 
-    def create_structured_output(
+    def _call_api_with_json_mode(
         self,
-        text_input: str,
-        system_prompt: str,
-        response_model: Type[BaseModel],
-        temperature: float = 0.0,
-    ) -> BaseModel:
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
         """
-        Generate structured output parsed into a Pydantic model.
-
-        Uses Ollama's JSON mode and parses the response into the Pydantic model.
+        Ollama-specific API call with JSON mode.
 
         Args:
-            text_input: The user input text to process
-            system_prompt: System prompt with instructions
-            response_model: Pydantic model class for response validation
-            temperature: Sampling temperature (0.0-1.0)
+            messages: List of message dictionaries
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens (unused, Ollama handles internally)
 
         Returns:
-            Instance of response_model with parsed data
+            Raw JSON string from API response
         """
-        # Get JSON schema from Pydantic model for prompt guidance
-        schema = response_model.model_json_schema()
-        schema_str = json.dumps(schema, indent=2)
-
-        enhanced_prompt = f"""{system_prompt}
-
-You MUST respond with valid JSON that conforms to this schema:
-{schema_str}
-
-Output ONLY the JSON object, no other text."""
-
-        messages = [
-            {"role": "system", "content": enhanced_prompt},
-            {"role": "user", "content": text_input},
-        ]
-
         try:
             response = self.generate(
                 messages,
                 temperature=temperature,
                 response_format={"type": "json_object"},
             )
+            return response["content"]
 
-            content = response["content"].strip()
-
-            # Parse JSON and validate with Pydantic
-            data = json.loads(content)
-            result = response_model.model_validate(data)
-
-            logger.debug(f"Structured output: {result}")
-            return result
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON from Ollama response: {e}")
-            raise
         except Exception as e:
-            logger.error(f"Error generating structured output with Ollama: {e}")
+            logger.error(f"Error in Ollama API call: {e}")
             raise
 
-    async def acreate_structured_output(
+    async def _acall_api_with_json_mode(
         self,
-        text_input: str,
-        system_prompt: str,
-        response_model: Type[BaseModel],
-        temperature: float = 0.0,
-    ) -> BaseModel:
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
         """
-        Async version of create_structured_output.
+        Async Ollama-specific API call with JSON mode.
 
         Note: Ollama client is synchronous, so this runs in a thread pool.
 
         Args:
-            text_input: The user input text to process
-            system_prompt: System prompt with instructions
-            response_model: Pydantic model class for response validation
-            temperature: Sampling temperature (0.0-1.0)
+            messages: List of message dictionaries
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens (unused, Ollama handles internally)
 
         Returns:
-            Instance of response_model with parsed data
+            Raw JSON string from API response
         """
         import asyncio
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,
-            lambda: self.create_structured_output(
-                text_input, system_prompt, response_model, temperature
-            )
+            lambda: self._call_api_with_json_mode(messages, temperature, max_tokens)
         )
 
     def __repr__(self) -> str:

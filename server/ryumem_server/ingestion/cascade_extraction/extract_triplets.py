@@ -7,8 +7,8 @@ Extracts complete knowledge graph with nodes and edges through multiple rounds.
 import logging
 from typing import Dict, List, Optional, Set
 
+from .base import multi_round_extraction, multi_round_extraction_sync
 from .models import KnowledgeGraph, ExtractedNode, ExtractedEdge
-from .utils import load_prompt, render_template
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,33 @@ def _validate_graph(graph: KnowledgeGraph) -> KnowledgeGraph:
     return KnowledgeGraph(nodes=graph.nodes, edges=valid_edges)
 
 
+def _prepare_triplets_input_kwargs(accumulated_graph: KnowledgeGraph, round_num: int) -> dict:
+    """Prepare input template kwargs for triplet extraction round."""
+    # Prepare existing graph summary for prompt
+    existing_graph_str = None
+    if accumulated_graph.nodes or accumulated_graph.edges:
+        existing_graph_str = {
+            "nodes": [f"{n.id} ({n.type}): {n.name}" for n in accumulated_graph.nodes],
+            "edges": [f"{e.source_node_id} --{e.relationship_name}--> {e.target_node_id}" for e in accumulated_graph.edges]
+        }
+
+    # Note: nodes and relationships will be passed as closure from the main function
+    # We can't access them here, so we'll use a different approach
+    return {"existing_graph": existing_graph_str}
+
+
+def _accumulate_triplets(accumulated_graph: KnowledgeGraph, response: KnowledgeGraph) -> KnowledgeGraph:
+    """Accumulate triplets from round response, merging graphs."""
+    merged_graph = _merge_graphs(accumulated_graph, response)
+
+    logger.debug(
+        f"Round complete: {len(response.nodes)} new nodes, {len(response.edges)} new edges, "
+        f"total: {len(merged_graph.nodes)} nodes, {len(merged_graph.edges)} edges"
+    )
+
+    return merged_graph
+
+
 async def extract_triplets(
     text: str,
     nodes: List[str],
@@ -105,50 +132,30 @@ async def extract_triplets(
     Returns:
         Complete KnowledgeGraph with nodes and edges
     """
-    system_template = load_prompt("extract_triplets_system.txt")
-    input_template = load_prompt("extract_triplets_input.txt")
+    # Create a closure to include nodes and relationships in the kwargs
+    nodes_str = ", ".join(nodes)
+    relationships_str = ", ".join(relationships)
 
-    # Render system prompt with user_id
-    system_prompt = render_template(system_template, user_id=user_id)
+    def prepare_input_kwargs_with_context(accumulated_graph: KnowledgeGraph, round_num: int) -> dict:
+        kwargs = _prepare_triplets_input_kwargs(accumulated_graph, round_num)
+        kwargs["nodes"] = nodes_str
+        kwargs["relationships"] = relationships_str
+        return kwargs
 
-    accumulated_graph = KnowledgeGraph(nodes=[], edges=[])
-
-    for round_num in range(n_rounds):
-        logger.debug(f"Triplet extraction round {round_num + 1}/{n_rounds}")
-
-        # Prepare existing graph summary for prompt
-        existing_graph_str = None
-        if accumulated_graph.nodes or accumulated_graph.edges:
-            existing_graph_str = {
-                "nodes": [f"{n.id} ({n.type}): {n.name}" for n in accumulated_graph.nodes],
-                "edges": [f"{e.source_node_id} --{e.relationship_name}--> {e.target_node_id}" for e in accumulated_graph.edges]
-            }
-
-        # Render input prompt
-        input_prompt = render_template(
-            input_template,
-            text=text,
-            nodes=", ".join(nodes),
-            relationships=", ".join(relationships),
-            existing_graph=existing_graph_str,
-            context=context,
-        )
-
-        # Call LLM with structured output
-        response: KnowledgeGraph = await llm_client.acreate_structured_output(
-            text_input=input_prompt,
-            system_prompt=system_prompt,
-            response_model=KnowledgeGraph,
-            temperature=0.0,
-        )
-
-        # Merge with accumulated graph
-        accumulated_graph = _merge_graphs(accumulated_graph, response)
-
-        logger.debug(
-            f"Round {round_num + 1}: {len(response.nodes)} nodes, {len(response.edges)} edges, "
-            f"total: {len(accumulated_graph.nodes)} nodes, {len(accumulated_graph.edges)} edges"
-        )
+    accumulated_graph = await multi_round_extraction(
+        llm_client=llm_client,
+        text=text,
+        user_id=user_id,
+        system_prompt_file="extract_triplets_system.txt",
+        input_prompt_file="extract_triplets_input.txt",
+        response_model=KnowledgeGraph,
+        n_rounds=n_rounds,
+        context=context,
+        prepare_input_kwargs=prepare_input_kwargs_with_context,
+        accumulate_results=_accumulate_triplets,
+        initial_state=KnowledgeGraph(nodes=[], edges=[]),
+        stage_name="Triplet extraction",
+    )
 
     # Validate final graph
     final_graph = _validate_graph(accumulated_graph)
@@ -184,50 +191,30 @@ def extract_triplets_sync(
     Returns:
         Complete KnowledgeGraph with nodes and edges
     """
-    system_template = load_prompt("extract_triplets_system.txt")
-    input_template = load_prompt("extract_triplets_input.txt")
+    # Create a closure to include nodes and relationships in the kwargs
+    nodes_str = ", ".join(nodes)
+    relationships_str = ", ".join(relationships)
 
-    # Render system prompt with user_id
-    system_prompt = render_template(system_template, user_id=user_id)
+    def prepare_input_kwargs_with_context(accumulated_graph: KnowledgeGraph, round_num: int) -> dict:
+        kwargs = _prepare_triplets_input_kwargs(accumulated_graph, round_num)
+        kwargs["nodes"] = nodes_str
+        kwargs["relationships"] = relationships_str
+        return kwargs
 
-    accumulated_graph = KnowledgeGraph(nodes=[], edges=[])
-
-    for round_num in range(n_rounds):
-        logger.debug(f"Triplet extraction round {round_num + 1}/{n_rounds}")
-
-        # Prepare existing graph summary for prompt
-        existing_graph_str = None
-        if accumulated_graph.nodes or accumulated_graph.edges:
-            existing_graph_str = {
-                "nodes": [f"{n.id} ({n.type}): {n.name}" for n in accumulated_graph.nodes],
-                "edges": [f"{e.source_node_id} --{e.relationship_name}--> {e.target_node_id}" for e in accumulated_graph.edges]
-            }
-
-        # Render input prompt
-        input_prompt = render_template(
-            input_template,
-            text=text,
-            nodes=", ".join(nodes),
-            relationships=", ".join(relationships),
-            existing_graph=existing_graph_str,
-            context=context,
-        )
-
-        # Call LLM with structured output
-        response: KnowledgeGraph = llm_client.create_structured_output(
-            text_input=input_prompt,
-            system_prompt=system_prompt,
-            response_model=KnowledgeGraph,
-            temperature=0.0,
-        )
-
-        # Merge with accumulated graph
-        accumulated_graph = _merge_graphs(accumulated_graph, response)
-
-        logger.debug(
-            f"Round {round_num + 1}: {len(response.nodes)} nodes, {len(response.edges)} edges, "
-            f"total: {len(accumulated_graph.nodes)} nodes, {len(accumulated_graph.edges)} edges"
-        )
+    accumulated_graph = multi_round_extraction_sync(
+        llm_client=llm_client,
+        text=text,
+        user_id=user_id,
+        system_prompt_file="extract_triplets_system.txt",
+        input_prompt_file="extract_triplets_input.txt",
+        response_model=KnowledgeGraph,
+        n_rounds=n_rounds,
+        context=context,
+        prepare_input_kwargs=prepare_input_kwargs_with_context,
+        accumulate_results=_accumulate_triplets,
+        initial_state=KnowledgeGraph(nodes=[], edges=[]),
+        stage_name="Triplet extraction",
+    )
 
     # Validate final graph
     final_graph = _validate_graph(accumulated_graph)
