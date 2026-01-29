@@ -125,6 +125,7 @@ class BM25Index:
         Add an episode to the BM25 index.
 
         Indexes both episode content and memories from metadata.
+        If episode has chunks, indexes each chunk separately for finer-grained search.
 
         Args:
             episode: Episode node to index
@@ -159,19 +160,42 @@ class BM25Index:
                             if isinstance(run, dict) and 'llm_saved_memory' in run and run['llm_saved_memory']:
                                 texts_to_index.append(run['llm_saved_memory'])
 
-        # Combine all texts and tokenize
-        combined_text = " ".join(texts_to_index)
-        tokens = tokenize(combined_text)
+        # Check if episode has chunks for finer-grained indexing
+        if episode.chunks and len(episode.chunks) > 1:
+            # Index each chunk separately with chunk index in ID
+            # This enables returning specific chunks in search results
+            for chunk_idx, chunk_text in enumerate(episode.chunks):
+                chunk_uuid = f"{episode.uuid}#chunk{chunk_idx}"
 
-        self.episode_tags[episode.uuid] = tags
-        self.episode_map[episode.uuid] = episode  # Store full episode object
-        self.episode_uuids.append(episode.uuid)
-        self.episode_corpus.append(tokens)
+                # Combine chunk text with any extracted memories
+                if chunk_idx == 0:
+                    # Add memories to first chunk only
+                    combined_text = " ".join([chunk_text] + texts_to_index[1:])
+                else:
+                    combined_text = chunk_text
+
+                tokens = tokenize(combined_text)
+
+                self.episode_tags[chunk_uuid] = tags
+                self.episode_map[chunk_uuid] = episode  # Map chunk to full episode
+                self.episode_uuids.append(chunk_uuid)
+                self.episode_corpus.append(tokens)
+
+            logger.debug(f"Added episode to BM25 with {len(episode.chunks)} chunks: {episode.content[:50]}... (tags: {tags})")
+        else:
+            # No chunks - index full content as before
+            combined_text = " ".join(texts_to_index)
+            tokens = tokenize(combined_text)
+
+            self.episode_tags[episode.uuid] = tags
+            self.episode_map[episode.uuid] = episode  # Store full episode object
+            self.episode_uuids.append(episode.uuid)
+            self.episode_corpus.append(tokens)
+
+            logger.debug(f"Added episode to BM25: {episode.content[:50]}... (with {len(texts_to_index)-1} memories, tags: {tags})")
 
         # Rebuild BM25 index
         self._rebuild_episode_index()
-
-        logger.debug(f"Added episode to BM25: {episode.content[:50]}... (with {len(texts_to_index)-1} memories, tags: {tags})")
 
     def search_entities(
         self,
@@ -379,14 +403,47 @@ class BM25Index:
         all_scores = self.episode_bm25.get_scores(query_tokens)
 
         # Create (uuid, score) pairs ONLY for pre-filtered indices
-        results = [
-            (self.episode_uuids[idx], all_scores[idx])
-            for idx in valid_indices
-            if all_scores[idx] >= min_score
-        ]
+        # Handle chunk IDs: extract base episode UUID for deduplication
+        seen_episodes = set()
+        results = []
+
+        for idx in valid_indices:
+            if all_scores[idx] < min_score:
+                continue
+
+            indexed_uuid = self.episode_uuids[idx]
+
+            # Check if this is a chunk ID (contains #chunk)
+            if "#chunk" in indexed_uuid:
+                base_uuid = indexed_uuid.split("#chunk")[0]
+                chunk_index = int(indexed_uuid.split("#chunk")[1])
+            else:
+                base_uuid = indexed_uuid
+                chunk_index = None
+
+            # Deduplicate: keep highest-scoring chunk per episode
+            if base_uuid in seen_episodes:
+                continue
+            seen_episodes.add(base_uuid)
+
+            # Return base episode UUID (not chunk ID) so search engine can retrieve full episode
+            results.append((base_uuid, all_scores[idx]))
 
         # Sort by score descending, then by recency (created_at) descending for tie-breaking
-        results.sort(key=lambda x: (x[1], self.episode_map[x[0]].created_at), reverse=True)
+        def sort_key(item):
+            uuid, score = item
+            # Get episode from map - might be stored under chunk ID or base ID
+            episode = self.episode_map.get(uuid)
+            if not episode:
+                # Try to find it under a chunk ID
+                for key, ep in self.episode_map.items():
+                    if key.startswith(uuid + "#") or key == uuid:
+                        episode = ep
+                        break
+            created_at = episode.created_at if episode else None
+            return (score, created_at if created_at else 0)
+
+        results.sort(key=sort_key, reverse=True)
 
         # Return top_k
         return results[:top_k]

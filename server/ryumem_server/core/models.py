@@ -65,7 +65,7 @@ class EpisodeNode(BaseModel):
     content: str = Field(description='Raw episode data/content')
     content_embedding: list[float] | None = Field(
         default=None,
-        description='Embedding vector for the episode content'
+        description='Embedding vector for the episode content (or first chunk if chunked)'
     )
     source: EpisodeType = Field(description='Source type of episode')
     source_description: str = Field(default='', description='Description of the data source')
@@ -83,12 +83,48 @@ class EpisodeNode(BaseModel):
     user_id: str | None = Field(default=None, description='User ID for multi-tenancy')
     agent_id: str | None = Field(default=None, description='Agent ID for multi-tenancy')
 
+    # Chunking fields (for long content)
+    chunks: list[str] | None = Field(
+        default=None,
+        description='Split text chunks if content was chunked (None if not chunked)'
+    )
+    chunk_embeddings: list[list[float]] | None = Field(
+        default=None,
+        description='Embedding vectors for each chunk (None if not chunked)'
+    )
+    chunk_offsets: list[tuple[int, int]] | None = Field(
+        default=None,
+        description='Character offset tuples (start, end) for each chunk in original content'
+    )
+
     # Metadata
     metadata: dict[str, Any] = Field(default_factory=dict, description='Additional metadata')
     entity_edges: list[str] = Field(
         default_factory=list,
         description='List of entity edge UUIDs referenced in this episode'
     )
+
+    @property
+    def is_chunked(self) -> bool:
+        """Check if this episode has been chunked."""
+        return self.chunks is not None and len(self.chunks) > 1
+
+    @property
+    def num_chunks(self) -> int:
+        """Number of chunks (1 if not chunked)."""
+        return len(self.chunks) if self.chunks else 1
+
+    def get_chunk_text(self, chunk_index: int) -> str | None:
+        """Get text for a specific chunk index."""
+        if self.chunks and 0 <= chunk_index < len(self.chunks):
+            return self.chunks[chunk_index]
+        return self.content if chunk_index == 0 else None
+
+    def get_chunk_embedding(self, chunk_index: int) -> list[float] | None:
+        """Get embedding for a specific chunk index."""
+        if self.chunk_embeddings and 0 <= chunk_index < len(self.chunk_embeddings):
+            return self.chunk_embeddings[chunk_index]
+        return self.content_embedding if chunk_index == 0 else None
 
     class Config:
         json_schema_extra = {
@@ -98,6 +134,8 @@ class EpisodeNode(BaseModel):
                 "content": "user: I love Python programming",
                 "source": "message",
                 "user_id": "user_123",
+                "chunks": None,
+                "chunk_embeddings": None,
             }
         }
 

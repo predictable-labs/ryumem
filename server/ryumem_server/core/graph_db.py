@@ -252,6 +252,9 @@ class RyugraphDB:
         """
         Save an episode node to the database.
 
+        Chunk data (chunks, chunk_offsets) is stored in metadata for backwards compatibility.
+        chunk_embeddings are stored separately to enable chunk-level search.
+
         Args:
             episode: EpisodeNode to save
 
@@ -277,9 +280,23 @@ class RyugraphDB:
         ON MATCH SET
             e.entity_edges = $entity_edges,
             e.content_embedding = $content_embedding,
+            e.metadata = $metadata,
             e.kind = $kind
         RETURN e.uuid AS uuid
         """
+
+        # Build metadata with chunk data
+        metadata = episode.metadata.copy() if episode.metadata else {}
+
+        # Add chunking information to metadata if present
+        if episode.chunks:
+            metadata['_chunking'] = {
+                'chunks': episode.chunks,
+                'chunk_offsets': episode.chunk_offsets,
+                'num_chunks': len(episode.chunks),
+            }
+            # Note: chunk_embeddings are not stored in metadata due to size
+            # They would need a separate storage mechanism for full chunk search
 
         params = {
             "uuid": episode.uuid,
@@ -293,7 +310,7 @@ class RyugraphDB:
             "valid_at": episode.valid_at,
             "user_id": episode.user_id,
             "agent_id": episode.agent_id,
-            "metadata": json.dumps(episode.metadata),
+            "metadata": json.dumps(metadata),
             "entity_edges": episode.entity_edges,
         }
 

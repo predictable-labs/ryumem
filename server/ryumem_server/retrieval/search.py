@@ -247,7 +247,7 @@ class SearchEngine:
                     if value is None or (isinstance(value, float) and math.isnan(value)):
                         return None
                     return value
-                
+
                 # Handle metadata deserialization
                 metadata = result.get("metadata", {})
                 if isinstance(metadata, str):
@@ -255,7 +255,18 @@ class SearchEngine:
                         metadata = json.loads(metadata)
                     except (json.JSONDecodeError, TypeError):
                         metadata = {}
-                
+
+                # Extract chunking data from metadata if present
+                chunks = None
+                chunk_offsets = None
+                chunking_data = metadata.get("_chunking", {})
+                if chunking_data:
+                    chunks = chunking_data.get("chunks")
+                    chunk_offsets = chunking_data.get("chunk_offsets")
+                    # Convert chunk_offsets to tuples if stored as lists
+                    if chunk_offsets:
+                        chunk_offsets = [tuple(offset) if isinstance(offset, list) else offset for offset in chunk_offsets]
+
                 from ryumem_server.core.models import EpisodeKind
                 episode = EpisodeNode(
                     uuid=result["uuid"],
@@ -266,8 +277,10 @@ class SearchEngine:
                     kind=EpisodeKind.from_str(result.get("kind", "query")),
                     user_id=safe_str_or_none(result.get("user_id")),
                     agent_id=safe_str_or_none(result.get("agent_id")),
-                    session_id=safe_str_or_none(result.get("session_id")),
                     metadata=metadata,
+                    # Include chunk data
+                    chunks=chunks,
+                    chunk_offsets=chunk_offsets,
                 )
                 episodes.append(episode)
                 scores[episode.uuid] = result["similarity"]
@@ -524,6 +537,17 @@ class SearchEngine:
                             except (json.JSONDecodeError, TypeError):
                                 metadata = {}
 
+                        # Extract chunking data from metadata if present
+                        chunks = None
+                        chunk_offsets = None
+                        chunking_data = metadata.get("_chunking", {})
+                        if chunking_data:
+                            chunks = chunking_data.get("chunks")
+                            chunk_offsets = chunking_data.get("chunk_offsets")
+                            # Convert chunk_offsets to tuples if stored as lists
+                            if chunk_offsets:
+                                chunk_offsets = [tuple(offset) if isinstance(offset, list) else offset for offset in chunk_offsets]
+
                         from ryumem_server.core.models import EpisodeKind
                         episode = EpisodeNode(
                             uuid=episode_data["uuid"],
@@ -534,8 +558,10 @@ class SearchEngine:
                             kind=EpisodeKind.from_str(episode_data.get("kind", "query")),
                             user_id=safe_str_or_none(episode_data.get("user_id")),
                             agent_id=safe_str_or_none(episode_data.get("agent_id")),
-                            session_id=safe_str_or_none(episode_data.get("session_id")),
                             metadata=metadata,
+                            # Include chunk data
+                            chunks=chunks,
+                            chunk_offsets=chunk_offsets,
                         )
                         episodes.append(episode)
                         scores[episode.uuid] = score

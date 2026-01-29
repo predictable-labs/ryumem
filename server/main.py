@@ -590,6 +590,11 @@ class EpisodeInfo(BaseModel):
     user_id: Optional[str] = None
     metadata: Optional[dict] = None
     score: Optional[float] = None  # Search relevance score
+    # Chunking information (optional, present if episode was chunked)
+    is_chunked: bool = False
+    num_chunks: Optional[int] = None
+    chunks: Optional[List[str]] = None  # Individual chunk texts
+    chunk_offsets: Optional[List[tuple]] = None  # (start, end) offsets for each chunk
 
 
 class GetEpisodesResponse(BaseModel):
@@ -1594,6 +1599,22 @@ async def get_episodes(
         episodes = []
         for ep in result["episodes"]:
             try:
+                metadata = parse_metadata(ep.get("metadata"))
+                # Extract chunking data from metadata if present
+                chunks = None
+                chunk_offsets = None
+                is_chunked = False
+                num_chunks = None
+                if metadata and "_chunking" in metadata:
+                    chunking_data = metadata["_chunking"]
+                    chunks = chunking_data.get("chunks")
+                    chunk_offsets = chunking_data.get("chunk_offsets")
+                    num_chunks = chunking_data.get("num_chunks")
+                    is_chunked = chunks is not None and len(chunks) > 1
+                    # Convert chunk_offsets to tuples if stored as lists
+                    if chunk_offsets:
+                        chunk_offsets = [tuple(offset) if isinstance(offset, list) else offset for offset in chunk_offsets]
+
                 episodes.append(EpisodeInfo(
                     uuid=ep["uuid"],
                     name=ep["name"],
@@ -1604,7 +1625,12 @@ async def get_episodes(
                     created_at=ep["created_at"].isoformat() if isinstance(ep["created_at"], datetime) else str(ep["created_at"]),
                     valid_at=ep["valid_at"].isoformat() if isinstance(ep["valid_at"], datetime) else str(ep["valid_at"]),
                     user_id=clean_value(ep.get("user_id")),
-                    metadata=parse_metadata(ep.get("metadata")),
+                    metadata=metadata,
+                    # Include chunking information
+                    is_chunked=is_chunked,
+                    num_chunks=num_chunks,
+                    chunks=chunks,
+                    chunk_offsets=chunk_offsets,
                 ))
             except Exception as e:
                 logger.warning(f"Failed to convert episode {ep.get('uuid', 'unknown')} to EpisodeInfo: {e}, skipping")
@@ -1666,7 +1692,12 @@ async def search(
                 valid_at=episode.valid_at,
                 user_id=episode.user_id or None,
                 metadata=episode.metadata or None,
-                score=results.scores.get(episode.uuid, 0.0)
+                score=results.scores.get(episode.uuid, 0.0),
+                # Include chunking information
+                is_chunked=episode.is_chunked if hasattr(episode, 'is_chunked') else False,
+                num_chunks=episode.num_chunks if hasattr(episode, 'num_chunks') else None,
+                chunks=episode.chunks if hasattr(episode, 'chunks') else None,
+                chunk_offsets=episode.chunk_offsets if hasattr(episode, 'chunk_offsets') else None,
             ))
         
         # Convert entities to response format

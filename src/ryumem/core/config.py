@@ -46,12 +46,61 @@ class EntityExtractionConfig(BaseSettings):
     )
 
 
+class ChunkingConfig(BaseSettings):
+    """Configuration for text chunking during episode ingestion"""
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether to enable chunking for long episodes"
+    )
+    chunk_size_tokens: int = Field(
+        default=512,
+        description="Target chunk size in tokens (512 is optimal for embeddings)",
+        ge=100,
+        le=8000
+    )
+    chunk_overlap_tokens: int = Field(
+        default=50,
+        description="Number of overlapping tokens between chunks for context continuity",
+        ge=0,
+        le=500
+    )
+    strategy: str = Field(
+        default="sentence",
+        description="Chunking strategy: 'overlap' (fixed token), 'sentence' (respects sentences), 'paragraph' (respects paragraphs)"
+    )
+    max_chunks_per_episode: int = Field(
+        default=20,
+        description="Maximum number of chunks to create per episode (prevents runaway chunking)",
+        ge=1,
+        le=100
+    )
+    embedding_model: str = Field(
+        default="text-embedding-3-large",
+        description="Model name for token counting (affects tokenization)"
+    )
+
+    @field_validator('strategy')
+    @classmethod
+    def validate_strategy(cls, v: str) -> str:
+        valid = {'overlap', 'sentence', 'paragraph'}
+        if v.lower() not in valid:
+            raise ValueError(f"strategy must be one of {valid}")
+        return v.lower()
+
+
 class EpisodeConfig(BaseSettings):
     """Episode ingestion and deduplication configuration"""
 
     enable_embeddings: bool = Field(
         default=True,
         description="Whether to generate embeddings for episodes (if False, uses BM25 for search/dedup)"
+    )
+
+    # Chunking settings
+    chunking: ChunkingConfig = Field(
+        default_factory=ChunkingConfig,
+        description="Chunking configuration for long episode content"
     )
 
     # Deduplication settings

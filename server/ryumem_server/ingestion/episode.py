@@ -15,6 +15,7 @@ from ryumem_server.ingestion.entity_extractor import EntityExtractor
 from ryumem_server.ingestion.relation_extractor import RelationExtractor
 from ryumem_server.utils.embeddings import EmbeddingClient
 from ryumem_server.utils.llm import LLMClient
+from ryumem_server.utils.chunking import chunk_text, should_chunk
 
 if TYPE_CHECKING:
     from ryumem_server.retrieval.bm25 import BM25Index
@@ -132,11 +133,52 @@ class EpisodeIngestion:
 
         start_time = datetime.utcnow()
 
+        # Initialize chunking variables
+        chunks = None
+        chunk_embeddings = None
+        chunk_offsets = None
+        content_embedding = None
+
         # Generate embedding if enabled (for semantic duplicate detection)
         if config.enable_embeddings:
-            content_embedding = self.embedding_client.embed(content)
-        else:
-            content_embedding = None
+            # Check if chunking is enabled and content is large enough to chunk
+            chunking_config = getattr(config, 'chunking', None)
+            if chunking_config and chunking_config.enabled:
+                chunk_size = chunking_config.chunk_size_tokens
+                chunk_overlap = chunking_config.chunk_overlap_tokens
+                chunk_strategy = chunking_config.strategy
+                max_chunks = chunking_config.max_chunks_per_episode
+                embedding_model = chunking_config.embedding_model
+
+                if should_chunk(content, chunk_size, embedding_model):
+                    logger.info(f"Content exceeds {chunk_size} tokens, applying {chunk_strategy} chunking")
+
+                    # Chunk the content
+                    chunking_result = chunk_text(
+                        text=content,
+                        chunk_size=chunk_size,
+                        overlap=chunk_overlap,
+                        strategy=chunk_strategy,
+                        model=embedding_model,
+                        max_chunks=max_chunks
+                    )
+
+                    chunks = chunking_result.get_texts()
+                    chunk_offsets = chunking_result.get_offsets()
+
+                    logger.info(f"Created {len(chunks)} chunks from content ({chunking_result.total_tokens} total tokens)")
+
+                    # Generate embeddings for all chunks
+                    chunk_embeddings = self.embedding_client.embed_batch(chunks)
+
+                    # Use first chunk's embedding as primary content embedding
+                    content_embedding = chunk_embeddings[0] if chunk_embeddings else None
+                else:
+                    # Content doesn't need chunking, embed as-is
+                    content_embedding = self.embedding_client.embed(content)
+            else:
+                # Chunking disabled, embed full content
+                content_embedding = self.embedding_client.embed(content)
 
         # Check for duplicate episode if deduplication enabled
         existing_episode = None
@@ -201,6 +243,10 @@ class EpisodeIngestion:
             user_id=user_id,
             agent_id=agent_id,
             metadata=episode_metadata,
+            # Chunking data
+            chunks=chunks,
+            chunk_embeddings=chunk_embeddings,
+            chunk_offsets=chunk_offsets,
         )
 
         # Save episode to database
@@ -212,7 +258,8 @@ class EpisodeIngestion:
             logger.debug(f"Added episode to BM25 index")
 
         step_duration = (datetime.utcnow() - step_start).total_seconds()
-        logger.info(f"⏱️  [TIMING] Step 1 - Create episode node with embedding: {step_duration:.2f}s")
+        chunk_info = f" ({len(chunks)} chunks)" if chunks else ""
+        logger.info(f"⏱️  [TIMING] Step 1 - Create episode node with embedding{chunk_info}: {step_duration:.2f}s")
         logger.debug(f"Created episode node: {episode_uuid}")
 
         # Step 2: Get context from previous episodes (only if entity extraction is enabled)
