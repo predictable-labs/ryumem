@@ -1,0 +1,21 @@
+Text to analyze:
+{{ text }}
+
+Nodes to use:
+{{ nodes }}
+
+Relationship types to use:
+{{ relationships }}
+
+{% if existing_graph %}
+Previously extracted graph (refine and add more):
+Nodes: {{ existing_graph.nodes }}
+Edges: {{ existing_graph.edges }}
+{% endif %}
+
+{% if context %}
+Context from conversation:
+{{ context }}
+{% endif %}
+
+Extract a complete knowledge graph with nodes and edges.

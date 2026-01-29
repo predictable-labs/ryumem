@@ -1,122 +1,36 @@
 """
-LLM client wrapper for OpenAI models.
-Handles function calling, retries, and error handling.
+Base utilities for LLM clients.
+
+Provides shared prompt building and response parsing methods for entity extraction,
+relationship extraction, and contradiction detection.
 """
 
-import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional, Type
 
-from openai import OpenAI, AsyncOpenAI
 from pydantic import BaseModel
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
 
-class LLMClient:
+class LLMExtractionMixin:
     """
-    Wrapper for OpenAI LLM client with retry logic and error handling.
+    Mixin class providing common extraction methods for LLM clients.
+
+    This class provides prompt building and tool definition methods that are
+    identical across all LLM providers. Each provider's client class should
+    inherit from this mixin and implement its own API calling logic.
     """
 
-    def __init__(
-        self,
-        api_key: str,
-        model: str = "gpt-4",
-        max_retries: int = 3,
-        timeout: int = 30,
-    ):
-        """
-        Initialize LLM client.
-
-        Args:
-            api_key: OpenAI API key
-            model: Model name (e.g., 'gpt-4', 'gpt-4-turbo')
-            max_retries: Maximum number of retries for API calls
-            timeout: Timeout in seconds for API calls
-        """
-        self.client = OpenAI(api_key=api_key, timeout=timeout)
-        self.model = model
-        self.max_retries = max_retries
-
-        logger.info(f"Initialized LLMClient with model: {model}")
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        reraise=True
-    )
-    def generate(
-        self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: float = 0.0,
-        max_tokens: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        """
-        Generate a response from the LLM with optional function calling.
-
-        Args:
-            messages: List of message dictionaries with 'role' and 'content'
-            tools: Optional list of tool/function definitions
-            temperature: Sampling temperature (0.0-2.0)
-            max_tokens: Maximum tokens to generate
-
-        Returns:
-            Response dictionary with 'content' and optional 'tool_calls'
-        """
-        try:
-            # Prepare kwargs
-            kwargs: Dict[str, Any] = {
-                "model": self.model,
-                "messages": messages,
-                "temperature": temperature,
-            }
-
-            if max_tokens:
-                kwargs["max_tokens"] = max_tokens
-
-            if tools:
-                kwargs["tools"] = tools
-                kwargs["tool_choice"] = "auto"
-
-            # Make API call
-            response = self.client.chat.completions.create(**kwargs)
-
-            # Extract response
-            message = response.choices[0].message
-            result: Dict[str, Any] = {
-                "content": message.content or "",
-                "role": message.role,
-            }
-
-            # Extract tool calls if present
-            if message.tool_calls:
-                result["tool_calls"] = [
-                    {
-                        "id": tool_call.id,
-                        "name": tool_call.function.name,
-                        "arguments": eval(tool_call.function.arguments),  # Parse JSON string to dict
-                    }
-                    for tool_call in message.tool_calls
-                ]
-
-            logger.debug(f"LLM response: {result}")
-            return result
-
-        except Exception as e:
-            logger.error(f"Error generating LLM response: {e}")
-            raise
-
-    def extract_entities(
-        self,
+    @staticmethod
+    def build_extract_entities_prompt(
         text: str,
         user_id: str,
         context: Optional[str] = None,
-    ) -> List[Dict[str, str]]:
+    ) -> tuple[str, str, List[Dict[str, Any]]]:
         """
-        Extract entities from text using function calling.
+        Build prompt and tools for entity extraction.
 
         Args:
             text: Input text to extract entities from
@@ -124,7 +38,7 @@ class LLMClient:
             context: Optional context for better extraction
 
         Returns:
-            List of entities with 'entity' and 'entity_type' keys
+            Tuple of (system_prompt, user_prompt, tools)
         """
         system_prompt = f"""You are a smart assistant who understands entities and their types in a given text.
 If user message contains self reference such as 'I', 'me', 'my' etc. then use {user_id} as the source entity.
@@ -133,10 +47,7 @@ Extract all the entities from the text. DO NOT answer the question itself if the
         if context:
             system_prompt += f"\n\nContext from previous messages:\n{context}"
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": text},
-        ]
+        user_prompt = text
 
         tools = [
             {
@@ -171,27 +82,35 @@ Extract all the entities from the text. DO NOT answer the question itself if the
             }
         ]
 
-        response = self.generate(messages, tools=tools)
+        return system_prompt, user_prompt, tools
 
-        # Extract entities from tool calls
+    @staticmethod
+    def parse_entities_response(response: Dict[str, Any]) -> List[Dict[str, str]]:
+        """
+        Parse entities from LLM response with tool calls.
+
+        Args:
+            response: Response dictionary with optional 'tool_calls' key
+
+        Returns:
+            List of entities with 'entity' and 'entity_type' keys
+        """
         entities = []
         if "tool_calls" in response:
             for tool_call in response["tool_calls"]:
                 if tool_call["name"] == "extract_entities":
                     entities = tool_call["arguments"].get("entities", [])
-
-        logger.info(f"Extracted {len(entities)} entities from text")
         return entities
 
-    def extract_relationships(
-        self,
+    @staticmethod
+    def build_extract_relationships_prompt(
         text: str,
         entities: List[str],
         user_id: str,
         context: Optional[str] = None,
-    ) -> List[Dict[str, str]]:
+    ) -> tuple[str, str, List[Dict[str, Any]]]:
         """
-        Extract relationships between entities using function calling.
+        Build prompt and tools for relationship extraction.
 
         Args:
             text: Input text
@@ -200,7 +119,7 @@ Extract all the entities from the text. DO NOT answer the question itself if the
             context: Optional context
 
         Returns:
-            List of relationships with 'source', 'relationship', 'destination' keys
+            Tuple of (system_prompt, user_prompt, tools)
         """
         system_prompt = f"""You are a smart assistant who understands relationships between entities.
 Extract relationships between the provided entities from the text.
@@ -216,11 +135,6 @@ Rules:
             system_prompt += f"\n\nContext:\n{context}"
 
         user_prompt = f"Entities: {', '.join(entities)}\n\nText: {text}"
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
 
         tools = [
             {
@@ -263,32 +177,40 @@ Rules:
             }
         ]
 
-        response = self.generate(messages, tools=tools)
+        return system_prompt, user_prompt, tools
 
-        # Extract relationships from tool calls
+    @staticmethod
+    def parse_relationships_response(response: Dict[str, Any]) -> List[Dict[str, str]]:
+        """
+        Parse relationships from LLM response with tool calls.
+
+        Args:
+            response: Response dictionary with optional 'tool_calls' key
+
+        Returns:
+            List of relationships with 'source', 'relationship', 'destination' keys
+        """
         relationships = []
         if "tool_calls" in response:
             for tool_call in response["tool_calls"]:
                 if tool_call["name"] == "extract_relationships":
                     relationships = tool_call["arguments"].get("relationships", [])
-
-        logger.info(f"Extracted {len(relationships)} relationships from text")
         return relationships
 
-    def detect_contradictions(
-        self,
+    @staticmethod
+    def build_detect_contradictions_prompt(
         new_facts: List[str],
         existing_facts: List[str],
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[str, str, List[Dict[str, Any]]]:
         """
-        Detect contradictions between new and existing facts.
+        Build prompt and tools for contradiction detection.
 
         Args:
             new_facts: List of new fact descriptions
             existing_facts: List of existing fact descriptions
 
         Returns:
-            List of contradictions with 'new_fact_index', 'existing_fact_index', 'reason'
+            Tuple of (system_prompt, user_prompt, tools)
         """
         system_prompt = """You are an expert at detecting contradictions and outdated information.
 Compare new facts against existing facts and identify any contradictions or updates.
@@ -305,11 +227,6 @@ Existing facts:
 {chr(10).join(f"{i}. {fact}" for i, fact in enumerate(existing_facts))}
 
 Identify all contradictions."""
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
 
         tools = [
             {
@@ -348,23 +265,112 @@ Identify all contradictions."""
             }
         ]
 
-        response = self.generate(messages, tools=tools)
+        return system_prompt, user_prompt, tools
 
-        # Extract contradictions from tool calls
+    @staticmethod
+    def parse_contradictions_response(response: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Parse contradictions from LLM response with tool calls.
+
+        Args:
+            response: Response dictionary with optional 'tool_calls' key
+
+        Returns:
+            List of contradictions with 'new_fact_index', 'existing_fact_index', 'reason'
+        """
         contradictions = []
         if "tool_calls" in response:
             for tool_call in response["tool_calls"]:
                 if tool_call["name"] == "detect_contradictions":
                     contradictions = tool_call["arguments"].get("contradictions", [])
-
-        logger.info(f"Detected {len(contradictions)} contradictions")
         return contradictions
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        reraise=True
-    )
+    # Structured Output Base Methods
+
+    def _call_api_with_json_mode(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
+        """
+        Provider-specific API call with JSON mode.
+
+        Override in subclass for provider-specific API call.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content'
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+
+        Returns:
+            Raw JSON string from API response
+        """
+        raise NotImplementedError("Subclass must implement _call_api_with_json_mode")
+
+    async def _acall_api_with_json_mode(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
+        """
+        Async provider-specific API call with JSON mode.
+
+        Override in subclass for async provider-specific API call.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content'
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+
+        Returns:
+            Raw JSON string from API response
+        """
+        raise NotImplementedError("Subclass must implement _acall_api_with_json_mode")
+
+    @staticmethod
+    def _build_json_prompt(system_prompt: str, schema: Dict[str, Any]) -> str:
+        """
+        Build enhanced system prompt with JSON schema guidance.
+
+        Args:
+            system_prompt: Original system prompt
+            schema: JSON schema from Pydantic model
+
+        Returns:
+            Enhanced system prompt with schema guidance
+        """
+        schema_str = json.dumps(schema, indent=2)
+        return f"""{system_prompt}
+
+You MUST respond with valid JSON that conforms to this schema:
+{schema_str}
+
+Output ONLY the JSON object, no other text."""
+
+    @staticmethod
+    def _parse_structured_response(
+        response_content: str,
+        response_model: Type[BaseModel],
+    ) -> BaseModel:
+        """
+        Parse and validate JSON response into Pydantic model.
+
+        Args:
+            response_content: Raw JSON string from API
+            response_model: Pydantic model class for validation
+
+        Returns:
+            Instance of response_model with parsed data
+
+        Raises:
+            json.JSONDecodeError: If response is not valid JSON
+            ValidationError: If JSON doesn't match schema
+        """
+        data = json.loads(response_content.strip())
+        return response_model.model_validate(data)
+
     def create_structured_output(
         self,
         text_input: str,
@@ -375,7 +381,7 @@ Identify all contradictions."""
         """
         Generate structured output parsed into a Pydantic model.
 
-        Uses OpenAI's structured output feature for reliable JSON parsing.
+        Base implementation that calls provider-specific _call_api_with_json_mode().
 
         Args:
             text_input: The user input text to process
@@ -387,22 +393,34 @@ Identify all contradictions."""
             Instance of response_model with parsed data
         """
         try:
+            # Get JSON schema from Pydantic model
+            schema = response_model.model_json_schema()
+
+            # Build enhanced prompt with schema
+            enhanced_prompt = self._build_json_prompt(system_prompt, schema)
+
+            # Build messages
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": enhanced_prompt},
                 {"role": "user", "content": text_input},
             ]
 
-            response = self.client.beta.chat.completions.parse(
-                model=self.model,
+            # Call provider-specific API
+            response_content = self._call_api_with_json_mode(
                 messages=messages,
-                response_format=response_model,
                 temperature=temperature,
+                max_tokens=None,
             )
 
-            parsed = response.choices[0].message.parsed
-            logger.debug(f"Structured output: {parsed}")
-            return parsed
+            # Parse and validate response
+            result = self._parse_structured_response(response_content, response_model)
 
+            logger.debug(f"Structured output: {result}")
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from LLM response: {e}")
+            raise
         except Exception as e:
             logger.error(f"Error generating structured output: {e}")
             raise
@@ -417,6 +435,8 @@ Identify all contradictions."""
         """
         Async version of create_structured_output.
 
+        Base implementation that calls provider-specific _acall_api_with_json_mode().
+
         Args:
             text_input: The user input text to process
             system_prompt: System prompt with instructions
@@ -427,27 +447,34 @@ Identify all contradictions."""
             Instance of response_model with parsed data
         """
         try:
+            # Get JSON schema from Pydantic model
+            schema = response_model.model_json_schema()
+
+            # Build enhanced prompt with schema
+            enhanced_prompt = self._build_json_prompt(system_prompt, schema)
+
+            # Build messages
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": enhanced_prompt},
                 {"role": "user", "content": text_input},
             ]
 
-            async_client = AsyncOpenAI(
-                api_key=self.client.api_key,
-                timeout=self.client.timeout,
-            )
-
-            response = await async_client.beta.chat.completions.parse(
-                model=self.model,
+            # Call provider-specific async API
+            response_content = await self._acall_api_with_json_mode(
                 messages=messages,
-                response_format=response_model,
                 temperature=temperature,
+                max_tokens=None,
             )
 
-            parsed = response.choices[0].message.parsed
-            logger.debug(f"Async structured output: {parsed}")
-            return parsed
+            # Parse and validate response
+            result = self._parse_structured_response(response_content, response_model)
 
+            logger.debug(f"Async structured output: {result}")
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from LLM response: {e}")
+            raise
         except Exception as e:
             logger.error(f"Error generating async structured output: {e}")
             raise

@@ -5,10 +5,14 @@ Provides the same interface as LLMClient but uses LiteLLM for accessing
 100+ LLM providers through a single unified API.
 """
 
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 
+from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from .llm_base import LLMExtractionMixin
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +73,7 @@ EMBEDDING_DIMENSIONS = {
 }
 
 
-class LiteLLMClient:
+class LiteLLMClient(LLMExtractionMixin):
     """
     LiteLLM client for unified LLM access across 100+ providers.
 
@@ -215,59 +219,17 @@ class LiteLLMClient:
         Returns:
             List of entities with 'entity' and 'entity_type' keys
         """
-        system_prompt = f"""You are a smart assistant who understands entities and their types in a given text.
-If user message contains self reference such as 'I', 'me', 'my' etc. then use {user_id} as the source entity.
-Extract all the entities from the text. DO NOT answer the question itself if the given text is a question."""
-
-        if context:
-            system_prompt += f"\n\nContext from previous messages:\n{context}"
+        system_prompt, user_prompt, tools = self.build_extract_entities_prompt(
+            text, user_id, context
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": text},
-        ]
-
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "extract_entities",
-                    "description": "Extract entities and their types from the text",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "entities": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "entity": {
-                                            "type": "string",
-                                            "description": "The entity name"
-                                        },
-                                        "entity_type": {
-                                            "type": "string",
-                                            "description": "The type of entity (e.g., PERSON, ORGANIZATION, CONCEPT)"
-                                        }
-                                    },
-                                    "required": ["entity", "entity_type"]
-                                }
-                            }
-                        },
-                        "required": ["entities"]
-                    }
-                }
-            }
+            {"role": "user", "content": user_prompt},
         ]
 
         response = self.generate(messages, tools=tools)
-
-        # Extract entities from tool calls
-        entities = []
-        if "tool_calls" in response:
-            for tool_call in response["tool_calls"]:
-                if tool_call["name"] == "extract_entities":
-                    entities = tool_call["arguments"].get("entities", [])
+        entities = self.parse_entities_response(response)
 
         logger.info(f"Extracted {len(entities)} entities from text")
         return entities
@@ -291,75 +253,17 @@ Extract all the entities from the text. DO NOT answer the question itself if the
         Returns:
             List of relationships with 'source', 'relationship', 'destination' keys
         """
-        system_prompt = f"""You are a smart assistant who understands relationships between entities.
-Extract relationships between the provided entities from the text.
-User ID: {user_id}
-
-Rules:
-1. Only extract relationships that are explicitly or implicitly mentioned in the text
-2. Use clear, concise relationship names (e.g., WORKS_AT, KNOWS, LOCATED_IN)
-3. Ensure source and destination are from the provided entity list
-4. If you detect temporal information (when something started or ended), include it"""
-
-        if context:
-            system_prompt += f"\n\nContext:\n{context}"
-
-        user_prompt = f"Entities: {', '.join(entities)}\n\nText: {text}"
+        system_prompt, user_prompt, tools = self.build_extract_relationships_prompt(
+            text, entities, user_id, context
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
 
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "extract_relationships",
-                    "description": "Extract relationships between entities",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "relationships": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "source": {
-                                            "type": "string",
-                                            "description": "Source entity"
-                                        },
-                                        "relationship": {
-                                            "type": "string",
-                                            "description": "Relationship type"
-                                        },
-                                        "destination": {
-                                            "type": "string",
-                                            "description": "Destination entity"
-                                        },
-                                        "fact": {
-                                            "type": "string",
-                                            "description": "Natural language description of the relationship"
-                                        }
-                                    },
-                                    "required": ["source", "relationship", "destination", "fact"]
-                                }
-                            }
-                        },
-                        "required": ["relationships"]
-                    }
-                }
-            }
-        ]
-
         response = self.generate(messages, tools=tools)
-
-        # Extract relationships from tool calls
-        relationships = []
-        if "tool_calls" in response:
-            for tool_call in response["tool_calls"]:
-                if tool_call["name"] == "extract_relationships":
-                    relationships = tool_call["arguments"].get("relationships", [])
+        relationships = self.parse_relationships_response(response)
 
         logger.info(f"Extracted {len(relationships)} relationships from text")
         return relationships
@@ -379,72 +283,17 @@ Rules:
         Returns:
             List of contradictions with 'new_fact_index', 'existing_fact_index', 'reason'
         """
-        system_prompt = """You are an expert at detecting contradictions and outdated information.
-Compare new facts against existing facts and identify any contradictions or updates.
-
-A contradiction occurs when:
-1. Facts directly oppose each other (e.g., "Alice works at Google" vs "Alice works at Meta")
-2. A new fact makes an old fact outdated (e.g., "Alice moved to NYC" when previously "Alice lives in SF")
-3. Temporal changes occur (e.g., "Alice graduated" vs "Alice is a student")"""
-
-        user_prompt = f"""New facts:
-{chr(10).join(f"{i}. {fact}" for i, fact in enumerate(new_facts))}
-
-Existing facts:
-{chr(10).join(f"{i}. {fact}" for i, fact in enumerate(existing_facts))}
-
-Identify all contradictions."""
+        system_prompt, user_prompt, tools = self.build_detect_contradictions_prompt(
+            new_facts, existing_facts
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
 
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "detect_contradictions",
-                    "description": "Identify contradictions between new and existing facts",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "contradictions": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "new_fact_index": {
-                                            "type": "integer",
-                                            "description": "Index of the new fact"
-                                        },
-                                        "existing_fact_index": {
-                                            "type": "integer",
-                                            "description": "Index of the existing fact that contradicts"
-                                        },
-                                        "reason": {
-                                            "type": "string",
-                                            "description": "Explanation of the contradiction"
-                                        }
-                                    },
-                                    "required": ["new_fact_index", "existing_fact_index", "reason"]
-                                }
-                            }
-                        },
-                        "required": ["contradictions"]
-                    }
-                }
-            }
-        ]
-
         response = self.generate(messages, tools=tools)
-
-        # Extract contradictions from tool calls
-        contradictions = []
-        if "tool_calls" in response:
-            for tool_call in response["tool_calls"]:
-                if tool_call["name"] == "detect_contradictions":
-                    contradictions = tool_call["arguments"].get("contradictions", [])
+        contradictions = self.parse_contradictions_response(response)
 
         logger.info(f"Detected {len(contradictions)} contradictions")
         return contradictions
@@ -517,6 +366,78 @@ Identify all contradictions."""
 
         except Exception as e:
             logger.error(f"Error generating batch embeddings with LiteLLM: {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True
+    )
+    def _call_api_with_json_mode(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
+        """
+        LiteLLM-specific API call with JSON mode.
+
+        Args:
+            messages: List of message dictionaries
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens (unused, LiteLLM handles internally)
+
+        Returns:
+            Raw JSON string from API response
+        """
+        try:
+            response = self.litellm.completion(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                timeout=self.timeout,
+                response_format={"type": "json_object"},
+            )
+            return response.choices[0].message.content
+
+        except Exception as e:
+            logger.error(f"Error in LiteLLM API call: {e}")
+            raise
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True
+    )
+    async def _acall_api_with_json_mode(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
+        """
+        Async LiteLLM-specific API call with JSON mode.
+
+        Args:
+            messages: List of message dictionaries
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens (unused, LiteLLM handles internally)
+
+        Returns:
+            Raw JSON string from API response
+        """
+        try:
+            response = await self.litellm.acompletion(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                timeout=self.timeout,
+                response_format={"type": "json_object"},
+            )
+            return response.choices[0].message.content
+
+        except Exception as e:
+            logger.error(f"Error in async LiteLLM API call: {e}")
             raise
 
     def __repr__(self) -> str:

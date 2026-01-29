@@ -13,6 +13,7 @@ from ryumem_server.core.graph_db import RyugraphDB
 from ryumem_server.core.models import EpisodeNode, EpisodeType, EpisodeKind, EpisodicEdge
 from ryumem_server.ingestion.entity_extractor import EntityExtractor
 from ryumem_server.ingestion.relation_extractor import RelationExtractor
+from ryumem_server.ingestion.cascade_extraction import CascadeExtractor
 from ryumem_server.utils.embeddings import EmbeddingClient
 from ryumem_server.utils.llm import LLMClient
 
@@ -39,6 +40,7 @@ class EpisodeIngestion:
         bm25_index: Optional["BM25Index"] = None,
         enable_entity_extraction: bool = False,
         episode_config: Optional["EpisodeConfig"] = None,
+        cascade_n_rounds: int = 2,
     ):
         """
         Initialize episode ingestion pipeline.
@@ -53,6 +55,7 @@ class EpisodeIngestion:
             bm25_index: Optional BM25 index for keyword search
             enable_entity_extraction: Whether to enable entity extraction (default: False)
             episode_config: Episode configuration (default: creates new with defaults)
+            cascade_n_rounds: Number of extraction rounds per stage (default: 2)
         """
         from ryumem.core.config import EpisodeConfig
 
@@ -63,8 +66,15 @@ class EpisodeIngestion:
         self.bm25_index = bm25_index
         self.enable_entity_extraction = enable_entity_extraction
         self.episode_config = episode_config if episode_config is not None else EpisodeConfig()
+        self.cascade_n_rounds = cascade_n_rounds
 
-        # Initialize extractors
+        # Initialize cascade extractor for multi-round extraction
+        self.cascade_extractor = CascadeExtractor(
+            llm_client=llm_client,
+            n_rounds=cascade_n_rounds,
+        )
+
+        # Initialize extractors for resolution (deduplication)
         self.entity_extractor = EntityExtractor(
             db=db,
             llm_client=llm_client,
@@ -79,7 +89,11 @@ class EpisodeIngestion:
             similarity_threshold=relationship_similarity_threshold,
         )
 
-        logger.info(f"Initialized EpisodeIngestion pipeline (entity_extraction={'enabled' if enable_entity_extraction else 'disabled'})")
+        logger.info(
+            f"Initialized EpisodeIngestion pipeline "
+            f"(entity_extraction={'enabled' if enable_entity_extraction else 'disabled'}, "
+            f"cascade_rounds={cascade_n_rounds})"
+        )
 
     def ingest(
         self,
@@ -228,23 +242,52 @@ class EpisodeIngestion:
             context = []
             logger.info(f"Entity extraction disabled for episode {episode_uuid}, skipping context retrieval")
 
-        # Step 3: Extract and resolve entities (OPTIONAL - controlled by flag)
+        # Step 3: Cascade extraction and resolution (OPTIONAL - controlled by flag)
         if should_extract_entities:
+            # Step 3a: Cascade extraction (multi-round)
             step_start = datetime.utcnow()
-            entities, entity_map = self.entity_extractor.extract_and_resolve(
-                content=content,
+            logger.info(f"Starting cascade extraction ({self.cascade_n_rounds} rounds per stage)...")
+
+            knowledge_graph = self.cascade_extractor.extract(
+                text=content,
                 user_id=user_id,
                 context=context,
             )
             step_duration = (datetime.utcnow() - step_start).total_seconds()
-            logger.info(f"⏱️  [TIMING] Step 3 - Extract and resolve entities: {step_duration:.2f}s ({len(entities)} entities)")
+            logger.info(
+                f"⏱️  [TIMING] Step 3a - Cascade extraction: {step_duration:.2f}s "
+                f"({len(knowledge_graph.nodes)} nodes, {len(knowledge_graph.edges)} edges)"
+            )
+
+            if not knowledge_graph.nodes:
+                logger.info(f"No entities extracted for episode {episode_uuid}")
+                return episode_uuid
+
+            # Step 3b: Convert to Ryumem models
+            step_start = datetime.utcnow()
+            raw_entities, raw_edges = self.cascade_extractor.to_ryumem_models(
+                graph=knowledge_graph,
+                user_id=user_id,
+                episode_uuid=episode_uuid,
+            )
+            step_duration = (datetime.utcnow() - step_start).total_seconds()
+            logger.info(f"⏱️  [TIMING] Step 3b - Convert to Ryumem models: {step_duration:.2f}s")
+
+            # Step 3c: Entity resolution (embedding-based deduplication)
+            step_start = datetime.utcnow()
+            entities, entity_uuid_map = self.entity_extractor.resolve_entities(
+                raw_entities=raw_entities,
+                user_id=user_id,
+            )
+            step_duration = (datetime.utcnow() - step_start).total_seconds()
+            logger.info(f"⏱️  [TIMING] Step 3c - Entity resolution: {step_duration:.2f}s ({len(entities)} entities)")
 
             if not entities:
-                logger.info(f"No entities extracted for episode {episode_uuid}")
+                logger.info(f"No entities after resolution for episode {episode_uuid}")
                 return episode_uuid
         else:
             entities = []
-            entity_map = {}
+            entity_uuid_map = {}
             logger.info(f"Entity extraction disabled for episode {episode_uuid}, skipping Steps 3-7")
             return episode_uuid
 
@@ -254,21 +297,19 @@ class EpisodeIngestion:
             for entity in entities:
                 self.bm25_index.add_entity(entity)
             step_duration = (datetime.utcnow() - step_start).total_seconds()
-            logger.info(f"⏱️  [TIMING] Step 3b - Add entities to BM25 index: {step_duration:.2f}s")
+            logger.info(f"⏱️  [TIMING] Step 3d - Add entities to BM25 index: {step_duration:.2f}s")
             logger.debug(f"Added {len(entities)} entities to BM25 index")
 
-        # Step 4: Extract and resolve relationships
+        # Step 4: Relationship resolution (embedding-based deduplication)
         step_start = datetime.utcnow()
-        edges = self.relation_extractor.extract_and_resolve(
-            content=content,
-            entities=entities,
-            entity_map=entity_map,
+        edges = self.relation_extractor.resolve_relationships(
+            raw_edges=raw_edges,
+            entity_uuid_map=entity_uuid_map,
             episode_uuid=episode_uuid,
             user_id=user_id,
-            context=context,
         )
         step_duration = (datetime.utcnow() - step_start).total_seconds()
-        logger.info(f"⏱️  [TIMING] Step 4 - Extract and resolve relationships: {step_duration:.2f}s ({len(edges)} edges)")
+        logger.info(f"⏱️  [TIMING] Step 4 - Relationship resolution: {step_duration:.2f}s ({len(edges)} edges)")
 
         # Add edges to BM25 index
         step_start = datetime.utcnow()

@@ -8,15 +8,18 @@ Supports models like Llama, Mistral, Qwen, etc.
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 
 import requests
+from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
+
+from .llm_base import LLMExtractionMixin
 
 logger = logging.getLogger(__name__)
 
 
-class OllamaClient:
+class OllamaClient(LLMExtractionMixin):
     """
     Ollama client for local LLM inference.
 
@@ -644,6 +647,61 @@ Detect contradictions as JSON:"""
         similarity = dot_product / (norm1 * norm2)
 
         return float(similarity)
+
+    def _call_api_with_json_mode(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
+        """
+        Ollama-specific API call with JSON mode.
+
+        Args:
+            messages: List of message dictionaries
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens (unused, Ollama handles internally)
+
+        Returns:
+            Raw JSON string from API response
+        """
+        try:
+            response = self.generate(
+                messages,
+                temperature=temperature,
+                response_format={"type": "json_object"},
+            )
+            return response["content"]
+
+        except Exception as e:
+            logger.error(f"Error in Ollama API call: {e}")
+            raise
+
+    async def _acall_api_with_json_mode(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        max_tokens: Optional[int],
+    ) -> str:
+        """
+        Async Ollama-specific API call with JSON mode.
+
+        Note: Ollama client is synchronous, so this runs in a thread pool.
+
+        Args:
+            messages: List of message dictionaries
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens (unused, Ollama handles internally)
+
+        Returns:
+            Raw JSON string from API response
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self._call_api_with_json_mode(messages, temperature, max_tokens)
+        )
 
     def __repr__(self) -> str:
         """String representation."""
