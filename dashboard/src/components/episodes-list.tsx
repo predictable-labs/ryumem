@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { api, type EpisodeInfo } from "@/lib/api";
 import { Search, Calendar, ArrowUpDown, Loader2, Plus, Clock, Wrench, CheckCircle2, XCircle, Trash2, X, Tag as TagIcon } from "lucide-react";
@@ -26,7 +27,8 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
   const [endDate, setEndDate] = useState("");
   const [editingTags, setEditingTags] = useState<string | null>(null);
   const [newTag, setNewTag] = useState("");
-  const [deletingEpisode, setDeletingEpisode] = useState<string | null>(null);
+  const [episodeToDelete, setEpisodeToDelete] = useState<EpisodeInfo | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [tagFilter, setTagFilter] = useState("");
 
   const { toast } = useToast();
@@ -106,31 +108,28 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
     setSortOrder(prev => prev === "desc" ? "asc" : "desc");
   };
 
-  const handleDeleteEpisode = async (episodeUuid: string) => {
-    if (deletingEpisode === episodeUuid) {
-      // Confirmed - proceed with deletion
-      try {
-        await api.deleteEpisode(episodeUuid);
-        setEpisodes(prev => prev.filter(ep => ep.uuid !== episodeUuid));
-        setTotal(prev => prev - 1);
-        toast({
-          title: "Success",
-          description: "Episode deleted successfully",
-        });
-      } catch (error) {
-        console.error("Error deleting episode:", error);
-        toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to delete episode",
-          variant: "destructive",
-        });
-      } finally {
-        setDeletingEpisode(null);
-      }
-    } else {
-      // First click - ask for confirmation
-      setDeletingEpisode(episodeUuid);
-      setTimeout(() => setDeletingEpisode(null), 3000); // Reset after 3 seconds
+  const handleDeleteEpisode = async () => {
+    if (!episodeToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await api.deleteEpisode(episodeToDelete.uuid);
+      setEpisodes(prev => prev.filter(ep => ep.uuid !== episodeToDelete.uuid));
+      setTotal(prev => prev - 1);
+      toast({
+        title: "Success",
+        description: "Episode and related data deleted successfully",
+      });
+      setEpisodeToDelete(null);
+    } catch (error) {
+      console.error("Error deleting episode:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete episode",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -436,11 +435,11 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
                       {episode.source}
                     </Badge>
                     <Button
-                      variant={deletingEpisode === episode.uuid ? "destructive" : "ghost"}
+                      variant="ghost"
                       size="sm"
-                      onClick={() => handleDeleteEpisode(episode.uuid)}
+                      onClick={() => setEpisodeToDelete(episode)}
                       className="h-7 px-2"
-                      title={deletingEpisode === episode.uuid ? "Click again to confirm" : "Delete episode"}
+                      title="Delete episode"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -669,6 +668,44 @@ export function EpisodesList({ userId, onAddEpisodeClick, onToolClick }: Episode
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!episodeToDelete} onOpenChange={(open) => !open && setEpisodeToDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Episode</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this episode? This will also remove:
+              <ul className="list-disc list-inside mt-2 space-y-1">
+                <li>All entities extracted from this episode</li>
+                <li>All relationships/facts linked to this episode</li>
+                <li>Vector embeddings from the database</li>
+              </ul>
+              <p className="mt-2 font-medium text-destructive">This action cannot be undone.</p>
+            </DialogDescription>
+          </DialogHeader>
+          {episodeToDelete && (
+            <div className="rounded-md bg-muted p-3 text-sm">
+              <p className="line-clamp-3">{episodeToDelete.content}</p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEpisodeToDelete(null)} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteEpisode} disabled={isDeleting}>
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete Episode"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

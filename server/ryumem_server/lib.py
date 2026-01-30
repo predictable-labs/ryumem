@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 from ryumem_server.core.config import RyumemConfig
 from ryumem_server.core.graph_db import RyugraphDB
-from ryumem_server.core.models import EpisodeNode, EpisodeType, SearchConfig, SearchResult
+from ryumem_server.core.models import EpisodeNode, EpisodeType, EntityNode, EntityEdge, SearchConfig, SearchResult
 from ryumem_server.ingestion.episode import EpisodeIngestion
 from ryumem_server.maintenance.pruner import MemoryPruner
 from ryumem_server.retrieval.search import SearchEngine
