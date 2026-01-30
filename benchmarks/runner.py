@@ -70,10 +70,13 @@ class BenchmarkRunner:
         self.adapters: Dict[str, MemorySystemAdapter] = {}
         self.results: Dict[str, BenchmarkResult] = {}
 
-        # Initialize LLM client for answering questions (Google ADK)
-        # API key is read from GOOGLE_API_KEY environment variable
+        # Initialize LLM client for answering questions
+        # Supports "google_adk" (reads GOOGLE_API_KEY from env) or "ollama"
         self.llm_client = LLMClient(
+            provider=config.llm_provider if config.llm_provider in ["google_adk", "ollama"] else "google_adk",
             model=config.llm_model,
+            ollama_url=config.ollama_url,
+            rate_limit_delay=config.rate_limit_delay,
         )
 
         # Register all adapters

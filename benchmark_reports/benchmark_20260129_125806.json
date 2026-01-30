@@ -1,6 +1,6 @@
 {
-  "timestamp": "20260113_125411",
-  "generated_at": "2026-01-13T12:54:11.662282",
+  "timestamp": "20260129_125806",
+  "generated_at": "2026-01-29T12:58:06.160569",
   "systems": {
     "ryumem": {
       "name": "Ryumem",
@@ -12,32 +12,32 @@
           "temporal_reasoning": 0.0,
           "single_hop": 0.0
         },
-        "mrr": 0.0,
+        "mrr": 0.06666666666666667,
         "recall_at_1": 0.0,
-        "recall_at_3": 0.0,
-        "recall_at_5": 0.0,
-        "recall_at_10": 0.0
+        "recall_at_3": 0.1,
+        "recall_at_5": 0.1,
+        "recall_at_10": 0.2
       },
       "performance": {
         "ingestion": {
-          "avg_ms": 0.9368294310805044,
-          "total_s": 0.08899879595264792
+          "avg_ms": 1998.311357384419,
+          "total_s": 379.6791579030395
         },
         "search": {
-          "avg_ms": 0.8270499936770648,
-          "p50_ms": 0.8314999868161976,
-          "p95_ms": 0.8734835952054709,
-          "p99_ms": 0.8777303143870085,
-          "total_s": 0.004135249968385324
+          "avg_ms": 1653.6763517000509,
+          "p50_ms": 1653.4507795004174,
+          "p95_ms": 1668.9197259995126,
+          "p99_ms": 1675.5140116003895,
+          "total_s": 16.53676351700051
         }
       },
       "memory": {
-        "peak_mb": 0.45844364166259766,
-        "avg_mb": 0.29895267486572263
+        "peak_mb": 0.6245527267456055,
+        "avg_mb": 0.23292980194091797
       },
       "stats": {
-        "total_questions": 5,
-        "total_sessions_ingested": 0,
+        "total_questions": 10,
+        "total_sessions_ingested": 190,
         "error_count": 0
       },
       "config": {
@@ -45,7 +45,7 @@
           "ryumem"
         ],
         "dataset_split": "train",
-        "question_limit": 5,
+        "question_limit": 10,
         "question_types": null,
         "search_strategy": "hybrid",
         "search_limit": 10,

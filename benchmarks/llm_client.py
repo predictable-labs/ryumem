@@ -1,25 +1,47 @@
-"""LLM client for generating answers from retrieved context using Google ADK."""
+"""LLM client for generating answers from retrieved context using Google ADK or Ollama."""
 
 from typing import List, Optional
 import asyncio
 
 
 class LLMClient:
-    """Client for calling Google ADK (Gemini) to answer questions based on retrieved context."""
+    """Client for calling LLM (Google ADK or Ollama) to answer questions based on retrieved context."""
 
     def __init__(
         self,
-        model: str = "gemini-2.0-flash-exp",
+        provider: str = "google_adk",
+        model: str = "gemini-flash-lite-latest",
+        ollama_url: str = "http://localhost:11434",
+        rate_limit_delay: float = 1.0,  # Delay between API calls in seconds
         **kwargs,  # Accept other params for compatibility but ignore them
     ):
         """
-        Initialize LLM client with Google ADK.
+        Initialize LLM client.
 
         Args:
-            model: Gemini model name (default: gemini-2.0-flash-exp)
+            provider: LLM provider ("google_adk" or "ollama")
+            model: Model name (default: gemini-flash-lite-latest, same as examples)
+            ollama_url: Ollama server URL (only used if provider="ollama")
+            rate_limit_delay: Delay in seconds between API calls to avoid rate limits
 
-        Note: Reads GOOGLE_API_KEY from environment variable
+        Note: Google ADK reads GOOGLE_API_KEY from environment variable
         """
+        self.provider = provider
+        self.model = model
+        self.ollama_url = ollama_url
+        self.rate_limit_delay = rate_limit_delay
+        self.last_call_time = 0
+
+        if provider == "google_adk":
+            self._init_google_adk()
+        elif provider == "ollama":
+            # No initialization needed for Ollama
+            pass
+        else:
+            raise ValueError(f"Unknown provider: {provider}. Use 'google_adk' or 'ollama'")
+
+    def _init_google_adk(self):
+        """Initialize Google ADK agent and runner."""
         import os
         from google.adk.agents import Agent
         from google.adk.runners import Runner
@@ -29,12 +51,10 @@ class LLMClient:
         if not os.getenv("GOOGLE_API_KEY"):
             raise ValueError("GOOGLE_API_KEY environment variable not set")
 
-        self.model = model
-
         # Create agent with instruction for answering questions
         self.agent = Agent(
             name="qa_assistant",
-            model=model,
+            model=self.model,
             instruction="""You are given some old conversations and a question about them. The question may require:
 - Single-hop reasoning: Finding one piece of information
 - Multi-hop reasoning: Connecting multiple pieces of information across conversations
@@ -76,14 +96,27 @@ Your task:
         Returns:
             The answer text
         """
+        # Rate limiting: ensure minimum delay between API calls
+        import time
+        if self.rate_limit_delay > 0:
+            elapsed = time.time() - self.last_call_time
+            if elapsed < self.rate_limit_delay:
+                time.sleep(self.rate_limit_delay - elapsed)
+            self.last_call_time = time.time()
+
         # Build prompt
         prompt = self._build_prompt(question, context_episodes, choices)
 
-        # Run the agent synchronously
-        return asyncio.run(self._run_agent(prompt, user_id, session_id))
+        # Call LLM based on provider
+        if self.provider == "google_adk":
+            return asyncio.run(self._run_google_adk(prompt, user_id, session_id))
+        elif self.provider == "ollama":
+            return self._call_ollama(prompt)
+        else:
+            raise ValueError(f"Unknown provider: {self.provider}")
 
-    async def _run_agent(self, prompt: str, user_id: str, session_id: str) -> str:
-        """Run the agent and get the response."""
+    async def _run_google_adk(self, prompt: str, user_id: str, session_id: str) -> str:
+        """Run the Google ADK agent and get the response."""
         from google.genai import types
 
         # Create session if not exists
@@ -117,6 +150,22 @@ Your task:
 
         return ""
 
+    def _call_ollama(self, prompt: str) -> str:
+        """Call Ollama API."""
+        import requests
+
+        response = requests.post(
+            f"{self.ollama_url}/api/generate",
+            json={
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False,
+            },
+            timeout=None,  # No timeout - let Ollama take as long as it needs
+        )
+        response.raise_for_status()
+        return response.json().get("response", "").strip()
+
     def _build_prompt(
         self, question: str, context_episodes: List[str], choices: List[str]
     ) -> str:
@@ -131,7 +180,12 @@ Your task:
             [f"{i}. {choice}" for i, choice in enumerate(choices)]
         )
 
-        return f"""Old Conversations:
+        return f"""You are given some old conversations and a question about them. The question may require:
+- Single-hop reasoning: Finding one piece of information
+- Multi-hop reasoning: Connecting multiple pieces of information across conversations
+- Temporal reasoning: Understanding time relationships and sequences
+
+Old Conversations:
 {conversations}
 
 Question: {question}
@@ -139,6 +193,10 @@ Question: {question}
 Answer Choices:
 {choices_text}
 
-Respond with ONLY the exact text of the correct answer choice, nothing else.
+Instructions:
+1. Read through all conversations carefully
+2. Find information relevant to the question (may be spread across multiple conversations)
+3. Select the correct answer from the choices provided
+4. Respond with ONLY the exact text of the correct answer choice, nothing else
 
 Answer:"""

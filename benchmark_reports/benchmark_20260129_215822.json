@@ -1,0 +1,61 @@
+{
+  "timestamp": "20260129_215822",
+  "generated_at": "2026-01-29T21:58:22.086424",
+  "systems": {
+    "ryumem": {
+      "name": "Ryumem",
+      "version": "0.6.1",
+      "accuracy": {
+        "overall": 0.71,
+        "by_type": {
+          "multi_hop": 0.6486486486486487,
+          "temporal_reasoning": 0.46153846153846156,
+          "single_hop": 0.75,
+          "open_domain": 0.9444444444444444
+        },
+        "mrr": 0.13458333333333333,
+        "recall_at_1": 0.11,
+        "recall_at_3": 0.15,
+        "recall_at_5": 0.15,
+        "recall_at_10": 0.18
+      },
+      "performance": {
+        "ingestion": {
+          "avg_ms": 2741.196645546998,
+          "total_s": 5208.273626539302
+        },
+        "search": {
+          "avg_ms": 1941.6491167001368,
+          "p50_ms": 1677.63417900278,
+          "p95_ms": 3612.8758018992808,
+          "p99_ms": 3840.9128381883056,
+          "total_s": 194.16491167001368
+        }
+      },
+      "memory": {
+        "peak_mb": 23.422487258911133,
+        "avg_mb": 12.019363269805908
+      },
+      "stats": {
+        "total_questions": 100,
+        "total_sessions_ingested": 1900,
+        "error_count": 0
+      },
+      "config": {
+        "systems": [
+          "ryumem"
+        ],
+        "dataset_split": "train",
+        "question_limit": 100,
+        "question_types": null,
+        "search_strategy": "hybrid",
+        "search_limit": 10,
+        "llm_provider": "google_adk",
+        "llm_model": "gemini-flash-lite-latest",
+        "embedding_provider": "ollama",
+        "embedding_model": "nomic-embed-text",
+        "clear_between_questions": true
+      }
+    }
+  }
+}
