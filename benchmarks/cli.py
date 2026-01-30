@@ -54,14 +54,14 @@ def cli():
 # LLM/Embedding provider options (Ollama by default)
 @click.option(
     "--llm-provider",
-    type=click.Choice(["ollama", "openai", "gemini", "litellm"]),
-    default="ollama",
-    help="LLM provider for memory extraction",
+    type=click.Choice(["google_adk", "ollama", "openai", "gemini", "litellm"]),
+    default="google_adk",
+    help="LLM provider for answering questions (google_adk or ollama)",
 )
 @click.option(
     "--llm-model",
-    default="llama3.2",
-    help="LLM model name",
+    default="gemini-flash-lite-latest",
+    help="LLM model name (gemini-flash-lite-latest for google_adk, llama3.2 for ollama)",
 )
 @click.option(
     "--ollama-url",
@@ -136,6 +136,12 @@ def cli():
     default=False,
     help="Enable verbose output",
 )
+@click.option(
+    "--rate-limit-delay",
+    type=float,
+    default=1.0,
+    help="Delay in seconds between LLM API calls to avoid rate limits (default: 1.0)",
+)
 def run(
     systems,
     limit,
@@ -156,6 +162,7 @@ def run(
     no_clear,
     include_details,
     verbose,
+    rate_limit_delay,
 ):
     """Run benchmark comparison across memory systems."""
     click.echo("=" * 60)
@@ -181,6 +188,7 @@ def run(
         ryumem_api_key=ryumem_api_key,
         clear_between_questions=not no_clear,
         verbose=verbose,
+        rate_limit_delay=rate_limit_delay,
         system_configs={
             "zep": {"api_key": zep_api_key},
         },
@@ -211,6 +219,7 @@ def run(
         click.echo(f"\nReports generated:")
         click.echo(f"  JSON: {report_paths['json']}")
         click.echo(f"  Markdown: {report_paths['markdown']}")
+        click.echo(f"  Detailed: {report_paths['detailed']}")
 
         # Print final summary
         click.echo("\n" + "=" * 60)

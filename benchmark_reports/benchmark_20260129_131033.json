@@ -1,0 +1,60 @@
+{
+  "timestamp": "20260129_131033",
+  "generated_at": "2026-01-29T13:10:33.700867",
+  "systems": {
+    "ryumem": {
+      "name": "Ryumem",
+      "version": "0.6.1",
+      "accuracy": {
+        "overall": 0.0,
+        "by_type": {
+          "multi_hop": 0.0,
+          "temporal_reasoning": 0.0,
+          "single_hop": 0.0
+        },
+        "mrr": 0.06666666666666667,
+        "recall_at_1": 0.0,
+        "recall_at_3": 0.1,
+        "recall_at_5": 0.1,
+        "recall_at_10": 0.2
+      },
+      "performance": {
+        "ingestion": {
+          "avg_ms": 1965.078997884197,
+          "total_s": 373.36500959799747
+        },
+        "search": {
+          "avg_ms": 1662.799371300207,
+          "p50_ms": 1659.6530674996757,
+          "p95_ms": 1685.6535984989023,
+          "p99_ms": 1689.5513436989859,
+          "total_s": 16.62799371300207
+        }
+      },
+      "memory": {
+        "peak_mb": 1.0999860763549805,
+        "avg_mb": 0.534917163848877
+      },
+      "stats": {
+        "total_questions": 10,
+        "total_sessions_ingested": 190,
+        "error_count": 0
+      },
+      "config": {
+        "systems": [
+          "ryumem"
+        ],
+        "dataset_split": "train",
+        "question_limit": 10,
+        "question_types": null,
+        "search_strategy": "hybrid",
+        "search_limit": 10,
+        "llm_provider": "ollama",
+        "llm_model": "llama3.2",
+        "embedding_provider": "ollama",
+        "embedding_model": "nomic-embed-text",
+        "clear_between_questions": true
+      }
+    }
+  }
+}

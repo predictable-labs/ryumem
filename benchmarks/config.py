@@ -31,11 +31,11 @@ class BenchmarkConfig(BaseSettings):
     )
     search_limit: int = Field(default=10, description="Number of results to retrieve")
 
-    # LLM provider configuration (Ollama by default)
-    llm_provider: Literal["ollama", "openai", "gemini", "litellm"] = Field(
-        default="ollama", description="LLM provider"
+    # LLM provider configuration (Google ADK by default)
+    llm_provider: Literal["google_adk", "ollama", "openai", "gemini", "litellm"] = Field(
+        default="google_adk", description="LLM provider"
     )
-    llm_model: str = Field(default="llama3.2", description="LLM model name")
+    llm_model: str = Field(default="gemini-flash-lite-latest", description="LLM model name")
     ollama_url: str = Field(
         default="http://localhost:11434", description="Ollama server URL"
     )
@@ -79,6 +79,9 @@ class BenchmarkConfig(BaseSettings):
         default=True, description="Clear memory between questions for isolation"
     )
     verbose: bool = Field(default=False, description="Enable verbose output")
+    rate_limit_delay: float = Field(
+        default=1.0, description="Delay in seconds between LLM API calls"
+    )
 
     # Per-system configuration overrides
     system_configs: Dict[str, Dict[str, Any]] = Field(

@@ -224,6 +224,124 @@ class ReportGenerator:
 
         return str(output_path)
 
+    def generate_detailed_results(self) -> str:
+        """
+        Generate a detailed markdown report showing per-question results.
+
+        Returns:
+            Path to the generated detailed report
+        """
+        lines = [
+            "# Detailed Benchmark Results",
+            "",
+            f"**Generated:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            "",
+        ]
+
+        for system_name, result in self.results.items():
+            lines.extend([
+                f"# System: {result.system_name} v{result.system_version}",
+                "",
+                f"**Overall Accuracy:** {result.accuracy:.1%}",
+                "",
+                "---",
+                "",
+            ])
+
+            for idx, qr in enumerate(result.question_results, 1):
+                status = "✅ CORRECT" if qr.get("correct") else "❌ INCORRECT"
+                lines.extend([
+                    f"## Question {idx} ({qr.get('question_id')})",
+                    "",
+                    f"**Status:** {status}",
+                    f"**Type:** {qr.get('question_type')}",
+                    "",
+                    "### Question",
+                    f"{qr.get('question')}",
+                    "",
+                ])
+
+                # Show choices if available
+                if qr.get('all_choices'):
+                    lines.append("### Choices")
+                    for i, choice in enumerate(qr.get('all_choices')):
+                        marker = "✓" if choice == qr.get('correct_choice') else " "
+                        lines.append(f"{i}. [{marker}] {choice}")
+                    lines.append("")
+
+                lines.extend([
+                    "### Correct Answer",
+                    f"**Answer:** {qr.get('correct_answer')}",
+                    f"**Choice:** {qr.get('correct_choice')}",
+                    "",
+                    "### LLM's Answer",
+                    f"**Generated Answer:** {qr.get('llm_answer', 'N/A')}",
+                    "",
+                ])
+
+                if qr.get('llm_error'):
+                    lines.extend([
+                        f"**⚠️ LLM Error:** {qr.get('llm_error')}",
+                        "",
+                    ])
+
+                # Show search results
+                lines.extend([
+                    "### Retrieved Results",
+                    f"**Sessions Ingested:** {qr.get('sessions_ingested', 0)}",
+                    f"**Search Time:** {qr.get('search_time_ms', 0):.2f}ms",
+                    f"**Results Found:** {qr.get('num_results', 0)}",
+                    "",
+                ])
+
+                if qr.get('search_error'):
+                    lines.extend([
+                        f"**⚠️ Search Error:** {qr.get('search_error')}",
+                        "",
+                    ])
+
+                search_results = qr.get('search_results', [])
+                if search_results:
+                    correct_answer_lower = qr.get('correct_answer', '').lower().strip()
+                    correct_choice_lower = qr.get('correct_choice', '').lower().strip()
+
+                    for rank, sr in enumerate(search_results, 1):
+                        content = sr.get('content', '')
+                        content_lower = content.lower()
+
+                        # Check if this result contains the answer
+                        contains_answer = (
+                            correct_answer_lower in content_lower or
+                            correct_choice_lower in content_lower
+                        )
+
+                        rank_marker = "🎯" if contains_answer else "  "
+                        lines.extend([
+                            f"#### {rank_marker} Result #{rank} (score: {sr.get('score', 0):.4f})",
+                            "```",
+                            content[:500] + ("..." if len(content) > 500 else ""),
+                            "```",
+                            "",
+                        ])
+
+                        if contains_answer and rank == qr.get('correct_rank'):
+                            lines.append(f"**✓ Answer found at rank {rank}**")
+                            lines.append("")
+                else:
+                    lines.append("*No results returned*")
+                    lines.append("")
+
+                lines.extend([
+                    "---",
+                    "",
+                ])
+
+        output_path = self.output_dir / f"benchmark_{self.timestamp}_detailed.md"
+        with open(output_path, "w") as f:
+            f.write("\n".join(lines))
+
+        return str(output_path)
+
     def generate_all(self, include_question_results: bool = False) -> Dict[str, str]:
         """
         Generate all report formats.
@@ -237,4 +355,5 @@ class ReportGenerator:
         return {
             "json": self.generate_json(include_question_results),
             "markdown": self.generate_markdown(),
+            "detailed": self.generate_detailed_results(),
         }

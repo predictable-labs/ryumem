@@ -27,7 +27,7 @@ load_dotenv()
 APP_NAME = "travel_planning_demo"
 USER_ID = "traveler_1"
 SESSION_ID = "session_1"
-MODEL_ID = "gemini-2.0-flash-exp"
+MODEL_ID = "gemini-flash-lite-latest"
 
 
 # ------------------------------------------
@@ -285,11 +285,13 @@ async def run_chat_loop():
                 new_message=content
             )
 
-            # Collect and display the response
+            # Collect and display the response (extract only text parts)
             final_response = None
             for event in events:
                 if event.is_final_response():
-                    final_response = event.content.parts[0].text
+                    # Extract text from all text parts, ignoring function_call parts
+                    text_parts = [part.text for part in event.content.parts if hasattr(part, 'text') and part.text]
+                    final_response = ''.join(text_parts) if text_parts else None
 
             if final_response:
                 print(f"Assistant: {final_response}")
