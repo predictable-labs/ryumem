@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Brain, Database, Network, BookOpen, GitBranch, List, Wrench, Settings, User, History, Cog, LogOut } from "lucide-react";
+import { Database, Compass, GitBranch, List, Wrench, Settings, User, History, Cog } from "lucide-react";
 import { EpisodesList } from "@/components/episodes-list";
 import { EpisodeFormModal } from "@/components/episode-form-modal";
-import { ChatInterface } from "@/components/chat-interface";
+import { Playground } from "@/components/playground";
 import { StatsPanel } from "@/components/stats-panel";
 import { GraphVisualization } from "@/components/graph-visualization";
 import { EntityBrowser } from "@/components/entity-browser";
@@ -43,7 +43,7 @@ export default function Home() {
   const [episodeListRefresh, setEpisodeListRefresh] = useState(0);
 
   // Tool analytics state - shared between tabs
-  const [activeTab, setActiveTab] = useState("chat");
+  const [activeTab, setActiveTab] = useState("playground");
   const [selectedToolForAnalytics, setSelectedToolForAnalytics] = useState<string | null>(null);
 
   // Load users on mount
@@ -212,9 +212,9 @@ export default function Home() {
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className={`grid w-full ${entityExtractionEnabled ? 'grid-cols-3 lg:grid-cols-7' : 'grid-cols-3 lg:grid-cols-5'} lg:w-full`}>
-            <TabsTrigger value="chat" className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4" />
-              Chat & Query
+            <TabsTrigger value="playground" className="flex items-center gap-2">
+              <Compass className="h-4 w-4" />
+              Playground
             </TabsTrigger>
             {entityExtractionEnabled && (
               <TabsTrigger
@@ -254,22 +254,8 @@ export default function Home() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="chat" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Brain className="h-5 w-5" />
-                  Query Knowledge Graph
-                </CardTitle>
-                <CardDescription>
-                  Ask questions and explore your knowledge graph using hybrid search
-                  (semantic + BM25 + graph traversal)
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ChatInterface userId={userId} />
-              </CardContent>
-            </Card>
+          <TabsContent value="playground" className="space-y-4">
+            <Playground userId={userId} onEpisodeAdded={handleEpisodeAdded} entityExtractionEnabled={entityExtractionEnabled} />
           </TabsContent>
 
           {entityExtractionEnabled && (

@@ -1275,24 +1275,74 @@ class RyugraphDB:
 
     def delete_episode(self, episode_uuid: str) -> Dict[str, Any]:
         """
-        Delete an episode and all its relationships.
+        Delete an episode and all its related data including:
+        - Entities that are only mentioned by this episode (orphaned entities)
+        - Relationships/edges where source or target entity would be deleted
+        - The episode itself (with its embeddings stored as node properties)
 
         Args:
             episode_uuid: UUID of the episode to delete
 
         Returns:
-            Result dictionary with deletion confirmation
+            Result dictionary with deletion confirmation and counts
         """
-        query = """
+        # First, find entities that are ONLY mentioned by this episode
+        # These will become orphaned after deletion
+        orphaned_entities_query = """
+        MATCH (ep:Episode {uuid: $uuid})-[:MENTIONS]->(e:Entity)
+        WHERE NOT EXISTS {
+            MATCH (other:Episode)-[:MENTIONS]->(e)
+            WHERE other.uuid <> $uuid
+        }
+        RETURN e.uuid AS entity_uuid, e.name AS entity_name
+        """
+        orphaned_entities = self.execute(orphaned_entities_query, {"uuid": episode_uuid})
+        orphaned_entity_uuids = [e["entity_uuid"] for e in orphaned_entities]
+
+        # Delete RELATES_TO edges where source or target is an orphaned entity
+        deleted_relations_count = 0
+        if orphaned_entity_uuids:
+            delete_relations_query = """
+            MATCH (e1:Entity)-[r:RELATES_TO]->(e2:Entity)
+            WHERE e1.uuid IN $entity_uuids OR e2.uuid IN $entity_uuids
+            DELETE r
+            RETURN count(r) AS count
+            """
+            result = self.execute(delete_relations_query, {"entity_uuids": orphaned_entity_uuids})
+            deleted_relations_count = result[0]["count"] if result else 0
+
+        # Delete orphaned entities
+        deleted_entities_count = 0
+        if orphaned_entity_uuids:
+            delete_entities_query = """
+            MATCH (e:Entity)
+            WHERE e.uuid IN $entity_uuids
+            DETACH DELETE e
+            RETURN count(e) AS count
+            """
+            result = self.execute(delete_entities_query, {"entity_uuids": orphaned_entity_uuids})
+            deleted_entities_count = result[0]["count"] if result else 0
+
+        # Finally, delete the episode itself
+        delete_episode_query = """
         MATCH (e:Episode {uuid: $uuid})
         DETACH DELETE e
         RETURN $uuid AS deleted_uuid
         """
+        self.execute(delete_episode_query, {"uuid": episode_uuid})
 
-        params = {"uuid": episode_uuid}
-        result = self.execute(query, params)
+        logger.info(
+            f"Deleted episode {episode_uuid}: "
+            f"{deleted_entities_count} orphaned entities, "
+            f"{deleted_relations_count} relations removed"
+        )
 
-        return {"success": True, "deleted_uuid": episode_uuid}
+        return {
+            "success": True,
+            "deleted_uuid": episode_uuid,
+            "deleted_entities_count": deleted_entities_count,
+            "deleted_relations_count": deleted_relations_count,
+        }
 
     def get_all_entities(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
