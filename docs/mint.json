@@ -1,12 +1,12 @@
 {
     "$schema": "https://mintlify.com/schema.json",
-    "name": "Ryumem",
+    "name": "Ryumem docs",
     "logo": {
-        "light": "/logo.svg",
-        "dark": "/logo-dark.svg",
+        "light": "/logo-combo-light.svg",
+        "dark": "/logo-combo-dark.svg",
         "href": "/"
     },
-    "favicon": "favicon.ico",
+    "favicon": "/favicon.png",
     "seo": {
         "indexHiddenPages": true
     },
@@ -14,22 +14,22 @@
         "og:site_name": "Ryumem Documentation",
         "og:title": "Ryumem - Semantic Memory for AI Agents",
         "og:description": "Open-source semantic memory layer for AI agents. Store, search, and retrieve episodic memories with graph-based knowledge extraction.",
-        "og:image": "/logo.svg",
+        "og:image": "/logo.png",
         "twitter:card": "summary_large_image",
         "twitter:title": "Ryumem - Semantic Memory for AI Agents",
         "twitter:description": "Open-source semantic memory layer for AI agents with hybrid search and knowledge graphs."
     },
     "colors": {
-        "primary": "#6366F1",
-        "light": "#818CF8",
-        "dark": "#4F46E5",
+        "primary": "#D946EF",
+        "light": "#E879F9",
+        "dark": "#C026D3",
         "background": {
             "light": "#FFFFFF",
-            "dark": "#0F172A"
+            "dark": "#1A0A1A"
         },
         "anchors": {
-            "from": "#6366F1",
-            "to": "#8B5CF6"
+            "from": "#D946EF",
+            "to": "#F0ABFC"
         }
     },
     "topbar": {
