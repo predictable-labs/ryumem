@@ -17,7 +17,7 @@ Ryumem is designed as a multi-tenant system from the ground up, supporting secur
 ```python
 from ryumem import Ryumem
 
-ryumem = Ryumem(api_url="http://localhost:8000")
+ryumem = Ryumem(server_url="http://localhost:8000")
 
 # Add episode with multi-tenancy scoping
 ryumem.add_episode(

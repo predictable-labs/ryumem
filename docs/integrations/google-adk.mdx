@@ -20,7 +20,7 @@ Ryumem provides **zero-boilerplate integration** for Google's Agent Developer Ki
 
     # All configuration is done here
     ryumem = Ryumem(
-        api_url="http://localhost:8000",
+        server_url="http://localhost:8000",
         api_key="ryu_your_api_key_here",
         track_tools=True,           # Enable tool tracking
         augment_queries=True,       # Enable query augmentation
@@ -108,7 +108,7 @@ All configuration is done when initializing the Ryumem instance:
 
 ```python
 ryumem = Ryumem(
-    api_url="http://localhost:8000",
+    server_url="http://localhost:8000",
     api_key="ryu_your_api_key_here",
 
     # Tool tracking
