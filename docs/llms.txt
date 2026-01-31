@@ -1,0 +1,55 @@
+# Ryumem
+
+> Semantic memory layer for AI agents - open source, self-hosted
+
+Ryumem is an open-source semantic memory system that enables AI agents to store, search, and retrieve episodic memories with automatic knowledge graph extraction.
+
+## Key Features
+
+- Episodic memory storage with automatic entity/relationship extraction
+- Hybrid search combining semantic, BM25, and graph traversal
+- Multi-tenant isolation for user/session separation
+- MCP server integration for Claude and other AI assistants
+- Google ADK integration for Gemini-based agents
+
+## Documentation
+
+- [Introduction](/introduction): Overview of Ryumem and its capabilities
+- [Quickstart](/quickstart): Get started in 5 minutes
+- [Setup](/setup): Detailed installation and configuration
+
+### Core Concepts
+
+- [Architecture](/core-concepts/architecture): System design and components
+- [Episodes](/core-concepts/episodes): Understanding episodic memory
+- [Multi-tenancy](/core-concepts/multi-tenancy): User and session isolation
+- [Search Strategies](/core-concepts/search-strategies): Semantic, BM25, hybrid, and traversal
+
+### Integrations
+
+- [MCP Server](/integrations/mcp-server): Integration with Claude Code and MCP clients
+- [Google ADK](/integrations/google-adk): Integration with Google Agent Development Kit
+
+### Examples
+
+- [Basic Usage](/examples/basic-usage): Common usage patterns and code examples
+
+## API Reference
+
+The Ryumem MCP server exposes these tools:
+
+- `add_episode`: Store new episodic memories
+- `search_memory`: Multi-strategy semantic search
+- `get_entity_context`: Retrieve entity and relationship data
+- `list_episodes`: Paginated episode listing
+- `get_episode`: Retrieve specific episode by UUID
+- `update_episode_metadata`: Update episode metadata
+- `prune_memories`: Clean up expired memories
+
+## Source Code
+
+GitHub: https://github.com/predictable-labs/ryumem
+
+## Optional
+
+For complete documentation content, see: /llms-full.txt
