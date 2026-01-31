@@ -212,7 +212,7 @@ class RyumemGoogleADK:
                 session_id=session_id,
                 strategy="hybrid",
                 limit=limit,
-                kinds=['memory'],  # Only search memory episodes
+                # No kinds filter - search all episode types (memory, query, etc.)
                 min_bm25_score=0.001,  # Very low threshold for BM25 #TODO Use config
                 min_rrf_score=0.0  # Disable RRF filtering #TODO Use config
             )
@@ -1080,7 +1080,7 @@ def wrap_runner_with_tracking(
             try:
                 async for event in event_stream:
                     # Capture agent text responses
-                    if hasattr(event, 'content') and hasattr(event.content, 'parts'):
+                    if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts') and event.content.parts:
                         for part in event.content.parts:
                             if hasattr(part, 'text') and part.text:
                                 agent_response_parts.append(part.text)

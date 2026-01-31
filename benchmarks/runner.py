@@ -288,13 +288,25 @@ class BenchmarkRunner:
         )
         performance_metrics.add_search_time(search_response.duration_ms)
 
-        # Use LLM to answer the question based on retrieved context
+        # Use LLM to answer the question
+        # For google_adk: Don't provide context, let agent use memory tools to search
+        # For ollama: Provide context episodes (no memory tools available)
         context_episodes = [result.content for result in search_response.results]
         llm_answer = ""
         llm_error = None
 
-        if context_episodes:
-            try:
+        try:
+            # Google ADK uses memory tools to search, so pass empty context
+            if self.config.llm_provider == "google_adk":
+                llm_answer = self.llm_client.answer_question(
+                    question=question.question,
+                    context_episodes=[],  # Agent will search using memory tools
+                    choices=question.choices,
+                    user_id=user_id,
+                    session_id="benchmark",
+                )
+            # Other providers need context provided directly
+            elif context_episodes:
                 llm_answer = self.llm_client.answer_question(
                     question=question.question,
                     context_episodes=context_episodes,
@@ -302,9 +314,9 @@ class BenchmarkRunner:
                     user_id=user_id,
                     session_id="benchmark",
                 )
-            except Exception as e:
-                llm_error = str(e)
-                llm_answer = ""
+        except Exception as e:
+            llm_error = str(e)
+            llm_answer = ""
 
         # Evaluate LLM's answer
         correct_answer = question.answer.lower().strip()
