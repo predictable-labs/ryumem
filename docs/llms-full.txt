@@ -1,0 +1,471 @@
+# Ryumem - Complete Documentation
+
+> Open-source bi-temporal knowledge graph memory for AI agents
+
+Ryumem is an open-source semantic memory system that gives AI agents intelligent, long-term memory with automatic tool tracking and query augmentation.
+
+GitHub: https://github.com/predictable-labs/ryumem
+PyPI: https://pypi.org/project/ryumem/
+
+---
+
+## Introduction
+
+Ryumem is an open-source bi-temporal knowledge graph memory system that gives your AI agents intelligent, long-term memory with automatic tool tracking and query augmentation.
+
+### Components
+
+- **API Server** - FastAPI backend with REST API
+- **Dashboard** - Next.js web UI for visualization
+- **MCP Server** - Model Context Protocol server for AI agents
+- **Python SDK** - Client library for Python applications
+
+### Key Features
+
+- **Episode-Based Storage**: Store conversations and facts as episodes that get automatically parsed into knowledge graphs
+- **Smart Retrieval**: Semantic + keyword + graph traversal search with temporal decay scoring
+- **Auto-Deduplication**: Embedding-based entity resolution prevents duplicate memories
+- **Contradiction Handling**: Automatically detects and resolves conflicting facts
+- **Memory Pruning**: Removes expired and obsolete information automatically
+- **Web Dashboard**: Modern Next.js UI with graph visualization and analytics
+
+---
+
+## Quickstart
+
+Build your first memory-enabled AI agent in 5 minutes.
+
+### Prerequisites
+
+1. Set Up Ryumem Server:
+```bash
+git clone https://github.com/predictable-labs/ryumem.git
+cd ryumem
+cp server/.env.example server/.env
+# Add your GOOGLE_API_KEY to server/.env
+docker-compose up -d
+```
+
+2. Get Your API Key:
+```bash
+curl -X POST "http://localhost:8000/register" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id": "my_project"}'
+```
+
+3. Install Dependencies:
+```bash
+pip install ryumem google-adk python-dotenv
+```
+
+### Building an Agent with Google ADK
+
+```python
+from google.adk.agents import Agent
+from google.adk.tools import FunctionTool
+from ryumem import Ryumem
+from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+
+# Define tools
+def get_weather_report(city: str) -> dict:
+    if city.lower() == "london":
+        return {"status": "success", "report": "Cloudy with 18C"}
+    return {"status": "error", "error_message": f"No data for {city}"}
+
+weather_tool = FunctionTool(func=get_weather_report)
+
+# Create agent
+agent = Agent(
+    model="gemini-2.0-flash-exp",
+    name="weather_assistant",
+    instruction="You provide weather info.",
+    tools=[weather_tool]
+)
+
+# Add memory in ONE line
+ryumem = Ryumem(
+    api_url="http://localhost:8000",
+    api_key="ryu_your_api_key_here"
+)
+
+memory = add_memory_to_agent(
+    agent,
+    ryumem_instance=ryumem,
+    track_tools=True,
+)
+```
+
+---
+
+## Setup
+
+Deploy Ryumem on your own infrastructure.
+
+### Option 1: Docker Compose (Recommended)
+
+```bash
+git clone https://github.com/predictable-labs/ryumem.git
+cd ryumem
+cp server/.env.example server/.env
+cp dashboard/env.template dashboard/.env
+docker-compose up -d
+```
+
+Services:
+- API Server: http://localhost:8000
+- Dashboard: http://localhost:3000
+- API Docs: http://localhost:8000/docs
+
+### Option 2: Helm Chart (Kubernetes)
+
+```bash
+helm install ryumem ./helm/ryumem \
+  -f custom-values.yaml \
+  --namespace ryumem \
+  --create-namespace
+```
+
+### Option 3: Local Development
+
+```bash
+# Server
+cd server
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Dashboard
+cd dashboard
+npm install
+npm run dev
+```
+
+### Environment Variables
+
+Server (`server/.env`):
+- GOOGLE_API_KEY or OPENAI_API_KEY (required)
+- RYUMEM_DB_FOLDER (default: ./data)
+- ADMIN_API_KEY
+- LLM_PROVIDER (gemini, openai, ollama, litellm)
+- LLM_MODEL (default: gemini-2.0-flash-exp)
+- EMBEDDING_PROVIDER
+- EMBEDDING_MODEL (default: text-embedding-004)
+
+Dashboard (`dashboard/.env`):
+- NEXT_PUBLIC_API_URL (default: http://localhost:8000)
+
+---
+
+## Architecture
+
+Ryumem is a modular system with four main layers.
+
+### System Overview
+
+```
+SDK / MCP / REST API
+       |
+       v
++--------------+
+|  API Server  |
+|   (FastAPI)  |
++--------------+
+       |
+       v
++--------------+
+|  Processing  |
+| Ingestion,   |
+| Search, LLM  |
++--------------+
+       |
+       v
++--------------+
+|   Storage    |
+| (RyugraphDB) |
++--------------+
+```
+
+### Data Model
+
+```
++----------+          +----------+
+| EPISODES |--MENTIONS-->| ENTITIES |
++----------+          +----------+
+                           |
+                       RELATES_TO
+                           |
+                           v
+                      +----------+
+                      | ENTITIES |
+                      +----------+
+```
+
+**Episodes** - The fundamental unit. Every fact starts as an episode.
+- uuid, content, source, kind
+- created_at, valid_at, content_embedding
+
+**Entities** - Extracted concepts: people, places, organizations.
+- uuid, name, entity_type, summary
+
+**Relationships** - Connections between entities with bi-temporal metadata.
+- name, fact, fact_embedding
+- created_at, valid_at, invalid_at, expired_at
+
+### Bi-Temporal Tracking
+
+Relationships track two dimensions of time:
+- **System time**: When the fact was recorded (created_at)
+- **Business time**: When the fact was/is true (valid_at, invalid_at)
+
+---
+
+## Episodes
+
+Episodes are the fundamental unit of ingestion in Ryumem.
+
+### Adding Episodes
+
+```python
+from ryumem import Ryumem
+
+ryumem = Ryumem(api_url="http://localhost:8000")
+
+# Text episode
+ryumem.add_episode(
+    content="Alice graduated from Stanford in 2018.",
+    user_id="user_123",
+    session_id="session_abc",
+    source="text",
+)
+
+# Message episode (conversational)
+ryumem.add_episode(
+    content="user: Where did you go to school?\nassistant: I went to MIT.",
+    user_id="user_123",
+    session_id="session_abc",
+    source="message",
+)
+
+# JSON episode (structured data)
+ryumem.add_episode(
+    content='{"person": "Bob", "company": "Meta", "role": "Engineer"}',
+    user_id="user_123",
+    session_id="session_abc",
+    source="json",
+)
+```
+
+### Episode Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| content | str | Yes | The content of the episode |
+| user_id | str | Yes | User identifier for multi-tenancy |
+| session_id | str | Yes | Session identifier for grouping |
+| source | str | No | Episode type: text, message, or json |
+| kind | str | No | Episode kind: query or memory |
+| metadata | dict | No | Additional metadata |
+| agent_id | str | No | Optional agent identifier |
+
+---
+
+## Search Strategies
+
+Ryumem supports four search strategies for flexible retrieval.
+
+### Strategies
+
+1. **Semantic Search**: Embedding similarity using vector embeddings
+2. **BM25 Keyword Search**: Traditional keyword/lexical matching
+3. **Graph Traversal**: Navigate relationships with BFS
+4. **Hybrid**: Combines all three using RRF fusion (recommended)
+
+### Usage
+
+```python
+from ryumem import Ryumem
+
+ryumem = Ryumem(api_url="http://localhost:8000")
+
+# Semantic search
+results = ryumem.search(
+    query="AI researchers",
+    user_id="user_123",
+    session_id="session_abc",
+    strategy="semantic"
+)
+
+# BM25 keyword search
+results = ryumem.search(
+    query="machine learning",
+    user_id="user_123",
+    session_id="session_abc",
+    strategy="bm25"
+)
+
+# Hybrid search (recommended)
+results = ryumem.search(
+    query="tech companies",
+    user_id="user_123",
+    session_id="session_abc",
+    strategy="hybrid"
+)
+```
+
+### Search Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| query | str | Yes | The search query |
+| user_id | str | Yes | User identifier |
+| session_id | str | Yes | Session identifier |
+| limit | int | No | Max results (default: 10) |
+| strategy | str | No | semantic, bm25, traversal, or hybrid |
+| similarity_threshold | float | No | Minimum similarity score |
+| max_depth | int | No | Graph traversal depth (default: 2) |
+| kinds | list | No | Filter by episode kinds |
+
+---
+
+## MCP Server Integration
+
+Add Ryumem memory to Claude Desktop, Cursor, and AI coding agents.
+
+### Quick Start (Self-Hosted)
+
+```bash
+# Start your Ryumem server
+docker-compose up -d
+
+# Install MCP server
+npx @predictable/ryumem-mcp-server install \
+  --api-key ryu_your_api_key_here \
+  --api-url http://localhost:8000
+```
+
+### Manual Configuration
+
+Add to your configuration file:
+
+```json
+{
+  "mcpServers": {
+    "ryumem": {
+      "command": "npx",
+      "args": ["@predictable/ryumem-mcp-server"],
+      "env": {
+        "RYUMEM_API_URL": "http://localhost:8000",
+        "RYUMEM_API_KEY": "ryu_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+Configuration file locations:
+- Claude Code: ~/.claude.json
+- Cursor: ~/.cursor/mcp.json
+- Claude Desktop (macOS): ~/Library/Application Support/Claude/claude_desktop_config.json
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| search_memory | Multi-strategy semantic search |
+| add_episode | Save new episodic memory |
+| get_entity_context | Retrieve entity and relationships |
+| list_episodes | Paginated episode listing |
+| get_episode | Retrieve episode by UUID |
+| update_episode_metadata | Update episode metadata |
+| prune_memories | Clean up old memories |
+
+---
+
+## Python SDK Reference
+
+### Installation
+
+```bash
+pip install ryumem
+```
+
+### Basic Usage
+
+```python
+from ryumem import Ryumem
+
+# Initialize
+ryumem = Ryumem(
+    api_url="http://localhost:8000",
+    api_key="ryu_your_api_key_here"
+)
+
+# Add episode
+ryumem.add_episode(
+    content="Alice works at Google.",
+    user_id="user_123",
+    session_id="session_abc",
+)
+
+# Search
+results = ryumem.search(
+    query="Where does Alice work?",
+    user_id="user_123",
+    session_id="session_abc",
+)
+```
+
+### Google ADK Integration
+
+```python
+from ryumem.integrations import add_memory_to_agent, wrap_runner_with_tracking
+
+# Add memory to agent
+memory = add_memory_to_agent(
+    agent,
+    ryumem_instance=ryumem,
+    track_tools=True,
+)
+
+# Wrap runner for automatic tracking
+runner = wrap_runner_with_tracking(
+    runner,
+    memory,
+    augment_queries=True,
+    similarity_threshold=0.3,
+    top_k_similar=5
+)
+```
+
+---
+
+## API Endpoints
+
+Base URL: http://localhost:8000
+
+### Authentication
+
+All endpoints require API key authentication via header:
+```
+Authorization: Bearer ryu_your_api_key_here
+```
+
+### Endpoints
+
+- POST /register - Register new customer and get API key
+- POST /episodes - Add new episode
+- GET /episodes - List episodes with pagination
+- GET /episodes/{uuid} - Get specific episode
+- PATCH /episodes/{uuid} - Update episode metadata
+- DELETE /episodes/{uuid} - Delete episode
+- POST /search - Search memories
+- GET /entities/{name} - Get entity context
+- POST /prune - Prune old memories
+
+---
+
+## License
+
+Ryumem is open source under the AGPL-3.0 license.
+
+GitHub: https://github.com/predictable-labs/ryumem
